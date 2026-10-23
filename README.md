@@ -46,12 +46,13 @@ Then:
 
 A single cognizer unfolds every cogitation, including the ones it invokes:
 Claude when `ANTHROPIC_MODEL` is set (with `ANTHROPIC_API_KEY`),
-otherwise the `YCLUSTER_MODEL` (`glm-5.3-flash` by default) served by ycluster.net (with `YCLUSTER_API_KEY`).
+otherwise the `OPENAI_MODEL` (with `OPENAI_API_KEY`) served by the OpenAI API,
+or by any OpenAI-compatible endpoint set as `OPENAI_BASE_URL`, the `/v1` suffix included.
 Cogitations are recorded in `ANNIE_COGITATIONS_DIR` (`cogitations` by default),
 and unfolded by the harness script at the `ANNIE_HARNESS` path,
 or by the default harness extracted from [DefaultHarness.kt](src/main/kotlin/DefaultHarness.kt) when not set.
 
-`./gradlew listModels [-Pprompt="text"]` lists the models served by ycluster.net.
+`./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 
 ## License
 

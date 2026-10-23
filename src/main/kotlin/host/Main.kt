@@ -27,7 +27,8 @@ import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.cognizer.claude.ClaudeInference
 import com.xemantic.ai.annie.cognizer.openai.OpenAIInference
-import com.xemantic.ai.annie.cognizer.openai.yclusterClient
+import com.xemantic.ai.annie.cognizer.openai.openAIClient
+import com.xemantic.ai.annie.cognizer.openai.openAIProvider
 import com.xemantic.ai.annie.constitution
 import com.xemantic.kotlin.script.ScriptExecutor
 import kotlin.io.path.Path
@@ -36,7 +37,7 @@ import kotlinx.coroutines.runBlocking
 
 /**
  * A single cognizer unfolds every cogitation: Claude when `ANTHROPIC_MODEL` is set,
- * the `YCLUSTER_MODEL` served by ycluster.net otherwise.
+ * the `OPENAI_MODEL` served by the OpenAI-compatible endpoint at `OPENAI_BASE_URL` otherwise.
  *
  * Cogitations are recorded in `ANNIE_COGITATIONS_DIR`, `cogitations` by default, and unfolded
  * by the harness script at the `ANNIE_HARNESS` path, the [defaultHarness] when not set.
@@ -53,10 +54,10 @@ fun main(args: Array<String>) {
         client = AutoCloseable(claude::close)
         cognizer = ClaudeInference(claude, claudeModel, visibility = Monologue.Visibility.SUMMARY)
     } else {
-        val model = System.getenv("YCLUSTER_MODEL") ?: "glm-5.3-flash"
-        val ycluster = yclusterClient()
-        client = AutoCloseable(ycluster::close)
-        cognizer = OpenAIInference(ycluster, model, provider = "ycluster.net")
+        val model = System.getenv("OPENAI_MODEL") ?: error("Neither ANTHROPIC_MODEL nor OPENAI_MODEL is set")
+        val openAI = openAIClient()
+        client = AutoCloseable(openAI::close)
+        cognizer = OpenAIInference(openAI, model, provider = openAIProvider)
     }
     client.use {
         val executor = ScriptExecutor()

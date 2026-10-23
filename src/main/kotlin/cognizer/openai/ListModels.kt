@@ -21,34 +21,41 @@ package com.xemantic.ai.annie.cognizer.openai
 import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.models.chat.completions.ChatCompletionCreateParams
+import java.net.URI
 
-/** The ycluster.net OpenAI-compatible endpoint, the `/v1` suffix included, as the OpenAI SDK expects. */
-const val YCLUSTER_BASE_URL = "https://dev1.ycluster.net/v1"
+/**
+ * The OpenAI-compatible endpoint at `OPENAI_BASE_URL`, the `/v1` suffix included, as the OpenAI SDK expects,
+ * the official OpenAI API when not set.
+ */
+val openAIBaseUrl: String = System.getenv("OPENAI_BASE_URL") ?: "https://api.openai.com/v1"
 
-/** A client of the ycluster.net endpoint, the API key read from `YCLUSTER_API_KEY`. */
-fun yclusterClient(
-    apiKey: String = System.getenv("YCLUSTER_API_KEY") ?: error("YCLUSTER_API_KEY is not set")
+/** Who serves the [openAIBaseUrl] endpoint: `openai`, or the host of any other endpoint. */
+val openAIProvider: String = System.getenv("OPENAI_BASE_URL")?.let { URI(it).host } ?: "openai"
+
+/** A client of the [openAIBaseUrl] endpoint, the API key read from `OPENAI_API_KEY`. */
+fun openAIClient(
+    apiKey: String = System.getenv("OPENAI_API_KEY") ?: error("OPENAI_API_KEY is not set")
 ): OpenAIClient = OpenAIOkHttpClient.builder()
     .apiKey(apiKey)
-    .baseUrl(YCLUSTER_BASE_URL)
+    .baseUrl(openAIBaseUrl)
     .build()
 
 /**
- * Lists the models served by ycluster.net and, when a prompt argument is given,
- * streams a chat completion from the `YCLUSTER_MODEL`.
+ * Lists the models served at the [openAIBaseUrl] and, when a prompt argument is given,
+ * streams a chat completion from the `OPENAI_MODEL`.
  *
  * Usage: `./gradlew listModels [-Pprompt="text"]`
  */
 fun main(args: Array<String>) {
-    val client = yclusterClient()
+    val client = openAIClient()
     try {
-        // the ycluster.net proxy omits the `created` field, which is never read here
+        // some OpenAI-compatible endpoints omit the `created` field, which is never read here
         val models = client.models().list().data().map { it.id() }.sorted()
-        println("Models available at $YCLUSTER_BASE_URL (${models.size}):")
+        println("Models available at $openAIBaseUrl (${models.size}):")
         models.forEach { println("  $it") }
 
         val input = args.joinToString(" ").ifBlank { return }
-        val modelId = System.getenv("YCLUSTER_MODEL") ?: "glm-5.3-flash"
+        val modelId = System.getenv("OPENAI_MODEL") ?: error("OPENAI_MODEL is not set")
         println("\nStreaming from $modelId:\n")
         val params = ChatCompletionCreateParams.builder()
             .model(modelId)

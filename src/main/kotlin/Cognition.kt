@@ -134,7 +134,7 @@ data class Enunciation(
  * A single inference of a model, as reported by the provider serving it, the same for every provider.
  *
  * @property model the canonical id of the model which inferred, the same at every endpoint serving it.
- * @property provider who served the inference, e.g. `anthropic`, `bedrock` or `ycluster.net`.
+ * @property provider who served the inference, e.g. `anthropic`, `bedrock`, `openai`, or the host of another OpenAI-compatible endpoint.
  * @property tokens the numbers of tokens by their category, a category without tokens being absent.
  * The categories are disjoint, so that each token is counted once, and they sum up to the [total].
  */

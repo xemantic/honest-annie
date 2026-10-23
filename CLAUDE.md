@@ -57,8 +57,8 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 
 ### Model APIs
 
-- The ycluster.net proxy applies OpenAI `stop` sequences to reasoning content too, so a `<golem:stop/>` stop sequence kills generation inside the thinking block; detect the stop tag client-side instead.
-- Unlike the OpenAI API, the ycluster.net `/v1/models` response omits the `created` field; the SDK only fails when that field is read, so never read it (nor call `validate()` on these models).
+- Some OpenAI-compatible proxies apply `stop` sequences to reasoning content too, so a `<golem:stop/>` stop sequence kills generation inside the thinking block; detect the stop tag client-side instead.
+- Unlike the OpenAI API, the `/v1/models` response of some OpenAI-compatible endpoints omits the `created` field; the SDK only fails when that field is read, so never read it (nor call `validate()` on these models).
 - In anthropic-java 3.x `MessageParam` is a union (`MessageParam.ofUser(...)`, `ofAssistantOfContentBlockParams(...)`), not the `builder().role(...)` shape of 2.x that most examples, including AI agents' priors, still show.
 
 ## Anti-patterns to avoid

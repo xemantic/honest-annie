@@ -202,7 +202,7 @@ class OpenAIInferenceTest {
             client = client,
             model = "glm-5.3-flash",
             modelId = "zai-org/glm-5.3-flash",
-            provider = "ycluster.net"
+            provider = "llm.example.com"
         )
         val completion = jsonMapper().readValue("""
             {
@@ -232,7 +232,7 @@ class OpenAIInferenceTest {
         // then
         assert(inferred == Inference(
             model = "zai-org/glm-5.3-flash",
-            provider = "ycluster.net",
+            provider = "llm.example.com",
             tokens = mapOf(
                 Tokens.INPUT to 200L,
                 Tokens.CACHE_READ to 800L,

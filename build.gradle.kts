@@ -157,7 +157,7 @@ sourceSets.main {
 
 tasks.register<JavaExec>("listModels") {
     group = "annie"
-    description = "Lists models exposed by the ycluster.net OpenAI-compatible endpoint"
+    description = "Lists models exposed by the OpenAI-compatible endpoint at OPENAI_BASE_URL"
     classpath = sourceSets.main.get().runtimeClasspath
     mainClass = "com.xemantic.ai.annie.cognizer.openai.ListModelsKt"
     args = (findProperty("prompt") as String?)?.let { listOf(it) } ?: emptyList()
