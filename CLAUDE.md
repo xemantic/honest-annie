@@ -26,16 +26,10 @@ never reflow or hard-wrap a paragraph to fit some character count.
 Modern editors soft-wrap Markdown visually,
 see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how to enable it.
 
-### Kotlin Multiplatform
+### Kotlin
 
-- Code in `commonMain` ships to JVM, JS, Wasm and Native, so it must never reach for `java.*`, `javax.*` or any other JVM-only type (`java.util.ArrayDeque`, `File`, `Thread`, `System.currentTimeMillis`, …), even when dev runs default to `jvmTest`.
-  Use the Kotlin stdlib equivalents (`kotlin.collections.ArrayDeque`, `kotlin.time.TimeSource`, `kotlinx.coroutines`), and isolate a genuinely JVM-only API behind `expect`/`actual`.
-- `MutableMap.putIfAbsent` is JVM-only and not in the common stdlib.
-  For "put only if the key is absent" use `getOrPutIfMissing(key) { value }` (Kotlin 2.4, `@ExperimentalStdlibApi`), not `getOrPut` — `getOrPut` also recomputes when the stored value is `null`, conflating "missing" with "null" ([KEEP-0457](https://github.com/Kotlin/KEEP/blob/main/proposals/stdlib/KEEP-0457-alternative-behavior-for-map-getOrElse.md)).
 - Place `@OptIn(...)` at the narrowest scope — on the statement or expression using the experimental API, not on the enclosing function.
   Annotating the whole function silently opts every other call in its body into the same API, hiding future accidental usages.
-- A backtick-quoted identifier (e.g. a test name) must not contain CR, LF, or any of ``` ` \ < > [ ] / . : ; * ? " | , # ( ) & ~ @ $ { } ```.
-  The JVM accepts most of them, but Native and JS reject them with `Name contains illegal characters: …`, so the strict rules govern — keep to alphanumerics, `_`, `-`, space and `!`.
 
 ### Tests
 
@@ -47,7 +41,7 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
   In a functional-style test where the setup is inlined into the action, `// given` may be omitted, but `// when` and `// then` stay.
 - Assert a boolean expression with `assert(expr)` from `com.xemantic.kotlin.test` — it is power-assert-instrumented in `build.gradle.kts`, so a failure prints every subvalue of the expression.
   Do not fall back to `assertEquals` / `assertTrue` / `assertNotNull` from `kotlin.test`, which discard that information.
-- Never assert on wall-clock time (a ratio or a bound) in `commonTest`: it runs on every target under whatever CI load there is, and fails with no code change.
+- Never assert on wall-clock time (a ratio or a bound): tests run under whatever CI load there is, and fail with no code change.
   To guard against, say, quadratic backtracking, feed an input large enough that the regression hangs for minutes while the correct code takes milliseconds.
 
 ### Working with AI agents
@@ -57,29 +51,15 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 
 ## Known gotchas
 
-- After upgrading the Gradle wrapper, `jvmTest` may fail with `NoSuchFileException: build/test-results/jvmTest/binary/in-progress-results-generic.bin`, because the results of the previous Gradle version are stale — delete `build/test-results` (or run `clean`) and retry.
-- The `rootPackageJson` and `wasmRootPackageJson` tasks do not track yarn `resolution(...)` entries as inputs,
-  so after changing them the lock files stay stale unless these tasks are forced with `--rerun`
-  (see the comment above `npmResolutions` in `build.gradle.kts` for the full command).
-- Dependabot alerts on `kotlin-js-store/yarn.lock` and `kotlin-js-store/wasm/yarn.lock` concern only the Kotlin/JS test tooling (mocha, karma, webpack),
-  none of which ships in the published artifacts —
-  dismiss them on GitHub as "vulnerable code is not actually used" instead of forcing versions via yarn resolutions,
-  which pins majors the tooling never declared support for.
-- The `Reporter option 'alsoWithHtml' has no effect` warning printed by JS/Wasm test tasks
-  comes from JetBrains' own `kotlin-web-helpers` npm package ([kotlin-web-helpers#11](https://github.com/Kotlin/kotlin-web-helpers/issues/11)) —
-  nothing in this build causes it and there is no knob to suppress it, so leave it alone.
-- After a fresh Gradle daemon starts, the first build reports `configuration cache cannot be reused because file '.../caches/jreleaser/jreleaser/<version>/marker.txt' has changed` —
-  the JReleaser plugin bumps a banner counter in that file behind Gradle's back on every configuration,
-  so the cache is invalidated once per daemon lifetime and reused normally afterwards; it is harmless.
-
+- After upgrading the Gradle wrapper, `test` may fail with `NoSuchFileException: build/test-results/test/binary/in-progress-results-generic.bin`, because the results of the previous Gradle version are stale — delete `build/test-results` (or run `clean`) and retry.
 - The Gradle configuration cache is enabled (`gradle.properties`), so a task action (`doLast { … }`) must not call a function declared in the build script — the script object is not serializable.
   Inline the logic or move the helper into `buildSrc` / an included build, and register tasks with `tasks.register(...)` rather than the `by tasks.registering` delegate.
-- A `Regex` used with `matches()` in `commonMain` must be explicitly anchored (`^(?:a|b)$`) when it contains a top-level alternation:
-  Kotlin/JS resolves `matches` through the leftmost match, so the first branch wins on a prefix and the whole-input check fails (`0x1F` matched `[0-9]+|0x[0-9a-fA-F]+` as `0`) — the JVM backtracks across the branches and never shows it,
-  so a JVM-only test run is not enough evidence for a regex change.
-- A `commonMain` `Regex` applied to untrusted input must not repeat a group (`(?:_?[0-9])*`):
-  `java.util.regex` matches each repetition one stack frame deeper, so a few thousand repetitions throw `StackOverflowError` — an `Error` nothing catches.
-  Repeat a character class instead (`[0-9_]*`) and check what the group expressed by hand.
+
+### Model APIs
+
+- The ycluster.net proxy applies OpenAI `stop` sequences to reasoning content too, so a `<golem:stop/>` stop sequence kills generation inside the thinking block; detect the stop tag client-side instead.
+- Unlike the OpenAI API, the ycluster.net `/v1/models` response omits the `created` field; the SDK only fails when that field is read, so never read it (nor call `validate()` on these models).
+- In anthropic-java 3.x `MessageParam` is a union (`MessageParam.ofUser(...)`, `ofAssistantOfContentBlockParams(...)`), not the `builder().role(...)` shape of 2.x that most examples, including AI agents' priors, still show.
 
 ## Anti-patterns to avoid
 

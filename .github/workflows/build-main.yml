@@ -1,4 +1,4 @@
-# Builds main branch and deploys SNAPSHOT versions to Maven Central
+# Builds main branch
 name: Build main
 
 on:
@@ -11,5 +11,4 @@ jobs:
     uses: xemantic/.github/.github/workflows/build-gradle.yml@main
     secrets: inherit
     with:
-      gradle_args: build publishToMavenCentral
-      maven_central: true
+      gradle_args: build

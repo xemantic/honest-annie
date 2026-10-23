@@ -2,27 +2,34 @@
 # libraries
 kotlinTarget = "2.4"
 javaTarget = "17"
-kotlin = "2.4.20"
-xemanticKotlinTest = "1.17.5"
+kotlin = "2.4.21"
+kotlinxCoroutines = "1.11.0"
+anthropic = "3.1.0"
+openai = "4.90.0"
+kotlinLogging = "8.0.4"
+logback = "1.6.5"
+xemanticKotlinIntrospection = "0.1.0"
+xemanticKotlinScript = "0.1.0"
+xemanticKotlinTest = "1.18.0"
 asm = "9.10.1"
 # plugins
 versionCatalogUpdatePlugin = "1.1.1"
-dokkaPlugin = "2.2.0"
-mavenPublishPlugin = "0.37.0"
-jreleaserPlugin = "1.26.0"
-binaryCompatibilityValidatorPlugin = "0.18.2"
 xemanticConventionsPlugin = "0.7.1"
 
 [libraries]
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+anthropic-java = { module = "com.anthropic:anthropic-java", version.ref = "anthropic" }
+openai-java = { module = "com.openai:openai-java", version.ref = "openai" }
+kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlinLogging" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+xemantic-kotlin-introspection = { module = "com.xemantic.kotlin:xemantic-kotlin-introspection", version.ref = "xemanticKotlinIntrospection" }
+xemantic-kotlin-script = { module = "com.xemantic.kotlin:xemantic-kotlin-script", version.ref = "xemanticKotlinScript" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 xemantic-kotlin-test = { module = "com.xemantic.kotlin:xemantic-kotlin-test", version.ref = "xemanticKotlinTest" }
 
 [plugins]
-kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-plugin-power-assert = { id = "org.jetbrains.kotlin.plugin.power-assert", version.ref = "kotlin" }
-dokka = { id = "org.jetbrains.dokka", version.ref = "dokkaPlugin" }
 version-catalog-update = { id = "nl.littlerobots.version-catalog-update", version.ref = "versionCatalogUpdatePlugin" }
-maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "mavenPublishPlugin" }
-kotlinx-binary-compatibility-validator = { id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "binaryCompatibilityValidatorPlugin" }
-jreleaser = { id = "org.jreleaser", version.ref = "jreleaserPlugin" }
 xemantic-conventions = { id = "com.xemantic.gradle.xemantic-conventions", version.ref = "xemanticConventionsPlugin" }

@@ -43,3 +43,6 @@ bin/
 .DS_Store
 
 /*.hprof
+
+# recorded cogitations
+/cogitations/

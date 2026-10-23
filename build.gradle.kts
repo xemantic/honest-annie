@@ -1,38 +1,20 @@
-@file:OptIn(ExperimentalWasmDsl::class, ExperimentalKotlinGradlePluginApi::class)
-
-import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
-import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
-import org.jreleaser.model.Active
 
 plugins {
-    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.plugin.power.assert)
-    alias(libs.plugins.kotlinx.binary.compatibility.validator)
-    alias(libs.plugins.dokka)
     alias(libs.plugins.version.catalog.update)
-    alias(libs.plugins.maven.publish)
-    alias(libs.plugins.jreleaser)
     alias(libs.plugins.xemantic.conventions)
+    application
 }
 
-// TODO change the group
-group = "com.xemantic.template"
+group = "com.xemantic.ai"
 
-// TODO fill up the details
 xemantic {
-    description = "A template repository for Xemantic's Kotlin multiplatform projects"
-    inceptionYear = "2025"
+    description = "A recursive harness for cognizers acting through Kotlin scripts"
+    inceptionYear = "2026"
     applyAllConventions()
-}
-
-fun MavenPomDeveloperSpec.projectDevs() {
-    developer {
-        id = "morisil"
-        name = "Kazik Pogoda"
-        url = "https://github.com/morisil"
-    }
 }
 
 val javaTarget = libs.versions.javaTarget.get()
@@ -40,91 +22,57 @@ val kotlinTarget = KotlinVersion.fromVersion(libs.versions.kotlinTarget.get())
 
 kotlin {
 
-    // TODO remove for a non-library project
-    explicitApi()
-
+    // set up according to https://jakewharton.com/gradle-toolchains-are-rarely-a-good-idea/
     compilerOptions {
         apiVersion = kotlinTarget
         languageVersion = kotlinTarget
+        jvmTarget = JvmTarget.fromTarget(javaTarget)
+        freeCompilerArgs.addAll(
+            "-Xjdk-release=$javaTarget",
+            "-Xcontext-sensitive-resolution"
+        )
         extraWarnings = true
         progressiveMode = true
-        //optIn.addAll("add opt ins here")
-        //freeCompilerArgs.addAll()
-    }
-
-    jvm {
-        // set up according to https://jakewharton.com/gradle-toolchains-are-rarely-a-good-idea/
-        compilerOptions {
-            apiVersion = kotlinTarget
-            languageVersion = kotlinTarget
-            jvmTarget = JvmTarget.fromTarget(javaTarget)
-            freeCompilerArgs.add("-Xjdk-release=$javaTarget")
-            progressiveMode = true
-        }
-    }
-
-    js {
-        browser()
-        nodejs()
-        // TODO remove for a non-library project
-        binaries.library()
-    }
-
-    wasmJs {
-        browser()
-        nodejs()
-        d8()
-        // TODO remove for a non-library project
-        binaries.library()
-    }
-
-    wasmWasi {
-        nodejs()
-        // TODO remove for a non-library project
-        binaries.library()
-    }
-
-    // native, see https://kotlinlang.org/docs/native-target-support.html
-    // tier 1
-    macosArm64()
-    iosSimulatorArm64()
-    iosX64()
-    iosArm64()
-
-    // tier 2
-    linuxX64()
-    linuxArm64()
-    watchosSimulatorArm64()
-    watchosArm32()
-    watchosArm64()
-    tvosSimulatorArm64()
-    tvosArm64()
-
-    // tier 3
-    androidNativeArm32()
-    androidNativeArm64()
-    androidNativeX86()
-    androidNativeX64()
-    mingwX64()
-    watchosDeviceArm64()
-
-    swiftExport {}
-
-    sourceSets {
-
-        commonTest {
-            dependencies {
-                implementation(libs.kotlin.test)
-                implementation(libs.xemantic.kotlin.test)
-            }
-        }
-
     }
 
 }
 
+java {
+    sourceCompatibility = JavaVersion.toVersion(javaTarget)
+    targetCompatibility = JavaVersion.toVersion(javaTarget)
+}
+
+// the fast JAR file system of the Kotlin compiler calls sun.misc.Unsafe, the option is unknown before JDK 23
+val compilerJvmArgs = if (JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_23)) {
+    listOf("--sun-misc-unsafe-memory-access=allow")
+} else emptyList()
+
+application {
+    mainClass = "com.xemantic.ai.annie.host.MainKt"
+    applicationDefaultJvmArgs = compilerJvmArgs
+}
+
+tasks.named<JavaExec>("run") {
+    args = (findProperty("input") as String?)?.let { listOf(it) } ?: emptyList()
+}
+
 repositories {
     mavenCentral()
+}
+
+dependencies {
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.xemantic.kotlin.introspection)
+    implementation(libs.xemantic.kotlin.script)
+    implementation(libs.anthropic.java)
+    implementation(libs.openai.java)
+    implementation(libs.kotlin.logging)
+
+    runtimeOnly(libs.logback.classic)
+
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.xemantic.kotlin.test)
 }
 
 configurations.all {
@@ -135,37 +83,91 @@ configurations.all {
     }
 }
 
-// skip tests which require XCode components to be installed
-tasks {
-    named("tvosSimulatorArm64Test") { enabled = false }
-    named("watchosSimulatorArm64Test") { enabled = false }
+tasks.test {
+    useJUnitPlatform()
+    jvmArgs(compilerJvmArgs)
 }
 
-// TODO only relevant for private projects, public project snapshots are released to maven central
-//publishing {
-//    if (isPublishingToGitHub) {
-//        repositories {
-//            maven {
-//                name = "GitHubPackages"
-//                url = uri("https://maven.pkg.github.com/xemantic/xemantic-kotlin-core")
-//                credentials(PasswordCredentials::class)
-//            }
-//        }
-//    }
-//}
+// Embeds sources as string constants (`api`, `cognition`) referenced by the constitution
+val generateConstitutionSources = tasks.register("generateConstitutionSources") {
+    group = "annie"
+    description = "Generates Kotlin string constants from the API and cognition sources"
+    val sourceDir = layout.projectDirectory.dir("src/main/kotlin")
+    val sources = mapOf(
+        "api" to sourceDir.file("Api.kt"),
+        "cognition" to sourceDir.file("Cognition.kt")
+    )
+    val outputDir = layout.buildDirectory.dir("generated/constitution/kotlin")
+    inputs.files(sources.values)
+    outputs.dir(outputDir)
+    doLast {
+        val licenseHeader = Regex("""\A\s*/\*.*?\*/\s*""", RegexOption.DOT_MATCHES_ALL)
+        val constants = sources.entries.joinToString("\n\n") { (name, file) ->
+            val code = file.asFile.readText()
+                .replaceFirst(licenseHeader, "")
+                .trimEnd()
+                // escape for a Kotlin raw string literal
+                .replace("$", "\${'$'}")
+                .replace("\"\"\"", "\"\"\${'\"'}")
+            "val $name = \"\"\"\n$code\n\"\"\".trim()"
+        }
+        val output = outputDir.get().file("com/xemantic/ai/annie/ConstitutionSources.kt").asFile
+        output.parentFile.mkdirs()
+        output.writeText(
+            "// Generated by the generateConstitutionSources task, do not edit\n\n" +
+                    "package com.xemantic.ai.annie\n\n" +
+                    constants + "\n"
+        )
+    }
+}
+
+// Turns the compiled source of the default harness into its script: the source without its package,
+// which is imported instead, followed by the call of the `unfold` function with the properties of the script.
+// The source belongs to the package the script imports, an import the IDE would remove from the source as redundant.
+val generateDefaultHarness = tasks.register("generateDefaultHarness") {
+    group = "annie"
+    description = "Generates the default harness script from DefaultHarness.kt as the harness.kts resource"
+    val source = layout.projectDirectory.file("src/main/kotlin/DefaultHarness.kt")
+    val outputDir = layout.buildDirectory.dir("generated/harness/resources")
+    inputs.file(source)
+    outputs.dir(outputDir)
+    doLast {
+        val lines = source.asFile.readLines()
+        val packageLine = lines.indexOfFirst { it.startsWith("package ") }
+        val firstImport = lines.indexOfFirst { it.startsWith("import ") }
+        check(packageLine != -1 && firstImport > packageLine) { "No package followed by imports in $source" }
+        val script = lines.subList(packageLine + 1, firstImport).dropWhile { it.isBlank() } +
+                (lines[packageLine].replaceFirst("package ", "import ") + ".*") +
+                lines.subList(firstImport, lines.size).dropLastWhile { it.isBlank() } +
+                "" +
+                "unfold(cogitation, cognizer, executor, agency)"
+        val output = outputDir.get().file("harness.kts").asFile
+        output.parentFile.mkdirs()
+        output.writeText(script.joinToString("\n") + "\n")
+    }
+}
+
+kotlin.sourceSets.main {
+    kotlin.srcDir(generateConstitutionSources)
+}
+
+sourceSets.main {
+    resources.srcDir(generateDefaultHarness)
+}
+
+tasks.register<JavaExec>("listModels") {
+    group = "annie"
+    description = "Lists models exposed by the ycluster.net OpenAI-compatible endpoint"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass = "com.xemantic.ai.annie.cognizer.openai.ListModelsKt"
+    args = (findProperty("prompt") as String?)?.let { listOf(it) } ?: emptyList()
+}
 
 powerAssert {
     functions = listOf(
         "com.xemantic.kotlin.test.assert",
         "com.xemantic.kotlin.test.have"
     )
-}
-
-// https://kotlinlang.org/docs/dokka-migration.html#adjust-configuration-options
-dokka {
-    pluginsConfiguration.html {
-        footerMessage = xemantic.copyright
-    }
 }
 
 versionCatalogUpdate {
@@ -176,87 +178,4 @@ versionCatalogUpdate {
         versions = setOf("kotlinTarget", "javaTarget", "asm")
         keepUnusedVersions = false
     }
-}
-
-mavenPublishing {
-
-    signAllPublications()
-
-    publishToMavenCentral(automaticRelease = true)
-
-    pom {
-
-        name = rootProject.name
-        description = xemantic.description
-        inceptionYear = xemantic.inceptionYear
-        url = "https://github.com/${xemantic.gitHubAccount}/${rootProject.name}"
-
-        organization {
-            name = xemantic.organization
-            url = xemantic.organizationUrl
-        }
-
-        licenses {
-            license {
-                name = "The Apache License, Version 2.0"
-                url = "https://www.apache.org/licenses/LICENSE-2.0.txt"
-                distribution = "https://www.apache.org/licenses/LICENSE-2.0.txt"
-            }
-        }
-
-        scm {
-            url = "https://github.com/${xemantic.gitHubAccount}/${rootProject.name}"
-            connection = "scm:git:git://github.com/${xemantic.gitHubAccount}/${rootProject.name}.git"
-            developerConnection = "scm:git:ssh://git@github.com/${xemantic.gitHubAccount}/${rootProject.name}.git"
-        }
-
-        ciManagement {
-            system = "GitHub"
-            url = "https://github.com/${xemantic.gitHubAccount}/${rootProject.name}/actions"
-        }
-
-        issueManagement {
-            system = "GitHub"
-            url = "https://github.com/${xemantic.gitHubAccount}/${rootProject.name}/issues"
-        }
-
-        developers {
-            projectDevs()
-        }
-
-    }
-
-}
-
-val releaseAnnouncementSubject = """🚀 ${rootProject.name} $version has been released!"""
-val releaseAnnouncement = """
-$releaseAnnouncementSubject
-
-${xemantic.description}
-
-${xemantic.releasePageUrl}
-""".trim()
-
-jreleaser {
-
-    announce {
-        webhooks {
-            create("discord") {
-                active = Active.ALWAYS
-                message = releaseAnnouncement
-                messageProperty = "content"
-                structuredMessage = true
-            }
-        }
-        linkedin {
-            active = Active.ALWAYS
-            subject = releaseAnnouncementSubject
-            message = releaseAnnouncement
-        }
-        bluesky {
-            active = Active.ALWAYS
-            status = releaseAnnouncement
-        }
-    }
-
 }
