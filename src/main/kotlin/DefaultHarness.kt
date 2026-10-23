@@ -32,6 +32,8 @@ package com.xemantic.ai.annie
 // The cogitation rests, until another interaction progresses it, when the intent is not responded:
 // when it enunciated output, invoking nothing and not failing, its value being ignored,
 // or when its result is empty.
+// An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment instead,
+// as its intent might be cut short.
 import com.xemantic.ai.annie.cognizer.Cognizer
 import kotlin.time.Clock
 
@@ -57,7 +59,11 @@ private suspend fun unfold(
         inference = inference
     )
     val intent = phenomena.filterIsInstance<Phenomenon.Intent>().lastOrNull()
-    return if (intent == null) {
+    val stop = inference?.stop
+    return if (stop != null && stop.kind != Inference.Stop.Kind.COMPLETED) {
+        agency.impede("Inference not completed, stopped by ${stop.reason}")
+        inferred
+    } else if (intent == null) {
         agency.impede("No intent expressed")
         inferred
     } else {

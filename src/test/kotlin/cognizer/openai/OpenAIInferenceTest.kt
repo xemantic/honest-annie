@@ -238,7 +238,8 @@ class OpenAIInferenceTest {
                 Tokens.CACHE_READ to 800L,
                 Tokens.REASONING to 30L,
                 Tokens.OUTPUT to 20L
-            )
+            ),
+            stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "stop")
         ))
         assert(inferred.total == 1050L)
     }
@@ -266,7 +267,76 @@ class OpenAIInferenceTest {
         val inferred = inference.inference(completion)
 
         // then
-        assert(inferred == Inference(model = "glm-5.3-flash", provider = "openai"))
+        assert(inferred == Inference(
+            model = "glm-5.3-flash",
+            provider = "openai",
+            stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "stop")
+        ))
+    }
+
+    @Test
+    fun `should report finish reason of chat completion by kind`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
+
+        // when
+        val stops = listOf("stop", "length", "content_filter", "abort").map { reason ->
+            inference.inference(jsonMapper().readValue("""
+                {
+                  "id": "chatcmpl-1",
+                  "object": "chat.completion",
+                  "created": 0,
+                  "model": "glm-5.3-flash",
+                  "choices": [{
+                    "index": 0,
+                    "finish_reason": "$reason",
+                    "logprobs": null,
+                    "message": {"role": "assistant", "content": "6 *", "refusal": null}
+                  }]
+                }
+            """, ChatCompletion::class.java)).stop
+        }
+
+        // then
+        assert(stops == listOf(
+            Inference.Stop(Inference.Stop.Kind.COMPLETED, "stop"),
+            Inference.Stop(Inference.Stop.Kind.TRUNCATED, "length"),
+            Inference.Stop(Inference.Stop.Kind.REFUSED, "content_filter"),
+            Inference.Stop(Inference.Stop.Kind.OTHER, "abort")
+        ))
+    }
+
+    @Test
+    fun `should report status of response by kind`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+
+        // when
+        val stops = listOf(
+            "\"completed\"",
+            "\"incomplete\", \"incomplete_details\": {\"reason\": \"max_output_tokens\"}",
+            "\"incomplete\", \"incomplete_details\": {\"reason\": \"content_filter\"}",
+            "\"failed\""
+        ).map { status ->
+            inference.inference(jsonMapper().readValue("""
+                {
+                  "id": "resp_1",
+                  "object": "response",
+                  "created_at": 0,
+                  "model": "gpt-6",
+                  "output": [],
+                  "status": $status
+                }
+            """, Response::class.java)).stop
+        }
+
+        // then
+        assert(stops == listOf(
+            Inference.Stop(Inference.Stop.Kind.COMPLETED, "completed"),
+            Inference.Stop(Inference.Stop.Kind.TRUNCATED, "max_output_tokens"),
+            Inference.Stop(Inference.Stop.Kind.REFUSED, "content_filter"),
+            Inference.Stop(Inference.Stop.Kind.OTHER, "failed")
+        ))
     }
 
     @Test

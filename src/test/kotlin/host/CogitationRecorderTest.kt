@@ -157,12 +157,15 @@ class CogitationRecorderTest {
         assert(index.contains("| [text](002-1-computer-text.md) |  |\n"))
     }
 
-    private fun inferred(tokens: Map<Inference.Tokens, Long>) = Enunciation(
+    private fun inferred(
+        tokens: Map<Inference.Tokens, Long>,
+        stop: Inference.Stop? = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn")
+    ) = Enunciation(
         actant = Actant.SELF,
         initiated = Instant.parse("2026-10-23T13:14:40Z"),
         finalized = Instant.parse("2026-10-23T13:14:42Z"),
         phenomena = listOf(Phenomenon.Intent("1")),
-        inference = Inference(model = "claude-opus-5-5", provider = "anthropic", tokens = tokens)
+        inference = Inference(model = "claude-opus-5-5", provider = "anthropic", tokens = tokens, stop = stop)
     )
 
     @Test
@@ -197,7 +200,8 @@ class CogitationRecorderTest {
                   "model": "claude-opus-5-5",
                   "provider": "anthropic",
                   "tokens": {"input": 3, "cache_write_1h": 1000, "output": 40},
-                  "total": 1043
+                  "total": 1043,
+                  "stop": {"kind": "completed", "reason": "end_turn"}
                 }
               ],
               "invoked": {},
@@ -249,6 +253,31 @@ class CogitationRecorderTest {
         assert(index.endsWith(
             "\n**Total** of 2 inferences, 1 in invoked cogitations: 5 input, 1000 cache read, 1000 cache write 1h, 2005 tokens\n"
         ))
+    }
+
+    @Test
+    fun `should index stop of inference`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)),
+                inferred(
+                    mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 2L),
+                    stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal")
+                )
+            )
+        )
+
+        // when
+        CogitationRecorder(recordingDir).record(cogitation)
+
+        // then
+        val index = recordingDir.listDirectoryEntries().single().resolve("cogitation.md").readText()
+        assert(index.contains("| `claude-opus-5-5` by anthropic: 3 input, 1 output · `end_turn` |\n"))
+        assert(index.contains("| `claude-opus-5-5` by anthropic: 3 input, 2 output · **refused** `refusal` |\n"))
     }
 
 }

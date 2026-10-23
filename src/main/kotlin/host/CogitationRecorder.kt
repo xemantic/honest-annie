@@ -120,7 +120,8 @@ class CogitationRecorder(
             |      "model": ${inference.model.json()},
             |      "provider": ${inference.provider.json()},
             |      "tokens": ${inference.tokens.json()},
-            |      "total": ${inference.total}
+            |      "total": ${inference.total},
+            |      "stop": ${inference.stop?.let { "{\"kind\": \"${it.kind.name.lowercase()}\", \"reason\": ${it.reason.json()}}" } ?: "null"}
             |    }
             """.trimMargin().trimEnd()
         })
@@ -184,7 +185,7 @@ class CogitationRecorder(
         index.append(
             "| ${number(number)} | ${actant.type.name.lowercase()} `${actant.name}`$responding " +
                     "| ${enunciation.initiated} | ${enunciation.duration} | ${files.joinToString(" ")} " +
-                    "| ${enunciation.inference?.let { "`${it.model}` by ${it.provider}: ${it.tokensDescription()}" } ?: ""} |\n"
+                    "| ${enunciation.inference?.let { "`${it.model}` by ${it.provider}: ${it.tokensDescription()}${it.stopDescription()}" } ?: ""} |\n"
         )
     }
 
@@ -196,6 +197,11 @@ private fun Instant.toFileName() = toString().replace(':', '-')
 
 /** The tokens of this inference by category, e.g. `3 input, 1000 cache write 1h, 40 output`. */
 internal fun Inference.tokensDescription(): String = tokens.description().ifEmpty { "no tokens reported" }
+
+/** Why this inference stopped, its kind emphasized unless completed. */
+internal fun Inference.stopDescription(): String = stop?.let {
+    if (it.kind == Inference.Stop.Kind.COMPLETED) " · `${it.reason}`" else " · **${it.kind.name.lowercase()}** `${it.reason}`"
+} ?: ""
 
 private fun Map<Inference.Tokens, Long>.description() = entries
     .sortedBy { it.key }

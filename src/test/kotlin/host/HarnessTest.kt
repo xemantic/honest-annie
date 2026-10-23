@@ -46,7 +46,10 @@ class HarnessTest {
      * Expresses the next of its [intents] on each inference, recording the cogitations it perceived,
      * each inference consuming as many input tokens as the enunciations it perceived.
      */
-    private class ScriptedCognizer(private vararg val intents: String) : Cognizer {
+    private class ScriptedCognizer(
+        private vararg val intents: String,
+        private val stop: Inference.Stop? = null
+    ) : Cognizer {
         val perceived = mutableListOf<Cogitation>()
         override suspend fun cognize(cogitation: Cogitation): Cognized {
             perceived += cogitation
@@ -55,7 +58,8 @@ class HarnessTest {
                 inference = Inference(
                     model = "scripted",
                     provider = "test",
-                    tokens = mapOf(Inference.Tokens.INPUT to cogitation.enunciations.size.toLong())
+                    tokens = mapOf(Inference.Tokens.INPUT to cogitation.enunciations.size.toLong()),
+                    stop = stop
                 )
             )
         }
@@ -123,6 +127,24 @@ class HarnessTest {
         assert(output.phenomena == listOf(
             Phenomenon.Text("answer is 42"),
             Phenomenon.Data(byteArrayOf(4, 2), "application/octet-stream")
+        ))
+        assert(cognizer.perceived.size == 1)
+    }
+
+    @Test
+    fun `should impede instead of executing intent of inference not completed`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            "agency.enunciate(\"truncated\")",
+            stop = Inference.Stop(Inference.Stop.Kind.TRUNCATED, "max_tokens")
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(
+            Phenomenon.Impediment("Inference not completed, stopped by max_tokens")
         ))
         assert(cognizer.perceived.size == 1)
     }

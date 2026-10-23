@@ -137,11 +137,13 @@ data class Enunciation(
  * @property provider who served the inference, e.g. `anthropic`, `bedrock`, `openai`, or the host of another OpenAI-compatible endpoint.
  * @property tokens the numbers of tokens by their category, a category without tokens being absent.
  * The categories are disjoint, so that each token is counted once, and they sum up to the [total].
+ * @property stop why the inference stopped, `null` when not reported.
  */
 data class Inference(
     val model: String,
     val provider: String,
-    val tokens: Map<Tokens, Long> = emptyMap()
+    val tokens: Map<Tokens, Long> = emptyMap(),
+    val stop: Stop? = null
 ) {
     enum class Tokens {
         /** Input processed anew, neither read from a cache, nor written to it. */
@@ -160,6 +162,24 @@ data class Inference(
         OUTPUT
     }
     val total: Long get() = tokens.values.sum()
+
+    /**
+     * Why the inference stopped, the same for every provider.
+     *
+     * @property reason as reported by the provider, e.g. `end_turn` of Claude, or `length` of Chat Completions.
+     */
+    data class Stop(val kind: Kind, val reason: String) {
+        enum class Kind {
+            /** The model completed what it expressed. */
+            COMPLETED,
+            /** Cut short by a limit of tokens, of the output or of the context window. */
+            TRUNCATED,
+            /** Cut short by the model refusing to continue, or by a filter of the provider. */
+            REFUSED,
+            /** Stopped for any other reason, e.g. one introduced by a newer API. */
+            OTHER
+        }
+    }
 }
 
 /**

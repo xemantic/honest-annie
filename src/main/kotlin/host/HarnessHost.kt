@@ -311,7 +311,7 @@ class HarnessHost(
         }.also { (phenomena, inference) ->
             logger.info {
                 "[$id] Inferred in ${Clock.System.now() - initiated}: ${phenomena.kinds()}" +
-                        (inference?.let { ", by ${it.model} of ${it.provider}: ${it.tokensDescription()}" } ?: "")
+                        (inference?.let { ", by ${it.model} of ${it.provider}: ${it.tokensDescription()}${it.stopDescription()}" } ?: "")
             }
         }
     }

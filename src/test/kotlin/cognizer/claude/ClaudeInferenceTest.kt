@@ -53,14 +53,14 @@ class ClaudeInferenceTest {
         )) + enunciations
     )
 
-    private fun message(usage: String): Message = jsonMapper().readValue("""
+    private fun message(usage: String, stopReason: String = "end_turn"): Message = jsonMapper().readValue("""
         {
           "id": "msg_1",
           "type": "message",
           "role": "assistant",
           "model": "claude-opus-5-5",
           "content": [{"type": "text", "text": "6 * 7"}],
-          "stop_reason": "end_turn",
+          "stop_reason": "$stopReason",
           "stop_sequence": null,
           "usage": $usage
         }
@@ -243,7 +243,8 @@ class ClaudeInferenceTest {
                 Tokens.CACHE_WRITE_1H to 1000L,
                 Tokens.REASONING to 60L,
                 Tokens.OUTPUT to 40L
-            )
+            ),
+            stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn")
         ))
         assert(inferred.total == 2803L)
     }
@@ -263,7 +264,28 @@ class ClaudeInferenceTest {
         assert(inferred == Inference(
             model = "claude-opus-5-5",
             provider = "anthropic",
-            tokens = mapOf(Tokens.INPUT to 3L, Tokens.CACHE_WRITE to 1500L, Tokens.OUTPUT to 100L)
+            tokens = mapOf(Tokens.INPUT to 3L, Tokens.CACHE_WRITE to 1500L, Tokens.OUTPUT to 100L),
+            stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn")
+        ))
+    }
+
+    @Test
+    fun `should report stop reason of message by kind`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val usage = """{"input_tokens": 3, "output_tokens": 1}"""
+
+        // when
+        val stops = listOf("end_turn", "max_tokens", "model_context_window_exceeded", "refusal", "pause_turn")
+            .map { inference.inference(message(usage, stopReason = it)).stop }
+
+        // then
+        assert(stops == listOf(
+            Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn"),
+            Inference.Stop(Inference.Stop.Kind.TRUNCATED, "max_tokens"),
+            Inference.Stop(Inference.Stop.Kind.TRUNCATED, "model_context_window_exceeded"),
+            Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal"),
+            Inference.Stop(Inference.Stop.Kind.OTHER, "pause_turn")
         ))
     }
 

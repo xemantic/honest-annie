@@ -145,7 +145,19 @@ class ClaudeInference(
                 }
                 put(Tokens.REASONING, thinking)
                 put(Tokens.OUTPUT, usage.outputTokens() - thinking)
-            }.filterValues { it > 0 }
+            }.filterValues { it > 0 },
+            stop = message.stopReason().map { it.asString() }.orElse(null)?.let { reason ->
+                Inference.Stop(
+                    kind = when (reason) {
+                        // no stop sequences are requested, but they would complete the response as intended
+                        "end_turn", "stop_sequence" -> Inference.Stop.Kind.COMPLETED
+                        "max_tokens", "model_context_window_exceeded" -> Inference.Stop.Kind.TRUNCATED
+                        "refusal" -> Inference.Stop.Kind.REFUSED
+                        else -> Inference.Stop.Kind.OTHER
+                    },
+                    reason = reason
+                )
+            }
         )
     }
 

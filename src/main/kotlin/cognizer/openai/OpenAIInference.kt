@@ -148,7 +148,18 @@ class OpenAIInference(
             cacheRead = input?._cachedTokens()?.known(),
             cacheWrite = input?._cacheWriteTokens()?.known(),
             output = usage?._completionTokens()?.known(),
-            reasoning = output?._reasoningTokens()?.known()
+            reasoning = output?._reasoningTokens()?.known(),
+            stop = completion.choices().firstOrNull()?._finishReason()?.known()?.asString()?.let { reason ->
+                Inference.Stop(
+                    kind = when (reason) {
+                        "stop" -> Inference.Stop.Kind.COMPLETED
+                        "length" -> Inference.Stop.Kind.TRUNCATED
+                        "content_filter" -> Inference.Stop.Kind.REFUSED
+                        else -> Inference.Stop.Kind.OTHER
+                    },
+                    reason = reason
+                )
+            }
         )
     }
 
@@ -161,12 +172,30 @@ class OpenAIInference(
             cacheRead = input?._cachedTokens()?.known(),
             cacheWrite = input?._cacheWriteTokens()?.known(),
             output = usage?._outputTokens()?.known(),
-            reasoning = output?._reasoningTokens()?.known()
+            reasoning = output?._reasoningTokens()?.known(),
+            stop = response._status().known()?.asString()?.let { status ->
+                // an incomplete response tells why in its details
+                val reason = response._incompleteDetails().known()?._reason()?.known()?.asString()
+                when {
+                    status == "completed" -> Inference.Stop(Inference.Stop.Kind.COMPLETED, status)
+                    status != "incomplete" || reason == null -> Inference.Stop(Inference.Stop.Kind.OTHER, status)
+                    reason == "max_output_tokens" -> Inference.Stop(Inference.Stop.Kind.TRUNCATED, reason)
+                    reason == "content_filter" -> Inference.Stop(Inference.Stop.Kind.REFUSED, reason)
+                    else -> Inference.Stop(Inference.Stop.Kind.OTHER, reason)
+                }
+            }
         )
     }
 
     /** The [input] tokens of OpenAI include the cached ones, and its [output] tokens the reasoning ones. */
-    private fun inference(input: Long?, cacheRead: Long?, cacheWrite: Long?, output: Long?, reasoning: Long?) = Inference(
+    private fun inference(
+        input: Long?,
+        cacheRead: Long?,
+        cacheWrite: Long?,
+        output: Long?,
+        reasoning: Long?,
+        stop: Inference.Stop?
+    ) = Inference(
         model = modelId,
         provider = provider,
         tokens = buildMap {
@@ -175,7 +204,8 @@ class OpenAIInference(
             put(Tokens.CACHE_WRITE, cacheWrite ?: 0)
             put(Tokens.REASONING, reasoning ?: 0)
             put(Tokens.OUTPUT, (output ?: 0) - (reasoning ?: 0))
-        }.filterValues { it > 0 }
+        }.filterValues { it > 0 },
+        stop = stop
     )
 
     internal fun phenomena(completion: ChatCompletion): List<Phenomenon> {
