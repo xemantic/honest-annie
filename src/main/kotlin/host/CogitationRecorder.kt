@@ -30,6 +30,8 @@ import kotlin.io.path.writeBytes
 import kotlin.io.path.writeText
 import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -46,8 +48,12 @@ import kotlinx.coroutines.withContext
  */
 class CogitationRecorder(
     private val parentDir: Path,
-    private val prefix: String = ""
+    private val prefix: String = "",
+    private val invoker: CogitationRecorder? = null
 ) {
+
+    /** Guards the state written to the files, updated also by the recorders of invoked cogitations. */
+    private val mutex = Mutex()
 
     private var dir: Path? = null
 
@@ -58,22 +64,78 @@ class CogitationRecorder(
     /** Positions of requests, the numbers of their enunciations followed by their positions within, by request id. */
     private val requests = mutableMapOf<String, String>()
 
+    /** The inferences of the recorded enunciations, by their numbers. */
+    private val inferences = mutableListOf<Pair<Int, Enunciation>>()
+
+    /** The totals of the invoked cogitations, including the ones they invoke, by the names of their directories. */
+    private val invoked = linkedMapOf<String, Totals>()
+
     /** Records the enunciations of the [cogitation] not recorded yet. */
     suspend fun record(
         cogitation: Cogitation
     ): Unit = withContext(Dispatchers.IO) {
-        val dir = dir ?: createDir(cogitation).also { dir = it }
-        cogitation.enunciations.drop(recorded).forEach { enunciation ->
-            recorded++
-            record(dir, recorded, enunciation)
+        mutex.withLock {
+            val dir = dir ?: createDir(cogitation).also { dir = it }
+            cogitation.enunciations.drop(recorded).forEach { enunciation ->
+                recorded++
+                record(dir, recorded, enunciation)
+                if (enunciation.inference != null) inferences += recorded to enunciation
+            }
+            write(dir)
         }
-        dir.resolve("cogitation.md").writeText(index)
+    }
+
+    /** Updates the [totals] of the cogitation recorded in the [dir] invoked by this one. */
+    private suspend fun invoked(dir: Path, totals: Totals): Unit = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            invoked[dir.fileName.toString()] = totals
+            write(checkNotNull(this@CogitationRecorder.dir) { "No enunciation recorded yet to invoke a cogitation" })
+        }
+    }
+
+    /**
+     * Writes the index and the inferences, and reports the totals to the [invoker],
+     * still holding the lock, so that its updates arrive in order.
+     */
+    private suspend fun write(dir: Path) {
+        val own = inferences.fold(Totals()) { totals, (_, enunciation) -> totals + enunciation.inference!! }
+        val total = invoked.values.fold(own, Totals::plus)
+        dir.resolve("cogitation.md").writeText(
+            if (total.inferences == 0) index else "$index\n${total.describe(invoked = total.inferences - own.inferences)}\n"
+        )
+        dir.resolve("inferences.json").writeText(inferencesJson(total))
+        invoker?.invoked(dir, total)
+    }
+
+    private fun inferencesJson(total: Totals) = buildString {
+        append("{\n  \"inferences\": [")
+        append(inferences.joinToString(separator = ",", postfix = if (inferences.isEmpty()) "" else "\n  ") { (number, enunciation) ->
+            val inference = enunciation.inference!!
+            """
+            |
+            |    {
+            |      "enunciation": "${number(number)}",
+            |      "initiated": "${enunciation.initiated}",
+            |      "finalized": "${enunciation.finalized}",
+            |      "model": ${inference.model.json()},
+            |      "provider": ${inference.provider.json()},
+            |      "tokens": ${inference.tokens.json()},
+            |      "total": ${inference.total}
+            |    }
+            """.trimMargin().trimEnd()
+        })
+        append("],\n  \"invoked\": {")
+        append(invoked.entries.joinToString(separator = ",", postfix = if (invoked.isEmpty()) "" else "\n  ") { (name, totals) ->
+            "\n    ${name.json()}: ${totals.json()}"
+        })
+        append("},\n  \"total\": ${total.json()}\n}\n")
     }
 
     /** Recorder of the cogitation unfolding the [invocation] enunciated in the recorded one. */
     fun invoked(invocation: Phenomenon.Invocation): CogitationRecorder = CogitationRecorder(
         parentDir = checkNotNull(dir) { "No enunciation recorded yet to invoke a cogitation" },
-        prefix = "${checkNotNull(requests[invocation.id]) { "Invocation ${invocation.id} not recorded" }}-"
+        prefix = "${checkNotNull(requests[invocation.id]) { "Invocation ${invocation.id} not recorded" }}-",
+        invoker = this
     )
 
     private fun createDir(cogitation: Cogitation): Path {
@@ -133,10 +195,50 @@ private fun number(n: Int) = n.toString().padStart(3, '0')
 private fun Instant.toFileName() = toString().replace(':', '-')
 
 /** The tokens of this inference by category, e.g. `3 input, 1000 cache write 1h, 40 output`. */
-internal fun Inference.tokensDescription(): String = tokens.entries
+internal fun Inference.tokensDescription(): String = tokens.description().ifEmpty { "no tokens reported" }
+
+private fun Map<Inference.Tokens, Long>.description() = entries
     .sortedBy { it.key }
     .joinToString { (category, count) -> "$count ${category.name.lowercase().replace('_', ' ')}" }
-    .ifEmpty { "no tokens reported" }
+
+/** The number of [inferences], and their [tokens] summed up by category. */
+private data class Totals(
+    val inferences: Int = 0,
+    val tokens: Map<Inference.Tokens, Long> = emptyMap()
+) {
+
+    val total: Long get() = tokens.values.sum()
+
+    operator fun plus(other: Totals) = Totals(
+        inferences = inferences + other.inferences,
+        tokens = (tokens.keys + other.tokens.keys).associateWith { (tokens[it] ?: 0) + (other.tokens[it] ?: 0) }
+    )
+
+    operator fun plus(inference: Inference) = this + Totals(inferences = 1, tokens = inference.tokens)
+
+    fun describe(invoked: Int) = "**Total** of $inferences inference${if (inferences == 1) "" else "s"}" +
+            (if (invoked == 0) "" else ", $invoked in invoked cogitations") +
+            ": ${tokens.description().ifEmpty { "no tokens reported" }}, $total tokens"
+
+    fun json() = "{\"inferences\": $inferences, \"tokens\": ${tokens.json()}, \"total\": $total}"
+
+}
+
+private fun Map<Inference.Tokens, Long>.json() = entries
+    .sortedBy { it.key }
+    .joinToString(prefix = "{", postfix = "}") { (category, count) -> "\"${category.name.lowercase()}\": $count" }
+
+private fun String.json() = buildString {
+    append('"')
+    this@json.forEach { char ->
+        when {
+            char == '"' || char == '\\' -> append('\\').append(char)
+            char < ' ' -> append("\\u%04x".format(char.code))
+            else -> append(char)
+        }
+    }
+    append('"')
+}
 
 /** The kind of this phenomenon, e.g. `text` or `intent`. */
 internal val Phenomenon.kind: String get() = when (this) {

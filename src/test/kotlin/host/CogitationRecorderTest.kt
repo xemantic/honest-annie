@@ -80,7 +80,7 @@ class CogitationRecorderTest {
         // then
         val root = recordingDir.listDirectoryEntries().single()
         val files = root.listDirectoryEntries().map { it.name }.sorted() - setOf(
-            "cogitation.md", "constitution.md", "harness.kts"
+            "cogitation.md", "constitution.md", "harness.kts", "inferences.json"
         )
         assert(files == listOf(
             "001-1-human-text.md",
@@ -155,6 +155,100 @@ class CogitationRecorderTest {
             "| [intent](001-1-self-intent.kts) | `claude-opus-5-5` by anthropic: 3 input, 1000 cache write 1h, 40 output |\n"
         ))
         assert(index.contains("| [text](002-1-computer-text.md) |  |\n"))
+    }
+
+    private fun inferred(tokens: Map<Inference.Tokens, Long>) = Enunciation(
+        actant = Actant.SELF,
+        initiated = Instant.parse("2026-10-23T13:14:40Z"),
+        finalized = Instant.parse("2026-10-23T13:14:42Z"),
+        phenomena = listOf(Phenomenon.Intent("1")),
+        inference = Inference(model = "claude-opus-5-5", provider = "anthropic", tokens = tokens)
+    )
+
+    @Test
+    fun `should record inferences as JSON`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                inferred(mapOf(
+                    Inference.Tokens.OUTPUT to 40L,
+                    Inference.Tokens.INPUT to 3L,
+                    Inference.Tokens.CACHE_WRITE_1H to 1000L
+                )),
+                Enunciation(actant = computer, phenomena = listOf(Phenomenon.Text("1")))
+            )
+        )
+
+        // when
+        CogitationRecorder(recordingDir).record(cogitation)
+
+        // then
+        val json = recordingDir.listDirectoryEntries().single().resolve("inferences.json").readText()
+        assert(json == """
+            {
+              "inferences": [
+                {
+                  "enunciation": "001",
+                  "initiated": "2026-10-23T13:14:40Z",
+                  "finalized": "2026-10-23T13:14:42Z",
+                  "model": "claude-opus-5-5",
+                  "provider": "anthropic",
+                  "tokens": {"input": 3, "cache_write_1h": 1000, "output": 40},
+                  "total": 1043
+                }
+              ],
+              "invoked": {},
+              "total": {"inferences": 1, "tokens": {"input": 3, "cache_write_1h": 1000, "output": 40}, "total": 1043}
+            }
+
+        """.trimIndent())
+    }
+
+    @Test
+    fun `should total inferences including invoked cogitations`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val recorder = CogitationRecorder(recordingDir)
+        recorder.record(Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.CACHE_WRITE_1H to 1000L)),
+                Enunciation(actant = computer, phenomena = listOf(invocation))
+            )
+        ))
+        val invoked = recorder.invoked(invocation)
+
+        // when
+        invoked.record(Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                Enunciation(
+                    actant = Actant.INVOKER,
+                    initiated = Instant.parse("2026-10-23T13:14:59Z"),
+                    phenomena = listOf(Phenomenon.Text("sub"))
+                ),
+                inferred(mapOf(Inference.Tokens.INPUT to 2L, Inference.Tokens.CACHE_READ to 1000L))
+            )
+        ))
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        val json = root.resolve("inferences.json").readText()
+        assert(json.contains("""
+              "invoked": {
+                "002-1-2026-10-23T13-14-59Z": {"inferences": 1, "tokens": {"input": 2, "cache_read": 1000}, "total": 1002}
+              },
+              "total": {"inferences": 2, "tokens": {"input": 5, "cache_read": 1000, "cache_write_1h": 1000}, "total": 2005}
+        """.trimIndent().prependIndent("  ")))
+        val index = root.resolve("cogitation.md").readText()
+        assert(index.endsWith(
+            "\n**Total** of 2 inferences, 1 in invoked cogitations: 5 input, 1000 cache read, 1000 cache write 1h, 2005 tokens\n"
+        ))
     }
 
 }
