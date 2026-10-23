@@ -26,6 +26,8 @@ import com.openai.models.responses.Response
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
+import com.xemantic.ai.annie.Inference
+import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
@@ -191,6 +193,118 @@ class OpenAIInferenceTest {
         ))
         assert((phenomena.last() as Phenomenon.Intent).script == "6 * 7")
         assert(phenomena.size == 2)
+    }
+
+    @Test
+    fun `should count tokens of chat completion by category`() {
+        // given
+        val inference = OpenAIInference(
+            client = client,
+            model = "glm-5.3-flash",
+            modelId = "zai-org/glm-5.3-flash",
+            provider = "ycluster.net"
+        )
+        val completion = jsonMapper().readValue("""
+            {
+              "id": "chatcmpl-1",
+              "object": "chat.completion",
+              "created": 0,
+              "model": "glm-5.3-flash",
+              "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "logprobs": null,
+                "message": {"role": "assistant", "content": "6 * 7", "refusal": null}
+              }],
+              "usage": {
+                "prompt_tokens": 1000,
+                "completion_tokens": 50,
+                "total_tokens": 1050,
+                "prompt_tokens_details": {"cached_tokens": 800},
+                "completion_tokens_details": {"reasoning_tokens": 30}
+              }
+            }
+        """, ChatCompletion::class.java)
+
+        // when
+        val inferred = inference.inference(completion)
+
+        // then
+        assert(inferred == Inference(
+            model = "zai-org/glm-5.3-flash",
+            provider = "ycluster.net",
+            tokens = mapOf(
+                Tokens.INPUT to 200L,
+                Tokens.CACHE_READ to 800L,
+                Tokens.REASONING to 30L,
+                Tokens.OUTPUT to 20L
+            )
+        ))
+        assert(inferred.total == 1050L)
+    }
+
+    @Test
+    fun `should count no tokens of chat completion without usage`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
+        val completion = jsonMapper().readValue("""
+            {
+              "id": "chatcmpl-1",
+              "object": "chat.completion",
+              "created": 0,
+              "model": "glm-5.3-flash",
+              "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "logprobs": null,
+                "message": {"role": "assistant", "content": "6 * 7", "refusal": null}
+              }]
+            }
+        """, ChatCompletion::class.java)
+
+        // when
+        val inferred = inference.inference(completion)
+
+        // then
+        assert(inferred == Inference(model = "glm-5.3-flash", provider = "openai"))
+    }
+
+    @Test
+    fun `should count tokens of response by category`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+        val response = jsonMapper().readValue("""
+            {
+              "id": "resp_1",
+              "object": "response",
+              "created_at": 0,
+              "model": "gpt-6",
+              "output": [],
+              "usage": {
+                "input_tokens": 1000,
+                "input_tokens_details": {"cached_tokens": 600, "cache_write_tokens": 300},
+                "output_tokens": 50,
+                "output_tokens_details": {"reasoning_tokens": 30},
+                "total_tokens": 1050
+              }
+            }
+        """, Response::class.java)
+
+        // when
+        val inferred = inference.inference(response)
+
+        // then
+        assert(inferred == Inference(
+            model = "gpt-6",
+            provider = "openai",
+            tokens = mapOf(
+                Tokens.INPUT to 100L,
+                Tokens.CACHE_READ to 600L,
+                Tokens.CACHE_WRITE to 300L,
+                Tokens.REASONING to 30L,
+                Tokens.OUTPUT to 20L
+            )
+        ))
     }
 
 }

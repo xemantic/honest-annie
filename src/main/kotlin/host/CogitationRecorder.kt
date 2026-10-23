@@ -20,6 +20,7 @@ package com.xemantic.ai.annie.host
 
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
+import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
@@ -95,8 +96,8 @@ class CogitationRecorder(
         index.append("# Cogitation started at ${started ?: "-"}\n\n")
         dir.resolve("harness.kts").writeText(cogitation.harness)
         index.append("[constitution](constitution.md) · [harness](harness.kts)\n\n")
-        index.append("| # | actant | initiated | duration | phenomena |\n")
-        index.append("|---|--------|-----------|----------|-----------|\n")
+        index.append("| # | actant | initiated | duration | phenomena | inference |\n")
+        index.append("|---|--------|-----------|----------|-----------|-----------|\n")
         return dir
     }
 
@@ -120,7 +121,8 @@ class CogitationRecorder(
         } ?: ""
         index.append(
             "| ${number(number)} | ${actant.type.name.lowercase()} `${actant.name}`$responding " +
-                    "| ${enunciation.initiated} | ${enunciation.duration} | ${files.joinToString(" ")} |\n"
+                    "| ${enunciation.initiated} | ${enunciation.duration} | ${files.joinToString(" ")} " +
+                    "| ${enunciation.inference?.let { "`${it.model}` by ${it.provider}: ${it.tokensDescription()}" } ?: ""} |\n"
         )
     }
 
@@ -129,6 +131,12 @@ class CogitationRecorder(
 private fun number(n: Int) = n.toString().padStart(3, '0')
 
 private fun Instant.toFileName() = toString().replace(':', '-')
+
+/** The tokens of this inference by category, e.g. `3 input, 1000 cache write 1h, 40 output`. */
+internal fun Inference.tokensDescription(): String = tokens.entries
+    .sortedBy { it.key }
+    .joinToString { (category, count) -> "$count ${category.name.lowercase().replace('_', ' ')}" }
+    .ifEmpty { "no tokens reported" }
 
 /** The kind of this phenomenon, e.g. `text` or `intent`. */
 internal val Phenomenon.kind: String get() = when (this) {

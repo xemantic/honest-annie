@@ -21,7 +21,9 @@ package com.xemantic.ai.annie.host
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
+import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
+import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.responseId
 import com.xemantic.kotlin.script.ScriptExecutor
@@ -40,12 +42,22 @@ class HarnessTest {
 
     private val store = InMemoryCogitationStore()
 
-    /** Expresses the next of its [intents] on each inference, recording the cogitations it perceived. */
+    /**
+     * Expresses the next of its [intents] on each inference, recording the cogitations it perceived,
+     * each inference consuming as many input tokens as the enunciations it perceived.
+     */
     private class ScriptedCognizer(private vararg val intents: String) : Cognizer {
         val perceived = mutableListOf<Cogitation>()
-        override suspend fun cognize(cogitation: Cogitation): List<Phenomenon> {
+        override suspend fun cognize(cogitation: Cogitation): Cognized {
             perceived += cogitation
-            return listOf(Phenomenon.Intent(intents[perceived.size - 1]))
+            return Cognized(
+                phenomena = listOf(Phenomenon.Intent(intents[perceived.size - 1])),
+                inference = Inference(
+                    model = "scripted",
+                    provider = "test",
+                    tokens = mapOf(Inference.Tokens.INPUT to cogitation.enunciations.size.toLong())
+                )
+            )
         }
     }
 
@@ -113,6 +125,26 @@ class HarnessTest {
             Phenomenon.Data(byteArrayOf(4, 2), "application/octet-stream")
         ))
         assert(cognizer.perceived.size == 1)
+    }
+
+    @Test
+    fun `should carry inference of each enunciation of self`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            "6 * 7",
+            "agency.enunciate(\"answer is 42\")"
+        )
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        val enunciations = cognizer.perceived.last().enunciations
+        assert(enunciations.map { it.inference } == listOf(
+            null,
+            Inference(model = "scripted", provider = "test", tokens = mapOf(Inference.Tokens.INPUT to 1L)),
+            null
+        ))
     }
 
     @Test
@@ -191,7 +223,7 @@ class HarnessTest {
     @Test
     fun `should enunciate impediment when no intent is expressed`() = runTest(timeout = 5.minutes) {
         // when
-        val output = cognize(Cognizer { listOf(Phenomenon.Text("no kotlin")) }, cogitation(defaultHarness))
+        val output = cognize(Cognizer { Cognized(listOf(Phenomenon.Text("no kotlin"))) }, cogitation(defaultHarness))
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Impediment("No intent expressed")))

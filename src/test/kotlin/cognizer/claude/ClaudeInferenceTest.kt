@@ -25,6 +25,8 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
+import com.xemantic.ai.annie.Inference
+import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
@@ -50,6 +52,19 @@ class ClaudeInferenceTest {
             phenomena = listOf(Phenomenon.Text("test"))
         )) + enunciations
     )
+
+    private fun message(usage: String): Message = jsonMapper().readValue("""
+        {
+          "id": "msg_1",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-opus-5-5",
+          "content": [{"type": "text", "text": "6 * 7"}],
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "usage": $usage
+        }
+    """, Message::class.java)
 
     private fun ClaudeInference.body(cogitation: Cogitation): JsonNode =
         json(jsonMapper().writeValueAsString(request(cogitation)._body()))
@@ -192,6 +207,64 @@ class ClaudeInferenceTest {
             )
         ))
         assert((phenomena.last() as Phenomenon.Intent).script == "6 *\n7")
+    }
+
+    @Test
+    fun `should count tokens of response by category`() {
+        // given
+        val inference = ClaudeInference(
+            client = client,
+            model = "anthropic.claude-opus-5-5",
+            modelId = "claude-opus-5-5",
+            provider = "bedrock"
+        )
+        val message = message("""
+            {
+              "input_tokens": 3,
+              "cache_read_input_tokens": 1200,
+              "cache_creation_input_tokens": 1500,
+              "cache_creation": {"ephemeral_5m_input_tokens": 500, "ephemeral_1h_input_tokens": 1000},
+              "output_tokens": 100,
+              "output_tokens_details": {"thinking_tokens": 60}
+            }
+        """)
+
+        // when
+        val inferred = inference.inference(message)
+
+        // then
+        assert(inferred == Inference(
+            model = "claude-opus-5-5",
+            provider = "bedrock",
+            tokens = mapOf(
+                Tokens.INPUT to 3L,
+                Tokens.CACHE_READ to 1200L,
+                Tokens.CACHE_WRITE_5M to 500L,
+                Tokens.CACHE_WRITE_1H to 1000L,
+                Tokens.REASONING to 60L,
+                Tokens.OUTPUT to 40L
+            )
+        ))
+        assert(inferred.total == 2803L)
+    }
+
+    @Test
+    fun `should count cache writes of unreported lifetime and omit categories without tokens`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val message = message("""
+            {"input_tokens": 3, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 1500, "output_tokens": 100}
+        """)
+
+        // when
+        val inferred = inference.inference(message)
+
+        // then
+        assert(inferred == Inference(
+            model = "claude-opus-5-5",
+            provider = "anthropic",
+            tokens = mapOf(Tokens.INPUT to 3L, Tokens.CACHE_WRITE to 1500L, Tokens.OUTPUT to 100L)
+        ))
     }
 
 }

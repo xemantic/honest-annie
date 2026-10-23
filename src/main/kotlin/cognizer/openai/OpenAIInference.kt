@@ -19,6 +19,7 @@
 package com.xemantic.ai.annie.cognizer.openai
 
 import com.openai.client.OpenAIClient
+import com.openai.core.JsonField
 import com.openai.models.ReasoningEffort
 import com.openai.models.chat.completions.ChatCompletion
 import com.openai.models.chat.completions.ChatCompletionCreateParams
@@ -30,9 +31,12 @@ import com.openai.models.responses.ResponseInputItem
 import com.openai.models.responses.ResponseReasoningItem
 import com.openai.models.Reasoning
 import com.xemantic.ai.annie.Cogitation
+import com.xemantic.ai.annie.Inference
+import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
+import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.cognizer.Turn
 import com.xemantic.ai.annie.cognizer.toTurns
@@ -49,6 +53,7 @@ import kotlinx.coroutines.future.await
  *
  * @param model the model id as known to the endpoint.
  * @param modelId the canonical id of the [model], the same at every endpoint serving it.
+ * @param provider who serves the [model] through the [client], reported in the [Inference].
  * @param responses whether the Responses API is used instead of Chat Completions.
  * @param maxTokens the maximal number of tokens of a single inference, the monologue included,
  * the maximum of GPT-6 Astra by default.
@@ -59,16 +64,19 @@ class OpenAIInference(
     private val client: OpenAIClient,
     private val model: String,
     private val modelId: String = model,
+    private val provider: String = "openai",
     private val responses: Boolean = false,
     private val maxTokens: Long = 128_000,
     private val effort: Monologue.Effort? = null,
     private val visibility: Monologue.Visibility = Monologue.Visibility.HIDDEN
 ) : Cognizer {
 
-    override suspend fun cognize(cogitation: Cogitation): List<Phenomenon> = if (responses) {
-        phenomena(client.async().responses().create(responseRequest(cogitation)).await())
+    override suspend fun cognize(cogitation: Cogitation): Cognized = if (responses) {
+        val response = client.async().responses().create(responseRequest(cogitation)).await()
+        Cognized(phenomena(response), inference(response))
     } else {
-        phenomena(client.async().chat().completions().create(chatRequest(cogitation)).await())
+        val completion = client.async().chat().completions().create(chatRequest(cogitation)).await()
+        Cognized(phenomena(completion), inference(completion))
     }
 
     internal fun chatRequest(cogitation: Cogitation): ChatCompletionCreateParams =
@@ -130,6 +138,46 @@ class OpenAIInference(
         is Continuation.ClaudeSignature, is Continuation.ClaudeRedacted, null -> null
     }
 
+    /** OpenAI-compatible servers might report less than OpenAI, e.g. no usage details at all. */
+    internal fun inference(completion: ChatCompletion): Inference {
+        val usage = completion._usage().known()
+        val input = usage?._promptTokensDetails()?.known()
+        val output = usage?._completionTokensDetails()?.known()
+        return inference(
+            input = usage?._promptTokens()?.known(),
+            cacheRead = input?._cachedTokens()?.known(),
+            cacheWrite = input?._cacheWriteTokens()?.known(),
+            output = usage?._completionTokens()?.known(),
+            reasoning = output?._reasoningTokens()?.known()
+        )
+    }
+
+    internal fun inference(response: Response): Inference {
+        val usage = response._usage().known()
+        val input = usage?._inputTokensDetails()?.known()
+        val output = usage?._outputTokensDetails()?.known()
+        return inference(
+            input = usage?._inputTokens()?.known(),
+            cacheRead = input?._cachedTokens()?.known(),
+            cacheWrite = input?._cacheWriteTokens()?.known(),
+            output = usage?._outputTokens()?.known(),
+            reasoning = output?._reasoningTokens()?.known()
+        )
+    }
+
+    /** The [input] tokens of OpenAI include the cached ones, and its [output] tokens the reasoning ones. */
+    private fun inference(input: Long?, cacheRead: Long?, cacheWrite: Long?, output: Long?, reasoning: Long?) = Inference(
+        model = modelId,
+        provider = provider,
+        tokens = buildMap {
+            put(Tokens.INPUT, (input ?: 0) - (cacheRead ?: 0) - (cacheWrite ?: 0))
+            put(Tokens.CACHE_READ, cacheRead ?: 0)
+            put(Tokens.CACHE_WRITE, cacheWrite ?: 0)
+            put(Tokens.REASONING, reasoning ?: 0)
+            put(Tokens.OUTPUT, (output ?: 0) - (reasoning ?: 0))
+        }.filterValues { it > 0 }
+    )
+
     internal fun phenomena(completion: ChatCompletion): List<Phenomenon> {
         val message = completion.choices().first().message()
         // not part of the OpenAI API, but returned by vLLM
@@ -177,6 +225,9 @@ class OpenAIInference(
     }
 
 }
+
+/** The value of this field, `null` when missing, or of unexpected type, instead of throwing. */
+private fun <T : Any> JsonField<T>.known(): T? = asKnown().orElse(null)
 
 private fun String.message(role: EasyInputMessage.Role): EasyInputMessage =
     EasyInputMessage.builder().role(role).content(this).build()

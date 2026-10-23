@@ -48,12 +48,13 @@ private suspend fun unfold(
 ): Cogitation {
     val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
     val inferenceInitiated = Clock.System.now()
-    val phenomena = cognizer.cognize(cogitation)
+    val (phenomena, inference) = cognizer.cognize(cogitation)
     val inferred = cogitation + Enunciation(
         actant = Actant.SELF,
         initiated = inferenceInitiated,
         finalized = Clock.System.now(),
-        phenomena = phenomena
+        phenomena = phenomena,
+        inference = inference
     )
     val intent = phenomena.filterIsInstance<Phenomenon.Intent>().lastOrNull()
     return if (intent == null) {

@@ -19,6 +19,7 @@
 package com.xemantic.ai.annie.cognizer
 
 import com.xemantic.ai.annie.Cogitation
+import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
 
 /**
@@ -28,7 +29,16 @@ import com.xemantic.ai.annie.Phenomenon
  */
 fun interface Cognizer {
 
-    /** Phenomena of a single inference, e.g. a [Phenomenon.Monologue] followed by a [Phenomenon.Intent]. */
-    suspend fun cognize(cogitation: Cogitation): List<Phenomenon>
+    /** A single inference, see [Cognized]. */
+    suspend fun cognize(cogitation: Cogitation): Cognized
 
 }
+
+/**
+ * @property phenomena of a single inference, e.g. a [Phenomenon.Monologue] followed by a [Phenomenon.Intent].
+ * @property inference expressing the [phenomena], `null` when nothing was inferred, e.g. by a scripted cognizer.
+ */
+data class Cognized(
+    val phenomena: List<Phenomenon>,
+    val inference: Inference? = null
+)

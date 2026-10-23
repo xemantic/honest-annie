@@ -30,9 +30,12 @@ import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
 import com.xemantic.ai.annie.Cogitation
+import com.xemantic.ai.annie.Inference
+import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
+import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.cognizer.Turn
 import com.xemantic.ai.annie.cognizer.toTurns
@@ -52,6 +55,7 @@ import kotlinx.coroutines.future.await
  *
  * @param model the model id as known to the endpoint, e.g. a Bedrock one.
  * @param modelId the canonical id of the [model], the same at every endpoint serving it.
+ * @param provider who serves the [model] through the [client], reported in the [Inference].
  * @param maxTokens the maximal number of tokens of a single inference, the monologue included,
  * the maximum of Claude Opus 5.5 by default.
  * @param effort how much effort is put into the monologue and the response, the default of the model when `null`.
@@ -61,14 +65,17 @@ class ClaudeInference(
     private val client: AnthropicClient,
     private val model: String,
     private val modelId: String = model,
+    private val provider: String = "anthropic",
     private val maxTokens: Long = 128_000,
     private val effort: Monologue.Effort? = null,
     private val visibility: Monologue.Visibility = Monologue.Visibility.HIDDEN,
     private val tailCache: CacheControlEphemeral.Ttl = CacheControlEphemeral.Ttl.TTL_5M
 ) : Cognizer {
 
-    override suspend fun cognize(cogitation: Cogitation): List<Phenomenon> =
-        phenomena(client.async().messages().create(request(cogitation)).await())
+    override suspend fun cognize(cogitation: Cogitation): Cognized {
+        val message = client.async().messages().create(request(cogitation)).await()
+        return Cognized(phenomena(message), inference(message))
+    }
 
     internal fun request(cogitation: Cogitation): MessageCreateParams = MessageCreateParams.builder()
         .model(model)
@@ -117,6 +124,29 @@ class ClaudeInference(
                 .build())
         } else null
         is Continuation.OpenAIReasoning, null -> null
+    }
+
+    /** The input tokens of Claude exclude the cached ones, while its output tokens include the thinking ones. */
+    internal fun inference(message: Message): Inference {
+        val usage = message.usage()
+        val cacheCreation = usage.cacheCreation().orElse(null)
+        val thinking = usage.outputTokensDetails().map { it.thinkingTokens() }.orElse(0L)
+        return Inference(
+            model = modelId,
+            provider = provider,
+            tokens = buildMap {
+                put(Tokens.INPUT, usage.inputTokens())
+                put(Tokens.CACHE_READ, usage.cacheReadInputTokens().orElse(0L))
+                if (cacheCreation != null) {
+                    put(Tokens.CACHE_WRITE_5M, cacheCreation.ephemeral5mInputTokens())
+                    put(Tokens.CACHE_WRITE_1H, cacheCreation.ephemeral1hInputTokens())
+                } else {
+                    put(Tokens.CACHE_WRITE, usage.cacheCreationInputTokens().orElse(0L))
+                }
+                put(Tokens.REASONING, thinking)
+                put(Tokens.OUTPUT, usage.outputTokens() - thinking)
+            }.filterValues { it > 0 }
+        )
     }
 
     /** Thinking blocks become monologues, and consecutive text blocks a single intent. */

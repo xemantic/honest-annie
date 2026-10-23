@@ -56,7 +56,7 @@ fun main(args: Array<String>) {
         val model = System.getenv("YCLUSTER_MODEL") ?: "glm-5.3-flash"
         val ycluster = yclusterClient()
         client = AutoCloseable(ycluster::close)
-        cognizer = OpenAIInference(ycluster, model)
+        cognizer = OpenAIInference(ycluster, model, provider = "ycluster.net")
     }
     client.use {
         val executor = ScriptExecutor()

@@ -110,6 +110,8 @@ data class Actant(
  * @property respondsTo the id of the [Phenomenon.Request] this enunciation responds to.
  * @property id unique within its cogitation, the [responseId] of the request it responds to,
  * so that enunciating the same response again is recognized as such.
+ * @property inference the inference expressing this enunciation, `null` when it was not inferred.
+ * Never perceived by the cognizer, so that the rendering of past turns never changes.
  */
 data class Enunciation(
     val actant: Actant,
@@ -117,7 +119,8 @@ data class Enunciation(
     val finalized: Instant = initiated,
     val respondsTo: String? = null,
     val id: String = respondsTo?.let(::responseId) ?: randomId(),
-    val phenomena: List<Phenomenon>
+    val phenomena: List<Phenomenon>,
+    val inference: Inference? = null
 ) {
     init {
         require(finalized >= initiated) {
@@ -128,13 +131,47 @@ data class Enunciation(
 }
 
 /**
+ * A single inference of a model, as reported by the provider serving it, the same for every provider.
+ *
+ * @property model the canonical id of the model which inferred, the same at every endpoint serving it.
+ * @property provider who served the inference, e.g. `anthropic`, `bedrock` or `ycluster.net`.
+ * @property tokens the numbers of tokens by their category, a category without tokens being absent.
+ * The categories are disjoint, so that each token is counted once, and they sum up to the [total].
+ */
+data class Inference(
+    val model: String,
+    val provider: String,
+    val tokens: Map<Tokens, Long> = emptyMap()
+) {
+    enum class Tokens {
+        /** Input processed anew, neither read from a cache, nor written to it. */
+        INPUT,
+        /** Input read from a cache, usually billed at a fraction of the [INPUT]. */
+        CACHE_READ,
+        /** Input written to a cache whose lifetime is not reported. */
+        CACHE_WRITE,
+        /** Input written to a cache living 5 minutes. */
+        CACHE_WRITE_5M,
+        /** Input written to a cache living 1 hour. */
+        CACHE_WRITE_1H,
+        /** Output of the monologue, when reported apart from the rest of the [OUTPUT]. */
+        REASONING,
+        /** Output, except the [REASONING]. */
+        OUTPUT
+    }
+    val total: Long get() = tokens.values.sum()
+}
+
+/**
  * A cogitation is unfolded by its [harness], a Kotlin script whose body is evaluated as a suspending block
  * with a `CoroutineScope` receiver, in the coroutine of the host, and the value of its last expression
  * must be the unfolded [Cogitation]. These properties are provided:
  * - `cogitation`: [Cogitation] to unfold, its [harness] being the source of this very script,
  * - `cognizer`: `Cognizer` of the package `com.xemantic.ai.annie.cognizer`, whose
- *   `suspend fun cognize(cogitation: Cogitation): List<Phenomenon>` makes a single inference,
- *   to be enunciated by [Actant.SELF]; only inferences made this way are recorded,
+ *   `suspend fun cognize(cogitation: Cogitation): Cognized` makes a single inference, returning
+ *   `data class Cognized(val phenomena: List<Phenomenon>, val inference: Inference? = null)`:
+ *   the phenomena to be enunciated by [Actant.SELF], and the [Inference] expressing them,
+ *   to be carried by that enunciation; only inferences made this way are recorded,
  * - `executor`: `ScriptExecutor`, whose
  *   `suspend fun execute(script: String, agency: Agency, dependencies: ScriptDependencies.(collecting: Agency) -> Unit): List<Phenomenon>`
  *   executes an intent, providing it with the `dependencies`, e.g. `"cogitation" provides cogitation` and

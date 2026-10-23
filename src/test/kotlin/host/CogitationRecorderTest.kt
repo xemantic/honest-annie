@@ -21,6 +21,7 @@ package com.xemantic.ai.annie.host
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
+import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.kotlin.test.assert
 import kotlin.io.path.createTempDirectory
@@ -118,6 +119,42 @@ class CogitationRecorderTest {
         // then
         val index = recordingDir.listDirectoryEntries().single().resolve("cogitation.md").readText()
         assert(index.contains("| 002 | self `self` ↩ 001-3 |"))
+    }
+
+    @Test
+    fun `should index inference of enunciation`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                Enunciation(
+                    actant = Actant.SELF,
+                    phenomena = listOf(Phenomenon.Intent("1")),
+                    inference = Inference(
+                        model = "claude-opus-5-5",
+                        provider = "anthropic",
+                        tokens = mapOf(
+                            Inference.Tokens.INPUT to 3L,
+                            Inference.Tokens.CACHE_WRITE_1H to 1000L,
+                            Inference.Tokens.OUTPUT to 40L
+                        )
+                    )
+                ),
+                Enunciation(actant = computer, phenomena = listOf(Phenomenon.Text("1")))
+            )
+        )
+
+        // when
+        CogitationRecorder(recordingDir).record(cogitation)
+
+        // then
+        val index = recordingDir.listDirectoryEntries().single().resolve("cogitation.md").readText()
+        assert(index.contains(
+            "| [intent](001-1-self-intent.kts) | `claude-opus-5-5` by anthropic: 3 input, 1000 cache write 1h, 40 output |\n"
+        ))
+        assert(index.contains("| [text](002-1-computer-text.md) |  |\n"))
     }
 
 }

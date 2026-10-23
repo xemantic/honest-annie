@@ -308,8 +308,11 @@ class HarnessHost(
         } catch (e: Exception) {
             logger.warn(e) { "[$id] Inference failed after ${Clock.System.now() - initiated}" }
             throw e
-        }.also {
-            logger.info { "[$id] Inferred in ${Clock.System.now() - initiated}: ${it.kinds()}" }
+        }.also { (phenomena, inference) ->
+            logger.info {
+                "[$id] Inferred in ${Clock.System.now() - initiated}: ${phenomena.kinds()}" +
+                        (inference?.let { ", by ${it.model} of ${it.provider}: ${it.tokensDescription()}" } ?: "")
+            }
         }
     }
 
