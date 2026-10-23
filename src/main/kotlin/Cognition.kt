@@ -36,6 +36,7 @@ sealed interface Phenomenon {
     data class Text(val text: String, val contentType: String = MARKDOWN) : Phenomenon {
         companion object {
             const val MARKDOWN = "text/markdown"
+            const val PLAIN = "text/plain"
         }
     }
     class Data(val bytes: ByteArray, val contentType: String? = null) : Phenomenon {
@@ -94,10 +95,12 @@ data class Actant(
     val name: String,
     val spec: String? = null
 ) {
-    enum class Type { SELF, OTHER_AI, HUMAN, COMPUTER, UNIDENTIFIED }
+    enum class Type { SELF, INVOKER, OTHER_AI, HUMAN, COMPUTER, UNIDENTIFIED }
     companion object {
         /** The actant of every enunciation of the cognizer, never revealing its model. */
         val SELF = Actant(type = Type.SELF, name = "self")
+        /** The actant of the prompt of an invoked cogitation: the cogitation which invoked it, see [Agency.invoke]. */
+        val INVOKER = Actant(type = Type.INVOKER, name = "invoker")
     }
 }
 
@@ -135,13 +138,15 @@ data class Enunciation(
  * - `executor`: `ScriptExecutor`, whose
  *   `suspend fun execute(script: String, agency: Agency, dependencies: ScriptDependencies.(collecting: Agency) -> Unit): List<Phenomenon>`
  *   executes an intent, providing it with the `dependencies`, e.g. `"cogitation" provides cogitation` and
- *   `"agency" provides collecting`, the agency collecting the phenomena enunciated and invoked through it,
- *   and returns these phenomena, in their order, ignoring the value of the script;
- *   when the intent fails, the [Phenomenon.Impediment] describing the failure follows them,
+ *   `"agency" provides collecting`, the agency collecting the invocations made through it,
+ *   and returns the result of the intent: these invocations, in their order, followed by the value
+ *   of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`; when the intent fails,
+ *   the [Phenomenon.Impediment] describing the failure follows the invocations instead.
+ *   What the intent enunciates through the agency is not part of its result, but the output of the cogitation,
  * - `agency`: [Agency] within this cogitation, to be passed on to intents.
  *
  * The harness unfolds the cogitation by a single step, e.g. one inference, and is executed
- * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. an intent producing no phenomena:
+ * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. an intent enunciating output, which is not responded:
  * then the cogitation rests, until another interaction progresses it.
  * A cogitation awaiting [unansweredInvocations] is not unfolded further
  * until all of them are answered, the responding [Enunciation]s appended to it.

@@ -32,6 +32,14 @@ no Markdown code fences, no prose outside of Kotlin comments.
 The script body already runs inside a coroutine with a `CoroutineScope` receiver:
 call suspend functions directly, use `async`/`launch` for concurrency, and never use `runBlocking`.
 
+Your script has two channels:
+- its result, perceived only by you, in the response of the computer: the value of its last expression,
+  unless `Unit` or `null`, e.g. a `String` you build to inspect anything you need,
+- its output, perceived by whoever invoked the cogitation: what you enunciate through `agency`.
+
+Enunciating output, without invoking anything, ends the cogitation: the result of such a script is not perceived.
+Therefore enunciate only your final answer, complete, in a single script, and never interim findings.
+
 Only `kotlinx.coroutines.async` is imported by default. Start every script with the imports of
 everything else it uses, including the types below, e.g. `Phenomenon` or `Agency`,
 which belong to the package `com.xemantic.ai.annie`:
@@ -65,6 +73,8 @@ Each perceived enunciation starts with a `golem:actant` tag rendered by the harn
 
 It identifies who expressed what follows, and when (`finalized` only when the expression took time).
 An enunciation responding to an invocation carries its id as `responds-to`.
+In a cogitation you were invoked to unfold, the `invoker` actant is the cogitation which invoked you,
+and its prompt is your task.
 
 Phenomena which are not text are rendered as `golem` tags too: `golem:invocation`, `golem:data`
 and `golem:impediment`, the latter followed by its reason, while `golem:text` precedes text of other content type than Markdown.

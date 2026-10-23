@@ -33,7 +33,7 @@ sealed interface Turn<out P> {
 /**
  * Intents and monologues become assistant turns, everything else is perceived in user turns,
  * headed by the actant of the enunciation. The role follows the phenomenon, not the actant:
- * a request from the parent cogitation is enunciated by [Actant.Type.SELF], yet perceived.
+ * the output of an invoked cogitation is enunciated by [Actant.Type.SELF], yet perceived.
  *
  * @param intent the assistant part of the intent.
  * @param monologue the assistant part of the monologue, `null` when it cannot be replayed to the model.

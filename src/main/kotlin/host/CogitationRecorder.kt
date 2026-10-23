@@ -34,12 +34,14 @@ import kotlinx.coroutines.withContext
 /**
  * Records a cogitation as a folder within [parentDir], named after the moment of its first
  * enunciation, e.g. `2026-10-14T15-02-02.543893Z`. Each phenomenon becomes a file named after
- * its enunciation number, actant type and kind, e.g. `001-human-text.md`, `002-self-intent.kts`,
- * while `cogitation.md` indexes the enunciations, `constitution.md` holds the constitution,
+ * its enunciation number, its position within the enunciation, actant type and kind,
+ * e.g. `001-1-human-text.md`, `002-1-self-monologue.md`, `002-2-self-intent.kts`,
+ * so that the files are listed in the order of their enunciation, while `cogitation.md` indexes the enunciations, `constitution.md` holds the constitution,
  * and `harness.kts` the harness unfolding the cogitation.
  *
- * Invoked cogitations are recorded in subfolders prefixed with the number of the enunciation
- * holding their invocation, e.g. `003-2026-10-14T15-02-08.074487Z`, see [invoked].
+ * Invoked cogitations are recorded in subfolders prefixed with the number and position of
+ * their invocation, e.g. `003-2-2026-10-14T15-02-08.074487Z`, listed next to `003-2-computer-invocation.md`,
+ * see [invoked].
  */
 class CogitationRecorder(
     private val parentDir: Path,
@@ -52,8 +54,8 @@ class CogitationRecorder(
 
     private val index = StringBuilder()
 
-    /** Numbers of enunciations holding requests, by request id. */
-    private val requests = mutableMapOf<String, Int>()
+    /** Positions of requests, the numbers of their enunciations followed by their positions within, by request id. */
+    private val requests = mutableMapOf<String, String>()
 
     /** Records the enunciations of the [cogitation] not recorded yet. */
     suspend fun record(
@@ -70,7 +72,7 @@ class CogitationRecorder(
     /** Recorder of the cogitation unfolding the [invocation] enunciated in the recorded one. */
     fun invoked(invocation: Phenomenon.Invocation): CogitationRecorder = CogitationRecorder(
         parentDir = checkNotNull(dir) { "No enunciation recorded yet to invoke a cogitation" },
-        prefix = "${number(checkNotNull(requests[invocation.id]) { "Invocation ${invocation.id} not recorded" })}-"
+        prefix = "${checkNotNull(requests[invocation.id]) { "Invocation ${invocation.id} not recorded" }}-"
     )
 
     private fun createDir(cogitation: Cogitation): Path {
@@ -101,17 +103,20 @@ class CogitationRecorder(
     private fun record(dir: Path, number: Int, enunciation: Enunciation) {
         val actant = enunciation.actant
         val kinds = mutableMapOf<String, Int>()
-        val files = enunciation.phenomena.map { phenomenon ->
-            if (phenomenon is Phenomenon.Request) requests[phenomenon.id] = number
+        // positions padded, so that 10 sorts after 9
+        val width = enunciation.phenomena.size.toString().length
+        val files = enunciation.phenomena.mapIndexed { index, phenomenon ->
+            val position = "${number(number)}-${(index + 1).toString().padStart(width, '0')}"
+            if (phenomenon is Phenomenon.Request) requests[phenomenon.id] = position
             val (kind, extension, content) = phenomenon.toFile()
             val count = kinds.merge(kind, 1, Int::plus)!!
             val suffix = if (count == 1) "" else "-$count"
-            val file = "${number(number)}-${actant.type.name.lowercase()}-$kind$suffix.$extension"
+            val file = "$position-${actant.type.name.lowercase()}-$kind.$extension"
             dir.resolve(file).writeBytes(content)
             "[$kind$suffix]($file)"
         }
         val responding = enunciation.respondsTo?.let { id ->
-            requests[id]?.let { " ↩ ${number(it)}" } ?: " ↩ `$id`"
+            requests[id]?.let { " ↩ $it" } ?: " ↩ `$id`"
         } ?: ""
         index.append(
             "| ${number(number)} | ${actant.type.name.lowercase()} `${actant.name}`$responding " +

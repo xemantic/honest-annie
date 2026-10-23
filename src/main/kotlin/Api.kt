@@ -38,7 +38,8 @@ interface Agency {
     /**
      * Invokes a cogitation unfolded by the [harness] script, which can be a different one,
      * e.g. a modification of this [Agency.harness].
-     * The invoked cogitation is unfolded by the same cognizer.
+     * The invoked cogitation is unfolded by the same cognizer, starting with the [prompt]
+     * enunciated by [Actant.INVOKER].
      *
      * Returns immediately: the returned [Phenomenon.Invocation] is enunciated in the result
      * of the current intent, and the outcome of the invoked cogitation is perceived later,
@@ -51,7 +52,8 @@ interface Agency {
     ): Phenomenon.Invocation
     /**
      * Enunciates a [Phenomenon.Text] as the output of the current cogitation, which is perceived by its invoker
-     * once the cogitation rests, see [Cogitation]. Enunciated by an intent, it is also its result.
+     * once the cogitation rests, see [Cogitation]. Enunciated by an intent, it is not part of the result
+     * of the intent: what the intent needs to perceive itself is the value of its last expression.
      */
     suspend fun enunciate(text: String, contentType: String = Phenomenon.Text.MARKDOWN)
     /** Enunciates a [Phenomenon.Data] as the output of the current cogitation, like the text [enunciate]. */

@@ -19,16 +19,19 @@
 package com.xemantic.ai.annie
 
 // The default harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
-// The host executes it again for the next inference, unless the intent produced no phenomena, or awaits invocations.
+// The host executes it again for the next inference, unless the cogitation rests, or awaits invocations.
 //
 // Each intent is executed as a Kotlin script, its body evaluated as a suspending block with a `CoroutineScope`
 // receiver, in the coroutine of the harness, and the value of its last expression is ignored. These properties are provided:
 // - `cogitation`: Cogitation including the enunciation carrying the intent,
 // - `agency`: Agency within the cogitation, invoking new ones and enunciating its output.
 //
-// The result of an intent is enunciated by the computer, responding to the intent: the phenomena it enunciated
-// and invoked, in their order, followed by the impediment describing its failure, if it failed.
-// An intent producing no phenomena is not responded: the cogitation rests until another interaction progresses it.
+// What an intent enunciates through `agency` is the output of the cogitation, perceived by its invoker.
+// Its result is enunciated by the computer, responding to the intent: the invocations it made, in their order,
+// followed by its value, unless `Unit` or `null`, or by the impediment describing its failure, if it failed.
+// The cogitation rests, until another interaction progresses it, when the intent is not responded:
+// when it enunciated output, invoking nothing and not failing, its value being ignored,
+// or when its result is empty.
 import com.xemantic.ai.annie.cognizer.Cognizer
 import kotlin.time.Clock
 
@@ -58,11 +61,15 @@ private suspend fun unfold(
         inferred
     } else {
         val initiated = Clock.System.now()
+        val output = agency.enunciated.size
         val result = executor.execute(intent.script, agency) { collecting ->
             "cogitation" provides inferred
             "agency" provides collecting
         }
-        if (result.isEmpty()) {
+        val enunciated = agency.enunciated.size > output
+        val rests = result.isEmpty()
+                || enunciated && result.none { it is Phenomenon.Invocation || it is Phenomenon.Impediment }
+        if (rests) {
             inferred
         } else {
             inferred + Enunciation(

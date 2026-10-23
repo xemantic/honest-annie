@@ -64,8 +64,8 @@ class HarnessTest {
         ))
     )
 
-    /** Intent producing no phenomena, which ends the loop of inferences, its value being ignored. */
-    private val restingIntent = "6 * 7"
+    /** Intent producing no phenomena, which ends the loop of inferences. */
+    private val restingIntent = "Unit"
 
     /** Harness of invoked cogitations, enunciating their prompt, without any inference. */
     private val echoHarness = """
@@ -91,13 +91,14 @@ class HarnessTest {
     """.trimIndent()
 
     @Test
-    fun `should unfold cogitation with default harness until intent produces no phenomena`() = runTest(timeout = 5.minutes) {
+    fun `should rest cogitation right after intent enunciating output`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
             """
             import com.xemantic.ai.annie.*
             agency.enunciate("answer is 42")
             agency.enunciate(byteArrayOf(4, 2), "application/octet-stream")
+            "ignored value"
             """.trimIndent(),
             restingIntent
         )
@@ -106,17 +107,53 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation(defaultHarness))
 
         // then
-        val enunciated = listOf(
+        assert(output.actant == Actant.SELF)
+        assert(output.phenomena == listOf(
             Phenomenon.Text("answer is 42"),
             Phenomenon.Data(byteArrayOf(4, 2), "application/octet-stream")
+        ))
+        assert(cognizer.perceived.size == 1)
+    }
+
+    @Test
+    fun `should perceive value of intent and infer again`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            "6 * 7",
+            "agency.enunciate(\"answer is 42\")"
         )
-        assert(output.actant == Actant.SELF)
-        assert(output.phenomena == enunciated)
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("answer is 42")))
         assert(cognizer.perceived.size == 2)
         val perceived = cognizer.perceived.last().enunciations
         val intent = perceived[perceived.size - 2].phenomena.single() as Phenomenon.Intent
-        assert(perceived.last().respondsTo == intent.id)
-        assert(perceived.last().phenomena == enunciated)
+        val response = perceived.last()
+        assert(response.actant.type == Actant.Type.COMPUTER)
+        assert(response.respondsTo == intent.id)
+        assert(response.phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should not rest after intent enunciating output while invoking`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            """
+            agency.enunciate("interim")
+            agency.invoke("sub", harness = ECHO_HARNESS)
+            """.trimIndent().withEchoHarness(),
+            respondedIntent
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("interim"), Phenomenon.Text("echo: sub")))
+        assert(cognizer.perceived.size == 2)
     }
 
     @Test
@@ -137,8 +174,7 @@ class HarnessTest {
         // given
         val cognizer = ScriptedCognizer(
             "error(\"boom\")",
-            "agency.impede(\"cannot proceed\")",
-            restingIntent
+            "agency.impede(\"cannot proceed\")"
         )
 
         // when
@@ -146,6 +182,7 @@ class HarnessTest {
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Impediment("cannot proceed")))
+        assert(cognizer.perceived.size == 2)
         val response = cognizer.perceived[1].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
         assert((response.phenomena.single() as Phenomenon.Impediment).reason.contains("boom"))
@@ -191,8 +228,7 @@ class HarnessTest {
             "\"cogitation\" provides inferred\n    \"answer\" provides 42"
         )
         val cognizer = ScriptedCognizer(
-            "agency.enunciate(\"answer is \" + answer + \" after \" + cogitation.enunciations.size)",
-            restingIntent
+            "agency.enunciate(\"answer is \" + answer + \" after \" + cogitation.enunciations.size)"
         )
 
         // when
@@ -208,8 +244,7 @@ class HarnessTest {
         // given
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub\", harness = ${echoHarness.quoted()})",
-            respondedIntent,
-            restingIntent
+            respondedIntent
         )
 
         // when
@@ -230,6 +265,27 @@ class HarnessTest {
     }
 
     @Test
+    fun `should enunciate prompt of invoked cogitation by its invoker`() = runTest(timeout = 5.minutes) {
+        // given
+        val actantHarness = """
+            import com.xemantic.ai.annie.*
+            val actant = cogitation.enunciations.single().actant
+            agency.enunciate(actant.type.name + " " + actant.name)
+            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("done")))
+        """.trimIndent()
+        val cognizer = ScriptedCognizer(
+            "agency.invoke(\"sub\", harness = ${actantHarness.quoted()})",
+            respondedIntent
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("INVOKER invoker")))
+    }
+
+    @Test
     fun `should await responses to all the invocations before cognizing further`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
@@ -238,15 +294,14 @@ class HarnessTest {
             agency.invoke("first", harness = harness)
             agency.invoke("second", harness = harness)
             """.trimIndent().withEchoHarness(),
-            respondedIntent,
-            restingIntent
+            respondedIntent
         )
 
         // when
         val output = cognize(cognizer, cogitation(defaultHarness))
 
         // then
-        assert(cognizer.perceived.size == 3)
+        assert(cognizer.perceived.size == 2)
         val responses = cognizer.perceived[1].enunciations.takeLast(2)
         assert(responses.all { it.respondsTo != null })
         assert(output.phenomena.toSet() == setOf(Phenomenon.Text("echo: first"), Phenomenon.Text("echo: second")))
@@ -288,8 +343,7 @@ class HarnessTest {
         val recordingDir = createTempDirectory("cogitations")
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub\", harness = ${echoHarness.quoted()})",
-            respondedIntent,
-            restingIntent
+            respondedIntent
         )
 
         // when
@@ -300,12 +354,13 @@ class HarnessTest {
         val files = root.listDirectoryEntries().map { it.name }.toSet()
         assert(files.containsAll(listOf(
             "cogitation.md", "constitution.md", "harness.kts",
-            "001-human-text.md", "002-self-intent.kts", "003-computer-invocation.md",
-            "004-self-text.md", "005-self-intent.kts", "006-computer-text.md", "007-self-intent.kts"
+            "001-1-human-text.md", "002-1-self-intent.kts", "003-1-computer-invocation.md",
+            "004-1-self-text.md", "005-1-self-intent.kts"
         )))
+        assert(files.none { it.startsWith("006-") })
         val invoked = root.listDirectoryEntries().single { it.isDirectory() }
-        assert(invoked.name.startsWith("003-"))
-        assert(invoked.listDirectoryEntries().any { it.name == "002-self-text.md" })
+        assert(invoked.name.startsWith("003-1-"))
+        assert(invoked.listDirectoryEntries().any { it.name == "002-1-self-text.md" })
     }
 
 }

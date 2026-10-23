@@ -237,7 +237,7 @@ class HarnessHost(
                             constitution = listOfNotNull(invocation.constitution),
                             harness = invocation.harness,
                             enunciations = listOf(Enunciation(
-                                actant = Actant.SELF,
+                                actant = Actant.INVOKER,
                                 phenomena = listOf(Phenomenon.Text(invocation.prompt))
                             ))
                         ),

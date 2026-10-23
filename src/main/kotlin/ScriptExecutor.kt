@@ -28,7 +28,7 @@ import com.xemantic.kotlin.script.ScriptExecutor as KotlinScriptExecutor
 interface ScriptExecutor {
     /**
      * Executes the [script] of an intent, providing it with the [dependencies], given the [agency]
-     * collecting the phenomena enunciated and invoked through it, e.g.:
+     * collecting the invocations made through it, e.g.:
      *
      * ```
      * executor.execute(intent.script, agency) { collecting ->
@@ -37,11 +37,14 @@ interface ScriptExecutor {
      * }
      * ```
      *
-     * Only the phenomena of the collecting agency form the result, not those of the [agency] itself.
+     * Only the invocations of the collecting agency form the result, not those of the [agency] itself.
+     * What the script enunciates is not part of its result, but the output of the cogitation,
+     * see [Agency.enunciated].
      *
-     * @return the phenomena the script enunciated and invoked through the collecting agency, in their order,
-     * followed by the [Phenomenon.Impediment] describing its failure, if it failed.
-     * The value of the script is ignored.
+     * @return the invocations the script made through the collecting agency, in their order,
+     * followed by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
+     * unless it is `Unit`, `null`, an invocation, or a collection of nothing else.
+     * If the script failed, the [Phenomenon.Impediment] describing the failure follows the invocations instead.
      */
     suspend fun execute(
         script: String,
@@ -61,36 +64,29 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
         val result = executor.execute(script) {
             dependencies(collecting)
         }
-        return collecting.phenomena + listOfNotNull(
-            (result as? ScriptResult.Error)?.let { Phenomenon.Impediment(it.message) }
+        return collecting.collected + listOfNotNull(
+            when (result) {
+                is ScriptResult.Error -> Phenomenon.Impediment(result.message)
+                is ScriptResult.Value -> when (val value = result.value) {
+                    null, Unit, is Phenomenon.Invocation -> null
+                    // already in the result, e.g. `prompts.map { agency.invoke(it) }`
+                    is Iterable<*> if value.any() && value.all { it is Phenomenon.Invocation } -> null
+                    else -> Phenomenon.Text(value.toString(), Phenomenon.Text.PLAIN)
+                }
+            }
         )
     }
 }
 
-/** The [agency] collecting the [phenomena] enunciated and invoked through it. */
+/** The [agency] collecting the invocations made through it. */
 private class CollectingAgency(private val agency: Agency) : Agency by agency {
 
-    val phenomena = CopyOnWriteArrayList<Phenomenon>()
+    val collected = CopyOnWriteArrayList<Phenomenon.Invocation>()
 
     override fun invoke(
         prompt: String,
         harness: String,
         constitution: String?
-    ): Phenomenon.Invocation = agency.invoke(prompt, harness, constitution).also { phenomena += it }
-
-    override suspend fun enunciate(text: String, contentType: String) {
-        agency.enunciate(text, contentType)
-        phenomena += Phenomenon.Text(text, contentType)
-    }
-
-    override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
-        agency.enunciate(bytes, contentType)
-        phenomena += Phenomenon.Data(bytes, contentType)
-    }
-
-    override suspend fun impede(reason: String) {
-        agency.impede(reason)
-        phenomena += Phenomenon.Impediment(reason)
-    }
+    ): Phenomenon.Invocation = agency.invoke(prompt, harness, constitution).also { collected += it }
 
 }

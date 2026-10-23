@@ -54,7 +54,7 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should collect phenomena enunciated and invoked in order, ignoring the value`() = runTest(timeout = 5.minutes) {
+    fun `should return invocations followed by value, excluding enunciated output`() = runTest(timeout = 5.minutes) {
         // given
         val agency = TestAgency()
 
@@ -75,10 +75,8 @@ class ScriptExecutorTest {
 
         // then
         assert(phenomena == listOf(
-            Phenomenon.Text("first"),
             agency.invocations.single(),
-            Phenomenon.Data(byteArrayOf(4, 2)),
-            Phenomenon.Impediment("stuck")
+            Phenomenon.Text("42", Phenomenon.Text.PLAIN)
         ))
         assert(agency.enunciated == listOf(
             Phenomenon.Text("first"),
@@ -88,21 +86,71 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should collect no phenomena of intent only evaluating to value`() = runTest(timeout = 5.minutes) {
+    fun `should return value of intent as text`() = runTest(timeout = 5.minutes) {
         // when
-        val phenomena = executor.execute("6 * 7", TestAgency()) { collecting ->
+        val number = executor.execute("6 * 7", TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+        val string = executor.execute("\"*answer*\"", TestAgency()) { collecting ->
             "agency" provides collecting
         }
 
         // then
-        assert(phenomena.isEmpty())
+        assert(number == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+        assert(string == listOf(Phenomenon.Text("*answer*", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should return nothing for intent evaluating to Unit or null`() = runTest(timeout = 5.minutes) {
+        // when
+        val unit = executor.execute("agency.enunciate(\"output\")", TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+        val nothing = executor.execute("null", TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(unit.isEmpty())
+        assert(nothing.isEmpty())
+    }
+
+    @Test
+    fun `should not repeat invocation which is the value of intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val agency = TestAgency()
+
+        // when
+        val phenomena = executor.execute("agency.invoke(\"sub\")", agency) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(phenomena == listOf(agency.invocations.single()))
+    }
+
+    @Test
+    fun `should not repeat invocations which are the value of intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val agency = TestAgency()
+
+        // when
+        val phenomena = executor.execute(
+            "listOf(\"first\", \"second\").map { agency.invoke(it) }",
+            agency
+        ) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(phenomena == agency.invocations)
     }
 
     @Test
     fun `should provide dependencies to intent along with agency`() = runTest(timeout = 5.minutes) {
         // when
         val phenomena = executor.execute(
-            "agency.enunciate(greeting + \" \" + answer)",
+            "agency.harness + greeting + \" \" + answer",
             TestAgency()
         ) { collecting ->
             "agency" provides collecting
@@ -111,21 +159,28 @@ class ScriptExecutorTest {
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("hello 42")))
+        assert(phenomena == listOf(Phenomenon.Text("hello 42", Phenomenon.Text.PLAIN)))
     }
 
     @Test
-    fun `should collect phenomena of agency provided under another name`() = runTest(timeout = 5.minutes) {
+    fun `should collect invocations of agency provided under another name`() = runTest(timeout = 5.minutes) {
         // given
         val agency = TestAgency()
 
         // when
-        val phenomena = executor.execute("self.enunciate(\"renamed\")", agency) { collecting ->
+        val phenomena = executor.execute(
+            """
+            self.enunciate("renamed")
+            self.invoke("sub")
+            Unit
+            """.trimIndent(),
+            agency
+        ) { collecting ->
             "self" provides collecting
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("renamed")))
+        assert(phenomena == listOf(agency.invocations.single()))
         assert(agency.enunciated == listOf(Phenomenon.Text("renamed")))
     }
 
@@ -140,7 +195,7 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should follow phenomena with impediment of failing intent`() = runTest(timeout = 5.minutes) {
+    fun `should return impediment of failing intent`() = runTest(timeout = 5.minutes) {
         // given
         val agency = TestAgency()
 
@@ -148,6 +203,7 @@ class ScriptExecutorTest {
         val phenomena = executor.execute(
             """
             agency.enunciate("before")
+            agency.invoke("sub")
             error("boom")
             """.trimIndent(),
             agency
@@ -157,7 +213,7 @@ class ScriptExecutorTest {
 
         // then
         assert(phenomena.size == 2)
-        assert(phenomena.first() == Phenomenon.Text("before"))
+        assert(phenomena.first() == agency.invocations.single())
         assert((phenomena.last() as Phenomenon.Impediment).reason.contains("boom"))
         // the failure impedes the intent, not the cogitation
         assert(agency.enunciated == listOf(Phenomenon.Text("before")))
