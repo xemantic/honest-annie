@@ -1,0 +1,48 @@
+# OOLONG eval
+
+Runs honest-annie on a fixed sample of [OOLONG-synth](https://huggingface.co/datasets/oolongbench/oolong-synth) tasks:
+long contexts of labeled-looking items whose labels are withheld,
+with questions answerable only by judging every item and aggregating exactly.
+
+## Running
+
+```shell
+pip install datasets
+python3 evals/oolong/oolong_eval.py prepare --context-len 131072                 # once per set
+python3 evals/oolong/oolong_eval.py run --set 128k --label what-changed          # with ANTHROPIC_MODEL or OPENAI_MODEL set
+python3 evals/oolong/oolong_eval.py report evals/oolong/data/runs/<run>          # evaluate a run again
+```
+
+`prepare` takes one task per dataset by default, each dataset a different kind of question,
+or several with `--per-dataset N`.
+A set is never changed once prepared,
+and each run records its set, model and commit,
+so that runs stay comparable.
+Everything under `data/` is local and ignored by git.
+
+## What the report tells
+
+- **score**: as in the OOLONG paper, partial credit `0.75^|error|` for numbers,
+  except that any of several tied gold answers counts, while the paper takes only the first.
+- **agree**: of the items the agent judged, how many it labeled as the dataset does.
+  This mostly measures the model, not the harness.
+- **own**: whether the answer follows from the agent's own labels —
+  the part the harness is responsible for.
+
+Judgments are read from the prompts and responses of invoked cogitations,
+and from maps of labels in the agent's own scripts.
+They are not read from booleans standing for labels, nor from judgments made only in a monologue:
+such runs show `-`.
+
+## Reference runs
+
+The runs to compare a change against, with `claude-opus-5-5`:
+
+| Set | Run | Commit | Score | Agree | Own | Tokens per run |
+|-----|-----|--------|-------|-------|-----|----------------|
+| 32k | `2026-10-24T16-52-15Z-judgments-direct` | `429e127` | 0.701 | 95.7% | 15 of 15 | 108k |
+| 128k | `2026-10-24T17-02-54Z-reference` | `caa049d` | 0.719 | 94.3% | 15 of 15 | 174k |
+
+With 2 repeats of 8 tasks, the score varies by about ±0.06 between runs of the same commit,
+as some tasks hinge on a near-tie which the label agreement of about 95% decides by chance.
+A change is better judged by **own** and the tokens.
