@@ -251,6 +251,22 @@ def judgments(recording, rows):
     for i, r in enumerate(rows):
         by_text[normalized(r[2])].append(i)
     labels = {r[3].lower(): r[3] for r in rows}
+
+    def item(text):
+        # the agent may shorten long instances, so a unique beginning identifies an item too
+        if text in by_text:
+            return by_text[text]
+        starting = [t for t in by_text if len(text) >= 20 and t.startswith(text)]
+        return by_text[starting[0]] if len(starting) == 1 else None
+
+    def label(said):
+        # a label, or a code it is the only one to begin with, e.g. `F` for formal
+        said = said.strip("*`'\". ").lower()
+        if said in labels:
+            return labels[said]
+        beginning = [l for l in labels if said and l.startswith(said)]
+        return labels[beginning[0]] if len(beginning) == 1 else None
+
     judged = {}
     for table in sorted(recording.rglob("cogitation.md")):
         cogitation = table.parent
@@ -262,14 +278,12 @@ def judgments(recording, rows):
                 continue
             listed = {}
             for key, text in KEYED.findall(prompt.read_text()):
-                text = normalized(text.split("|| Instance: ")[-1])
-                if text in by_text:
-                    listed[key] = by_text[text]
+                if (indices := item(normalized(text.split("|| Instance: ")[-1]))) is not None:
+                    listed[key] = indices
             for key, said in KEYED.findall(answer.read_text()):
-                label = labels.get(said.strip("*`'\". ").lower())
-                if label is not None and key in listed:
+                if (judgment := label(said)) is not None and key in listed:
                     for i in listed[key]:
-                        judged.setdefault(i, label)
+                        judged.setdefault(i, judgment)
     return judged
 
 
