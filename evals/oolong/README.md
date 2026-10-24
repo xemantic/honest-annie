@@ -47,3 +47,41 @@ The runs to compare a change against, with `claude-opus-5-5`:
 With 2 repeats of 8 tasks, the score varies by about ±0.06 between runs of the same commit,
 as some tasks hinge on a near-tie which the label agreement of about 95% decides by chance.
 A change is better judged by **own** and the tokens.
+
+## OOLONG-Pairs
+
+The 20 questions of [OOLONG-Pairs](https://huggingface.co/datasets/mit-oasys/oolong-pairs),
+from the [Recursive Language Models](https://arxiv.org/abs/2512.24601) paper,
+asking for every pair of users whose labels meet some conditions,
+over the single `trec_coarse` context window of a context length.
+They are taken, framed and scored as in the `oolong_pairs` environment of
+[PrimeIntellect-ai/prime-envs](https://github.com/PrimeIntellect-ai/prime-envs/tree/main/environments/long_context/oolong_pairs),
+so that the scores compare with the ones [Prime Agent](https://www.primeintellect.ai/blog/prime-agent) reports,
+but for the answer being enunciated rather than written to a file.
+
+```shell
+pip install datasets
+python3 evals/oolong/oolong_eval.py prepare --pairs                     # the set pairs-32k
+python3 evals/oolong/oolong_eval.py run --set pairs-32k --repeats 1 --label what-changed
+```
+
+The **score** is the F1 of the pairs, which has no ties to break.
+A wrong label of one item flips every pair of its user,
+so the score depends on the label agreement much more than on OOLONG.
+`prepare` checks that the gold pairs follow from the dataset's labels,
+which is what **own** is judged against.
+
+Prime Agent's reference with Opus 5, the context length not stated, the environment's default being 32k:
+0.929 in Prime Agent, 0.922 in Claude Code.
+
+| Set | Run | Model | Commit | Score | Agree | Own | Tokens per run |
+|-----|-----|-------|--------|-------|-------|-----|----------------|
+| pairs-32k | `2026-10-24T17-38-52Z-pairs-first` | `claude-opus-5-5` | `618acc2` | 0.920 | 97.3% | 20 of 20 | 176k |
+
+Every answer follows from the agent's own labels,
+so what is lost is lost in labeling,
+most on the questions asking for exact counts, where one label flips a user.
+
+```shell
+python3 -m unittest discover evals/oolong                               # tests of the evaluation itself
+```

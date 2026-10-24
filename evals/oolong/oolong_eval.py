@@ -24,6 +24,7 @@ import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
+from itertools import combinations
 from pathlib import Path
 
 import dateutil.parser
@@ -64,6 +65,24 @@ PROMPT = (
     "Without loading it all into your own context, answer: {question}"
 )
 
+# OOLONG-Pairs questions, framed as in the oolong_pairs environment of PrimeIntellect-ai/prime-envs,
+# but for the answer being enunciated rather than written to a file
+PAIRS = "PAIRS"
+PAIRS_PREFIX = (
+    "The context window contains thousands of general-knowledge questions, one per line. "
+    "Each line has a User ID, which is not necessarily unique (each User ID can be associated "
+    "with multiple questions). Each question has an answer that can be described as one of 6 "
+    "categories: 'numeric value', 'entity', 'location', 'description and abstract concept', "
+    "'abbreviation', 'human being' — they are not explicitly labeled, so you must infer the "
+    "label from the semantics of each question.\n\n"
+    "You will be asked to compute exact aggregate label statistics over pairs of users. "
+    "Do not guess, estimate, or approximate the result — calculate the exact answer.\n\n"
+)
+PAIRS_INSTRUCTIONS = (
+    "Answer with every matching pair as `(user_id_1, user_id_2)`, one per line, sorted by the first user ID, "
+    "and nothing else. If there are no matching pairs, answer exactly `[]`."
+)
+
 ITEM = re.compile(r"(?ms)^Date: (.*?) \|\| User: (\d+) \|\| Instance: (.*?) \|\| Label: ([^\n]*)$")
 
 
@@ -75,6 +94,8 @@ def items(labeled_text):
 def prepare(args):
     from datasets import load_dataset
 
+    if args.pairs:
+        return prepare_pairs(args)
     set_name = args.set or f"{args.context_len // 1024}k" + (f"-x{args.per_dataset}" if args.per_dataset > 1 else "")
     if tasks_dir(set_name).exists():
         sys.exit(f"the set {set_name} is already prepared, and runs might depend on it; name another with --set")
@@ -120,8 +141,45 @@ def prepare(args):
     print(f"prepared the set {set_name}")
 
 
+def prepare_pairs(args):
+    """The 20 OOLONG-Pairs questions over the trec_coarse context window of the context length, as prime-envs takes them."""
+    from datasets import load_dataset
+    from huggingface_hub import hf_hub_download
+
+    set_name = args.set or f"pairs-{args.context_len // 1024}k"
+    if tasks_dir(set_name).exists():
+        sys.exit(f"the set {set_name} is already prepared, and runs might depend on it; name another with --set")
+    # every trec_coarse task of a context length shares one context window, streamed not to read the whole split
+    row = next((r for r in load_dataset("oolongbench/oolong-synth", split="validation", streaming=True)
+                if r["dataset"] == "trec_coarse" and r["context_len"] == args.context_len), None)
+    if row is None:
+        sys.exit(f"no trec_coarse context window of context length {args.context_len}")
+    rows = items(row["context_window_text_with_labels"])
+    questions = json.loads(Path(hf_hub_download(
+        "mit-oasys/oolong-pairs", f"data/oolong-pairs-{args.context_len}.json", repo_type="dataset"
+    )).read_text())
+    contexts_dir(set_name).mkdir(parents=True)
+    for q in questions:
+        name = f"pairs-{int(q['id']):02d}"
+        (contexts_dir(set_name) / f"{name}.txt").write_text(row["context_window_text"])
+        task_dir = tasks_dir(set_name) / name
+        task_dir.mkdir(parents=True)
+        meta = {
+            "id": q["id"], "context_window_id": row["context_window_id"], "context_len": args.context_len,
+            "dataset": row["dataset"], "task": PAIRS, "question": q["question"], "answer": q["answer"]
+        }
+        (task_dir / "task.json").write_text(json.dumps(meta, indent=2) + "\n")
+        (task_dir / "labels.json").write_text(json.dumps(rows))
+        # the gold pairs should follow from the labels, as the consistency of answers is judged by them
+        solved = "" if solve_pairs(q["question"], rows) == gold(meta) else ", NOT the pairs solved from the labels"
+        print(f"{name}: expected {len(gold(meta))} pairs{solved}")
+    print(f"prepared the set {set_name}")
+
+
 def gold(task):
     """Every answer counted as correct: several when tied, while OOLONG's own scoring takes only the first."""
+    if task["task"] == PAIRS:
+        return parse_pairs(task["answer"])
     if "datetime" in task["answer"]:
         return [date(*map(int, d)) for d in re.findall(r"datetime\.date\((\d+), (\d+), (\d+)\)", task["answer"])]
     return ast.literal_eval(task["answer"])
@@ -170,6 +228,34 @@ def score(answers, answer_type, output):
     """The parsed output, and its score against the best matching one of the answers."""
     parsed = attempt_answer_parse(output)
     return parsed, max(score_one(a, answer_type, parsed) for a in answers)
+
+
+def parse_pairs(answer):
+    # prime-envs oolong_pairs' _parse_pairs, verbatim but for the name
+    pairs: set[tuple[int, int]] = set()
+    items = answer if isinstance(answer, list) else [answer]
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        matches = re.findall(r"\((\d+),\s*(\d+)\)", item)
+        if not matches:
+            matches = re.findall(r"(\d+),\s*(\d+)", item)
+        for a, b in matches:
+            id1, id2 = int(a), int(b)
+            pairs.add((id1, id2) if id1 < id2 else (id2, id1))
+    return pairs
+
+
+def pair_metrics(predicted, gold_pairs):
+    # prime-envs oolong_pairs' _pair_metrics, the F1 being the reward, but for think tags stripped
+    pred_pairs = parse_pairs(predicted or "")
+    if not pred_pairs and not gold_pairs:
+        return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
+    correct = len(pred_pairs & gold_pairs)
+    precision = correct / len(pred_pairs) if pred_pairs else 0.0
+    recall = correct / len(gold_pairs) if gold_pairs else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    return {"precision": precision, "recall": recall, "f1": f1}
 
 
 # --- answering a question from labels, to tell whether an answer follows from the agent's own labels ---
@@ -260,6 +346,60 @@ def solve(question, rows):
     return None
 
 
+TREC_LABELS = ["description and abstract concept", "entity", "human being", "numeric value", "location", "abbreviation"]
+COUNTS = {"one": 1, "two": 2, "three": 3}
+
+
+def labels_named(text):
+    return [label for label in TREC_LABELS if label in text]
+
+
+def label_conditions(text):
+    """
+    The conditions on the labels of one user, e.g. `at least two instances with entity and exactly one instance
+    with abbreviation` as `[("at least", 2, "entity"), ("exactly", 1, "abbreviation")]`.
+    """
+    found, quantifier = [], None
+    for said, n, label in re.findall(
+            r"(at least |exactly )?(one|two|three) (?:instances? )?with (?:an? )?(.+?)"
+            r"(?=,| and (?:at least |exactly )?(?:one|two|three) |$)", text):
+        # an elided quantifier, e.g. `at least one with entity and one with abbreviation`, carries over
+        quantifier = said.strip() or quantifier
+        found.append((quantifier, COUNTS[n], labels_named(label)[0]))
+    return found
+
+
+def solve_pairs(question, rows):
+    """The pairs of users an OOLONG-Pairs question asks for, answered from the given rows, or `None` for one this does not know."""
+    by_user = defaultdict(list)
+    for r in rows:
+        by_user[int(r[1])].append(r)
+    counts = {user: Counter(r[3] for r in own) for user, own in by_user.items()}
+    users = sorted(by_user)
+
+    def holds(user, conditions):
+        return all(counts[user][label] >= n if quantifier == "at least" else counts[user][label] == n
+                   for quantifier, n, label in conditions)
+
+    if m := re.search(r"where both users have at least one instance with (?:an? )?(.+?)"
+                      r"(?:, and all instances that are an? (.+?) for both users must be (before|after) (\w+ \d+, \d{4}))?\. Each",
+                      question):
+        wanted = labels_named(m[1])
+        at = m[4] and datetime.strptime(m[4], "%B %d, %Y").date()
+
+        def fits(user):
+            dated = [day(r) for r in by_user[user] if r[3] == m[2]]
+            return (any(counts[user][label] for label in wanted)
+                    and all(d < at if m[3] == "before" else d > at for d in dated))
+
+        return set(combinations([u for u in users if fits(u)], 2))
+    if m := re.search(r"such that one user has (.+?), and the other user has (.+?)\. Each", question):
+        one, other = label_conditions(m[1]), label_conditions(m[2])
+        return {(a, b) for a, b in combinations(users, 2)
+                if holds(a, one) and holds(b, other) or holds(b, one) and holds(a, other)}
+    return None
+
+
 # --- what the agent judged, read from the recorded cogitation ---
 
 # a line keyed by a number, e.g. `17: True`, `[17] True`, `- 17. True` or `ID 17: True`
@@ -306,10 +446,16 @@ def judgments(recording, rows):
             answer = next(cogitation.glob(f"{response}-1-self-text.*"), None)
             if not prompt.exists() or answer is None:
                 continue
-            listed, legend = {}, {}
+            # a code the prompt defines for a label, e.g. `ENTY (entity: things)` or `ENTY = entity (things)`,
+            # not always the beginning of the label
+            legend = {code: labels[label.strip().lower()] for code, label in
+                      re.findall(r"\b(\w+) ?(?:\(|= ?)([^:()=,]+)", prompt.read_text())
+                      if label.strip().lower() in labels}
+            listed = {}
             for key, text in KEYED.findall(prompt.read_text()):
                 if (indices := item(normalized(text.split("|| Instance: ")[-1]))) is not None:
-                    listed[key] = indices
+                    # items of the same text are told apart when keyed by their index
+                    listed[key] = [int(key)] if int(key) in indices else indices
                 elif text.strip().lower() in labels:
                     # a code the prompt defines for a label, e.g. `5: Sports`
                     legend[key] = labels[text.strip().lower()]
@@ -371,7 +517,12 @@ def evaluate(result, run_dir, set_name):
     rows = json.loads((task_dir / "labels.json").read_text())
     answers = gold(task)
     output = result["output"]
-    parsed, points = score(answers, task["answer_type"], output) if output else (None, 0.0)
+    pairs = task["task"] == PAIRS
+    if pairs:
+        metrics = pair_metrics(output, answers)
+        parsed, points = (f"{len(parse_pairs(output))} pairs" if output else None), metrics["f1"]
+    else:
+        parsed, points = score(answers, task["answer_type"], output) if output else (None, 0.0)
     recording = run_dir / result["run"]
     judged = judgments(recording, rows)
     if not judged:
@@ -380,7 +531,10 @@ def evaluate(result, run_dir, set_name):
         judged = self_judgments(recording, rows, task["question"], first_line)
     agreement = sum(rows[i][3] == label for i, label in judged.items()) / len(judged) if judged else None
     consistent = None
-    solved = solve(task["question"], rows)
+    solved = None if pairs else solve(task["question"], rows)
+    if pairs and parsed is not None and len(judged) == len(rows):
+        implied = solve_pairs(task["question"], [r[:3] + [judged[i]] for i, r in enumerate(rows)])
+        consistent = implied is not None and parse_pairs(output) == implied
     if solved is not None and parsed is not None:
         own = [r[:3] + [judged.get(i, r[3])] for i, r in enumerate(rows)]
         # known only when every item the question considers was judged, unless the answer ignores the labels
@@ -389,9 +543,11 @@ def evaluate(result, run_dir, set_name):
             consistent = bool(implied) and score(implied, task["answer_type"], output)[1] == 1.0
     leaked = any(re.search(r"task\.json|labels\.json", p.read_text()) for p in recording.rglob("*-intent.kts"))
     return result | {
-        "expected": " or ".join(map(str, answers)),
+        "expected": f"{len(answers)} pairs" if pairs else " or ".join(map(str, answers)),
         "parsed": parsed,
         "score": points,
+        "precision": metrics["precision"] if pairs else None,
+        "recall": metrics["recall"] if pairs else None,
         "judged": len(judged),
         "items": len(rows),
         "agreement": agreement,
@@ -424,10 +580,13 @@ def cogitate(task_dir, run_dir, repeat, timeout):
     name = f"{task_dir.name}-{repeat}"
     recording_dir = run_dir / name
     recording_dir.mkdir()
+    question = task["question"]
+    if task["task"] == PAIRS:
+        question = f"{PAIRS_PREFIX}{question}\n\n{PAIRS_INSTRUCTIONS}"
     prompt = PROMPT.format(
         context=task_dir.parents[1] / "contexts" / f"{task_dir.name}.txt",
         tokens=task["context_len"] // 1024,
-        question=task["question"]
+        question=question
     )
     started = time.monotonic()
     try:
@@ -510,7 +669,10 @@ def report(args):
     results = [evaluate(json.loads(l), run_dir, set_name) for l in lines]
     print(f"\n{run_dir.name}: {meta['model']} at {meta['commit'][:7]}{' (dirty)' if meta['dirty'] else ''}"
           f" on the set {set_name}")
-    print("  score: as OOLONG, any tied answer counted; agree: items labeled as the dataset does, of those judged;")
+    if any(r["precision"] is not None for r in results):
+        print("  score: F1 of the pairs, as prime-envs; agree: items labeled as the dataset does, of those judged;")
+    else:
+        print("  score: as OOLONG, any tied answer counted; agree: items labeled as the dataset does, of those judged;")
     print("  own: whether the answer follows from the agent's own labels, '-' when not all items were judged\n")
     width = max(len(r["task"]) for r in results)
     for task in sorted({r["task"] for r in results}):
@@ -521,7 +683,8 @@ def report(args):
             agree = f"{r['agreement']:.1%} of {r['judged']}" if r["agreement"] is not None else "-"
             own = {True: "yes", False: "NO", None: "-"}[r["consistent"]]
             leak = "  LEAKED: an intent read the gold answers" if r["leaked"] else ""
-            print(f"    {r['repeat']}  score {r['score']:.2f}  agree {agree:>13}  own {own:>3}  got {got}{leak}")
+            recall = f"  precision {r['precision']:.2f}  recall {r['recall']:.2f}" if r["precision"] is not None else ""
+            print(f"    {r['repeat']}  score {r['score']:.2f}{recall}  agree {agree:>13}  own {own:>3}  got {got}{leak}")
     mean = sum(r["score"] for r in results) / len(results)
     agreements = [r["agreement"] for r in results if r["agreement"] is not None]
     consistency = [r["consistent"] for r in results if r["consistent"] is not None]
@@ -551,6 +714,7 @@ if __name__ == "__main__":
     p = commands.add_parser("prepare")
     p.add_argument("--context-len", type=int, default=32768)
     p.add_argument("--per-dataset", type=int, default=1, help="tasks per dataset, each of another kind")
+    p.add_argument("--pairs", action="store_true", help="the 20 OOLONG-Pairs questions instead of OOLONG-synth tasks")
     p.add_argument("--set", help="the name of the set, by default from the context length and tasks per dataset")
     p.set_defaults(command=prepare)
     p = commands.add_parser("run")
