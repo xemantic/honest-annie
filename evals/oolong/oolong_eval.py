@@ -267,7 +267,8 @@ KEYED = re.compile(r"(?m)^[^\w\n]*(?:[A-Za-z]{1,6}\.?[ \t]+)?(\d+)[^\w'\"(\n]*(.
 
 
 def normalized(text):
-    return re.sub(r"^\W+|\s+$", "", text)
+    # the agent may collapse whitespace when passing items on
+    return re.sub(r"\s+", " ", re.sub(r"^\W+|\s+$", "", text))
 
 
 def judgments(recording, rows):
@@ -305,12 +306,16 @@ def judgments(recording, rows):
             answer = next(cogitation.glob(f"{response}-1-self-text.*"), None)
             if not prompt.exists() or answer is None:
                 continue
-            listed = {}
+            listed, legend = {}, {}
             for key, text in KEYED.findall(prompt.read_text()):
                 if (indices := item(normalized(text.split("|| Instance: ")[-1]))) is not None:
                     listed[key] = indices
+                elif text.strip().lower() in labels:
+                    # a code the prompt defines for a label, e.g. `5: Sports`
+                    legend[key] = labels[text.strip().lower()]
             for key, said in KEYED.findall(answer.read_text()):
-                if (judgment := label(said)) is not None and key in listed:
+                judgment = legend.get(said.strip("*`'\". ")) or label(said)
+                if judgment is not None and key in listed:
                     for i in listed[key]:
                         judged.setdefault(i, judgment)
     return judged
