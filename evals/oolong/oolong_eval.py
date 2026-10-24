@@ -79,11 +79,12 @@ def prepare(args):
     if tasks_dir(set_name).exists():
         sys.exit(f"the set {set_name} is already prepared, and runs might depend on it; name another with --set")
     ds = load_dataset("oolongbench/oolong-synth", split="test")
-    # selected by a column alone, as materializing the rows reads every context window, up to 4M tokens
+    # chosen by the columns of metadata alone, as materializing a row reads its context windows, up to 4M tokens
     ds = ds.select([i for i, n in enumerate(ds["context_len"]) if n == args.context_len])
     if len(ds) == 0:
         sys.exit(f"no tasks of context length {args.context_len}")
-    rows = sorted(ds, key=lambda r: r["id"])
+    meta_columns = ["id", "dataset", "task_group", "task"]
+    rows = sorted(({"index": i} | r for i, r in enumerate(ds.select_columns(meta_columns))), key=lambda r: r["id"])
     datasets = sorted({r["dataset"] for r in rows})
     used = Counter()
     contexts_dir(set_name).mkdir(parents=True)
@@ -105,6 +106,7 @@ def prepare(args):
                 print(f"{dataset}: only {len(chosen)} kinds of task at this context length")
                 break
             name = f"{dataset}-{group}-{task.removeprefix('TASK_TYPE.').lower()}"
+            row = ds[row["index"]]
             (contexts_dir(set_name) / f"{name}.txt").write_text(row["context_window_text"])
             task_dir = tasks_dir(set_name) / name
             task_dir.mkdir(parents=True)
@@ -260,8 +262,8 @@ def solve(question, rows):
 
 # --- what the agent judged, read from the recorded cogitation ---
 
-# a line keyed by a number, e.g. `17: True`, `[17] True` or `- 17. True`
-KEYED = re.compile(r"(?m)^[^\w\n]*(\d+)[^\w'\"(\n]*(.*?)[ \t]*$")
+# a line keyed by a number, e.g. `17: True`, `[17] True`, `- 17. True` or `ID 17: True`
+KEYED = re.compile(r"(?m)^[^\w\n]*(?:[A-Za-z]{1,6}\.?[ \t]+)?(\d+)[^\w'\"(\n]*(.*?)[ \t]*$")
 
 
 def normalized(text):
@@ -314,6 +316,49 @@ def judgments(recording, rows):
     return judged
 
 
+def self_judgments(recording, rows, question, first_line):
+    """
+    Labels the agent gave to the items itself, in the scripts of its intents, e.g. `mapOf(514 to "formal")`,
+    or `listOf("negative", …)` with one label for each item the question considers.
+    A key can be the index of the item, its line in the context file, or its position among the items considered,
+    counted from 0 or 1: the only reading putting every key among the considered items is taken, none when ambiguous.
+    """
+    considered_items = considered(question, rows)
+    labels = {r[3].lower(): r[3] for r in rows}
+
+    def label(said):
+        # a boolean is read only for the labels True and False: otherwise its meaning, e.g. whether `true`
+        # says correct or incorrect, is in the name of a variable, and reading it from the answer would bias
+        return labels.get(said.lower())
+
+    readings = [
+        lambda k: k,
+        lambda k: k - first_line,
+        lambda k: k - first_line - 1,
+        lambda k: considered_items[k] if k < len(considered_items) else None,
+        lambda k: considered_items[k - 1] if 0 < k <= len(considered_items) else None,
+    ]
+    root = next(recording.glob("*/"), None)
+    judged = {}
+    for intent in sorted(root.glob("*-intent.kts")) if root else []:
+        script = intent.read_text()
+        keyed = [(int(k), label(v)) for k, v in
+                 re.findall(r'\b(\d+)\s+to\s+"?(\w[\w &/-]*?)"?\s*(?:[,)\n]|//)', script)]
+        keyed = [(k, v) for k, v in keyed if v is not None]
+        if keyed:
+            fitting = {tuple(read(k) for k, _ in keyed) for read in readings
+                       if all(read(k) in considered_items for k, _ in keyed)}
+            if len(fitting) == 1:
+                for i, (_, v) in zip(fitting.pop(), keyed):
+                    judged.setdefault(i, v)
+        for listed in re.findall(r"listOf\(([^()]*)\)", script):
+            said = [label(v) for v in re.findall(r'"([^"]*)"', listed)]
+            if said and len(said) == len(considered_items) and None not in said:
+                for i, v in zip(considered_items, said):
+                    judged.setdefault(i, v)
+    return judged
+
+
 def evaluate(result, run_dir, set_name):
     """The result of a cogitation, with its score, agreement and consistency evaluated."""
     task_dir = tasks_dir(set_name) / result["task"]
@@ -324,6 +369,10 @@ def evaluate(result, run_dir, set_name):
     parsed, points = score(answers, task["answer_type"], output) if output else (None, 0.0)
     recording = run_dir / result["run"]
     judged = judgments(recording, rows)
+    if not judged:
+        context = (task_dir.parents[1] / "contexts" / f"{result['task']}.txt").read_text().split("\n")
+        first_line = next(n for n, line in enumerate(context) if line.startswith("Date: "))
+        judged = self_judgments(recording, rows, task["question"], first_line)
     agreement = sum(rows[i][3] == label for i, label in judged.items()) / len(judged) if judged else None
     consistent = None
     solved = solve(task["question"], rows)
