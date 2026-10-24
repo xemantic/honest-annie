@@ -1,10 +1,13 @@
 # Evaluates honest-annie on a fixed sample of OOLONG-synth tasks, scored like the OOLONG paper.
 # pip install datasets
 #
-#   python evals/oolong/oolong_eval.py prepare [--context-len 32768]  # select the tasks, once
-#   python evals/oolong/oolong_eval.py run [--repeats 2] [--label x]  # needs ANTHROPIC_MODEL or OPENAI_MODEL set
+#   python evals/oolong/oolong_eval.py prepare [--context-len 32768] [--per-dataset 1]  # select a set of tasks, once
+#   python evals/oolong/oolong_eval.py run [--set 32k] [--repeats 2] [--label x]  # needs ANTHROPIC_MODEL or OPENAI_MODEL
 #   python evals/oolong/oolong_eval.py report <run-dir>               # evaluate a run again, from data/runs
 #   python evals/oolong/oolong_eval.py score <cogitation-dir> <task>  # score a cogitation recorded by hand
+#
+# Each set of tasks is kept in data/sets/<set>, e.g. `32k` or `131k-x2`, and never changed once prepared,
+# so that every run, recording the set it used, can be evaluated again against the same gold answers.
 #
 # Besides the score, the report tells apart the two ways an answer can be wrong:
 # - agreement: how many of the items the agent judged it labeled as the dataset does,
@@ -27,13 +30,23 @@ import dateutil.parser
 
 ROOT = Path(__file__).resolve().parents[2]
 EVAL_DIR = Path(__file__).resolve().parent / "data"
-# the contexts are kept apart from the gold answers and labels, so that the agent does not stumble upon them
-CONTEXTS_DIR = EVAL_DIR / "contexts"
-TASKS_DIR = EVAL_DIR / "tasks"
+SETS_DIR = EVAL_DIR / "sets"
 RUNS_DIR = EVAL_DIR / "runs"
 AGENT = ROOT / "build" / "install" / "honest-annie" / "bin" / "honest-annie"
+# the set of the runs recorded before there were sets
+FIRST_SET = "32k"
 
-# one task per dataset, each dataset taking the next kind, so that every kind of question is covered
+
+def contexts_dir(set_name):
+    # the contexts are kept apart from the gold answers and labels, so that the agent does not stumble upon them
+    return SETS_DIR / set_name / "contexts"
+
+
+def tasks_dir(set_name):
+    return SETS_DIR / set_name / "tasks"
+
+
+# each dataset takes the next kind first, so that every kind of question is covered
 KINDS = [
     ("counting", "TASK_TYPE.NUMERIC_ONE_CLASS"),
     ("counting", "TASK_TYPE.RELATIVE_FREQ"),
@@ -62,33 +75,47 @@ def items(labeled_text):
 def prepare(args):
     from datasets import load_dataset
 
+    set_name = args.set or f"{args.context_len // 1024}k" + (f"-x{args.per_dataset}" if args.per_dataset > 1 else "")
+    if tasks_dir(set_name).exists():
+        sys.exit(f"the set {set_name} is already prepared, and runs might depend on it; name another with --set")
     ds = load_dataset("oolongbench/oolong-synth", split="test")
     # selected by a column alone, as materializing the rows reads every context window, up to 4M tokens
     ds = ds.select([i for i, n in enumerate(ds["context_len"]) if n == args.context_len])
+    if len(ds) == 0:
+        sys.exit(f"no tasks of context length {args.context_len}")
     rows = sorted(ds, key=lambda r: r["id"])
     datasets = sorted({r["dataset"] for r in rows})
-    used = set()
-    CONTEXTS_DIR.mkdir(parents=True, exist_ok=True)
+    used = Counter()
+    contexts_dir(set_name).mkdir(parents=True)
     for i, dataset in enumerate(datasets):
-        # the kind assigned to this dataset, or the next one it has, preferring kinds not covered yet
+        own = [r for r in rows if r["dataset"] == dataset]
+        # the kind assigned to this dataset, then the next ones, then any other kind it has
         order = [KINDS[(i + k) % len(KINDS)] for k in range(len(KINDS))]
-        for group, task in sorted(order, key=lambda kind: kind in used):
-            row = next((r for r in rows if r["dataset"] == dataset
-                        and r["task_group"] == group and r["task"] == task), None)
-            if row:
-                used.add((group, task))
+        order += sorted({(r["task_group"], r["task"]) for r in own} - set(KINDS))
+        chosen = []
+        for _ in range(args.per_dataset):
+            # preferring the kinds covered the fewest times so far, a kind once per dataset
+            for group, task in sorted((k for k in order if k not in chosen), key=lambda kind: used[kind]):
+                row = next((r for r in own if r["task_group"] == group and r["task"] == task), None)
+                if row:
+                    chosen.append((group, task))
+                    used[(group, task)] += 1
+                    break
+            else:
+                print(f"{dataset}: only {len(chosen)} kinds of task at this context length")
                 break
-        name = f"{dataset}-{group}-{task.removeprefix('TASK_TYPE.').lower()}"
-        (CONTEXTS_DIR / f"{name}.txt").write_text(row["context_window_text"])
-        task_dir = TASKS_DIR / name
-        task_dir.mkdir(parents=True, exist_ok=True)
-        meta = {k: row[k] for k in (
-            "id", "context_window_id", "context_len", "dataset", "task_group", "task",
-            "answer_type", "question", "answer"
-        )}
-        (task_dir / "task.json").write_text(json.dumps(meta, indent=2) + "\n")
-        (task_dir / "labels.json").write_text(json.dumps(items(row["context_window_text_with_labels"])))
-        print(f"{name}: expected {' or '.join(map(str, gold(meta)))}")
+            name = f"{dataset}-{group}-{task.removeprefix('TASK_TYPE.').lower()}"
+            (contexts_dir(set_name) / f"{name}.txt").write_text(row["context_window_text"])
+            task_dir = tasks_dir(set_name) / name
+            task_dir.mkdir(parents=True)
+            meta = {k: row[k] for k in (
+                "id", "context_window_id", "context_len", "dataset", "task_group", "task",
+                "answer_type", "question", "answer"
+            )}
+            (task_dir / "task.json").write_text(json.dumps(meta, indent=2) + "\n")
+            (task_dir / "labels.json").write_text(json.dumps(items(row["context_window_text_with_labels"])))
+            print(f"{name}: expected {' or '.join(map(str, gold(meta)))}")
+    print(f"prepared the set {set_name}")
 
 
 def gold(task):
@@ -287,9 +314,9 @@ def judgments(recording, rows):
     return judged
 
 
-def evaluate(result, run_dir):
+def evaluate(result, run_dir, set_name):
     """The result of a cogitation, with its score, agreement and consistency evaluated."""
-    task_dir = TASKS_DIR / result["task"]
+    task_dir = tasks_dir(set_name) / result["task"]
     task = json.loads((task_dir / "task.json").read_text())
     rows = json.loads((task_dir / "labels.json").read_text())
     answers = gold(task)
@@ -344,7 +371,7 @@ def cogitate(task_dir, run_dir, repeat, timeout):
     recording_dir = run_dir / name
     recording_dir.mkdir()
     prompt = PROMPT.format(
-        context=CONTEXTS_DIR / f"{task_dir.name}.txt",
+        context=task_dir.parents[1] / "contexts" / f"{task_dir.name}.txt",
         tokens=task["context_len"] // 1024,
         question=task["question"]
     )
@@ -376,7 +403,11 @@ def cogitate(task_dir, run_dir, repeat, timeout):
 
 
 def run(args):
-    tasks = sorted(p for p in TASKS_DIR.iterdir() if (p / "task.json").exists()) if TASKS_DIR.exists() else []
+    sets = sorted(p.name for p in SETS_DIR.iterdir()) if SETS_DIR.exists() else []
+    set_name = args.set or (sets[0] if len(sets) == 1 else None)
+    if set_name not in sets:
+        sys.exit(f"no set {set_name}, run `prepare` first" if set_name else f"choose a set with --set: {', '.join(sets)}")
+    tasks = sorted(p for p in tasks_dir(set_name).iterdir() if (p / "task.json").exists())
     if args.tasks:
         tasks = [t for t in tasks if any(s in t.name for s in args.tasks)]
     if not tasks:
@@ -395,6 +426,7 @@ def run(args):
         "dirty": bool(subprocess.run(
             ["git", "status", "--porcelain", "src"], cwd=ROOT, capture_output=True, text=True
         ).stdout.strip()),
+        "set": set_name,
         "repeats": args.repeats,
         "tasks": [t.name for t in tasks],
     }, indent=2) + "\n")
@@ -406,7 +438,7 @@ def run(args):
         with lock:
             with open(run_dir / "results.jsonl", "a") as f:
                 f.write(json.dumps(result) + "\n")
-            evaluated = evaluate(result, run_dir)
+            evaluated = evaluate(result, run_dir, set_name)
             print(f"{result['run']}: {evaluated['score']:.2f} "
                   f"(expected {evaluated['expected']}, got {evaluated['parsed']})", flush=True)
 
@@ -418,9 +450,12 @@ def run(args):
 
 def report(args):
     run_dir = Path(args.run_dir)
-    results = [evaluate(json.loads(l), run_dir) for l in (run_dir / "results.jsonl").read_text().splitlines()]
     meta = json.loads((run_dir / "run.json").read_text())
-    print(f"\n{run_dir.name}: {meta['model']} at {meta['commit'][:7]}{' (dirty)' if meta['dirty'] else ''}")
+    set_name = meta.get("set", FIRST_SET)
+    lines = (run_dir / "results.jsonl").read_text().splitlines()
+    results = [evaluate(json.loads(l), run_dir, set_name) for l in lines]
+    print(f"\n{run_dir.name}: {meta['model']} at {meta['commit'][:7]}{' (dirty)' if meta['dirty'] else ''}"
+          f" on the set {set_name}")
     print("  score: as OOLONG, any tied answer counted; agree: items labeled as the dataset does, of those judged;")
     print("  own: whether the answer follows from the agent's own labels, '-' when not all items were judged\n")
     width = max(len(r["task"]) for r in results)
@@ -461,8 +496,11 @@ if __name__ == "__main__":
     commands = parser.add_subparsers(required=True)
     p = commands.add_parser("prepare")
     p.add_argument("--context-len", type=int, default=32768)
+    p.add_argument("--per-dataset", type=int, default=1, help="tasks per dataset, each of another kind")
+    p.add_argument("--set", help="the name of the set, by default from the context length and tasks per dataset")
     p.set_defaults(command=prepare)
     p = commands.add_parser("run")
+    p.add_argument("--set", help="the set of tasks to run, required when there are several")
     p.add_argument("--repeats", type=int, default=2)
     p.add_argument("--parallel", type=int, default=4)
     p.add_argument("--timeout", type=int, default=1800, help="seconds per cogitation")
