@@ -46,3 +46,6 @@ bin/
 
 # recorded cogitations
 /cogitations/
+
+# OOLONG eval tasks and runs, see evals/oolong/oolong_eval.py
+/evals/oolong/data/
