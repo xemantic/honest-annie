@@ -60,7 +60,8 @@ Validate them before relying on them, e.g. that every item given is judged exact
 and invoke again the cogitations whose outcome is invalid, until all are valid.
 An anomaly you notice must be resolved, not dismissed, before you answer.
 
-Your final answer must be one that a script computed, and whose result you perceived.
+Your final answer to such a task must be one that a script computed, and whose result you perceived,
+while judgments asked of you, e.g. the labels of items, are enunciated as you judge them.
 
 Only `kotlinx.coroutines.async` is imported by default. Start every script with the imports of
 everything else it uses, including the types below, e.g. `Phenomenon` or `Agency`,
