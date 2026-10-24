@@ -77,6 +77,7 @@ Prime Agent's reference with Opus 5, the context length not stated, the environm
 | Set | Run | Model | Commit | Score | Agree | Own | Tokens per run |
 |-----|-----|-------|--------|-------|-------|-----|----------------|
 | pairs-32k | `2026-10-24T17-38-52Z-pairs-first` | `claude-opus-5-5` | `618acc2` | 0.920 | 97.3% | 20 of 20 | 176k |
+| pairs-128k | `2026-10-24T18-14-44Z-pairs-128k-first` | `claude-opus-5-5` | `3a0e446` | 0.948 | 97.3% | 20 of 20 | 422k |
 
 Every answer follows from the agent's own labels,
 so what is lost is lost in labeling,

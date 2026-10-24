@@ -415,7 +415,7 @@ def judgments(recording, rows):
     """
     Labels the agent's invoked cogitations gave to the items, by the index of the item in `rows`:
     every invocation prompt listing items keyed by number is matched with the response keyed the same way.
-    An item judged more than once keeps its first judgment.
+    An item judged more than once keeps its first judgment, unless the agent's scripts reconcile it by its question.
     """
     by_text = defaultdict(list)
     for i, r in enumerate(rows):
@@ -437,7 +437,7 @@ def judgments(recording, rows):
         beginning = [l for l in labels if said and l.startswith(said)]
         return labels[beginning[0]] if len(beginning) == 1 else None
 
-    judged = {}
+    judged, codes = {}, {}
     for table in sorted(recording.rglob("cogitation.md")):
         cogitation = table.parent
         responses = re.findall(r"(?m)^\| (\d{3}) \| self `self` ↩ (\d{3}-\d+) \|", table.read_text())
@@ -454,16 +454,29 @@ def judgments(recording, rows):
             listed = {}
             for key, text in KEYED.findall(prompt.read_text()):
                 if (indices := item(normalized(text.split("|| Instance: ")[-1]))) is not None:
-                    # items of the same text are told apart when keyed by their index
-                    listed[key] = [int(key)] if int(key) in indices else indices
+                    listed[key] = indices
                 elif text.strip().lower() in labels:
                     # a code the prompt defines for a label, e.g. `5: Sports`
                     legend[key] = labels[text.strip().lower()]
+            # items of the same text are told apart when every item is keyed by its index,
+            # but not when keyed otherwise, e.g. among the distinct questions
+            if all(int(key) in indices for key, indices in listed.items()):
+                listed = {key: [int(key)] for key in listed}
+            codes |= {code: label for code, label in legend.items() if not code.isdigit()}
             for key, said in KEYED.findall(answer.read_text()):
                 judgment = legend.get(said.strip("*`'\". ")) or label(said)
                 if judgment is not None and key in listed:
                     for i in listed[key]:
                         judged.setdefault(i, judgment)
+    # identical questions labeled differently and reconciled in a script, e.g. `"what is hdlc ?" to "ABBR"`
+    by_question = defaultdict(list)
+    for text, indices in by_text.items():
+        by_question[text.lower()] += indices
+    for intent in sorted(recording.rglob("*-intent.kts")):
+        for text, said in re.findall(r'"([^"\n]+)"\s+to\s+"([^"\n]+)"', intent.read_text()):
+            judgment = codes.get(said) or label(said)
+            for i in by_question.get(normalized(text).lower(), []) if judgment else []:
+                judged[i] = judgment
     return judged
 
 

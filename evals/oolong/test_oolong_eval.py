@@ -83,6 +83,47 @@ class JudgmentsTest(unittest.TestCase):
         # then
         assert judged == {0: "abbreviation", 3: "description and abstract concept"}, judged
 
+    def test_judges_every_item_of_a_question_keyed_among_distinct_questions(self):
+        # given
+        rows = [
+            ROWS[1],
+            ["Nov 25, 2024", "35398", ROWS[1][2], "entity"],
+            ROWS[0],
+        ]
+        # the distinct questions keyed in order, the second one's key falling on an item of another text
+        prompt = (
+            "Classify as ABBR (abbreviation) or ENTY (entity).\n\n"
+            f"0: {ROWS[1][2]}\n"
+            f"1: {ROWS[0][2]}\n"
+        )
+
+        # when
+        judged = oolong_eval.judgments(recording(prompt, "0: ENTY\n1: ABBR\n"), rows)
+
+        # then
+        assert judged == {0: "entity", 1: "entity", 2: "abbreviation"}, judged
+
+
+    def test_reads_labels_reconciled_by_question_in_a_script(self):
+        # given
+        rows = ROWS + [["Nov 25, 2024", "35398", "What does IOC stand for ?", "abbreviation"]]
+        prompt = (
+            "Classify as ABBR (abbreviation) or DESC (description and abstract concept).\n\n"
+            "0: What does IOC stand for ?\n"
+            "3: What does IOC stand for ?\n"
+        )
+        root = recording(prompt, "0: ABBR\n3: DESC\n")
+        # identical questions labeled differently, reconciled by the agent
+        (next(root.iterdir()) / "008-2-self-intent.kts").write_text(
+            'val fix = mapOf("what does ioc stand for ?" to "ABBR", "what is html ?" to "ABBR")\n'
+        )
+
+        # when
+        judged = oolong_eval.judgments(root, rows)
+
+        # then
+        assert judged == {0: "abbreviation", 3: "abbreviation"}, judged
+
 
 class SolvePairsTest(unittest.TestCase):
 
