@@ -42,6 +42,7 @@ The runs to compare a change against, with `claude-opus-5-5`:
 |-----|-----|--------|-------|-------|-----|----------------|
 | 32k | `2026-10-24T16-52-15Z-judgments-direct` | `429e127` | 0.701 | 95.7% | 15 of 15 | 108k |
 | 128k | `2026-10-24T17-02-54Z-reference` | `caa049d` | 0.719 | 94.3% | 15 of 15 | 174k |
+| 512k | `2026-10-24T17-18-12Z-reference`, 1 repeat | `48faf36` | 0.875 | 95.6% | 7 of 7 | 450k |
 
 With 2 repeats of 8 tasks, the score varies by about ±0.06 between runs of the same commit,
 as some tasks hinge on a near-tie which the label agreement of about 95% decides by chance.
