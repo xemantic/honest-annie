@@ -19,6 +19,7 @@
 package com.xemantic.ai.annie.cognizer
 
 import com.xemantic.ai.annie.Actant
+import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
@@ -31,22 +32,23 @@ sealed interface Turn<out P> {
 }
 
 /**
- * Intents and monologues become assistant turns, everything else is perceived in user turns,
- * headed by the actant of the enunciation. The role follows the phenomenon, not the actant:
+ * Intents and monologues of the enunciations become assistant turns, everything else is perceived in user turns,
+ * headed by the actant of the enunciation, the first one by the depth of the cogitation too.
+ * The role follows the phenomenon, not the actant:
  * the output of an invoked cogitation is enunciated by [Actant.Type.SELF], yet perceived.
  *
  * @param intent the assistant part of the intent.
  * @param monologue the assistant part of the monologue, `null` when it cannot be replayed to the model.
  */
-fun <P> List<Enunciation>.toTurns(
+fun <P> Cogitation.toTurns(
     intent: (Phenomenon.Intent) -> P,
     monologue: (Monologue) -> P?
 ): List<Turn<P>> {
     // intent ids are never rendered, so the model would not know what a response to an intent refers to
-    val invocations = flatMap { it.phenomena }
+    val invocations = enunciations.flatMap { it.phenomena }
         .filterIsInstance<Phenomenon.Invocation>()
         .mapTo(mutableSetOf()) { it.id }
-    return fold(mutableListOf()) { turns, enunciation ->
+    val turns = enunciations.fold(mutableListOf<Turn<P>>()) { turns, enunciation ->
         var headed = false
         enunciation.phenomena.forEach { phenomenon ->
             when (phenomenon) {
@@ -61,6 +63,11 @@ fun <P> List<Enunciation>.toTurns(
         }
         turns
     }
+    val first = turns.indexOfFirst { it is Turn.User }
+    if (first >= 0) {
+        turns[first] = Turn.User("<annie:cogitation depth=\"$depth\"/>\n${(turns[first] as Turn.User).text}")
+    }
+    return turns
 }
 
 private fun <P> MutableList<Turn<P>>.appendUser(text: String) {
@@ -86,7 +93,7 @@ private fun <P> MutableList<Turn<P>>.appendAssistant(part: P) {
  * Only stored values are used, so the rendering of past turns never changes and stays cached.
  */
 private fun Enunciation.actantTag(invocations: Set<String>): String = buildString {
-    append("<golem:actant")
+    append("<annie:actant")
     append(" type=\"").append(actant.type.name.lowercase()).append('"')
     append(" name=\"").append(actant.name.xmlEscaped()).append('"')
     append(" initiated=\"").append(initiated.toMillisecondsString()).append('"')
@@ -110,18 +117,18 @@ private fun String.xmlEscaped(): String = this
 private fun Phenomenon.toText(): String = when (this) {
     is Intent -> script
     is Text -> if (contentType == Phenomenon.Text.MARKDOWN) text else {
-        "<golem:text content-type=\"${contentType.xmlEscaped()}\"/>\n$text"
+        "<annie:text content-type=\"${contentType.xmlEscaped()}\"/>\n$text"
     }
     // TODO pass data to the model as attachments, e.g. images and documents
     is Data -> buildString {
-        append("<golem:data")
+        append("<annie:data")
         contentType?.let { append(" content-type=\"").append(it.xmlEscaped()).append('"') }
         append(" size=\"").append(bytes.size).append("\"/>")
     }
     is Invocation -> buildString {
-        append("<golem:invocation id=\"").append(id.xmlEscaped()).append('"')
+        append("<annie:invocation id=\"").append(id.xmlEscaped()).append('"')
         append("/>")
     }
-    is Impediment -> "<golem:impediment/>\n$reason"
+    is Impediment -> "<annie:impediment/>\n$reason"
     is Monologue -> summary.joinToString(separator = "\n\n")
 }

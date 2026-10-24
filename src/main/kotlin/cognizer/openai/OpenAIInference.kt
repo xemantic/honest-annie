@@ -86,7 +86,7 @@ class OpenAIInference(
             .apply { effort?.let { reasoningEffort(it.openAIEffort) } }
             .addSystemMessage(cogitation.constitution.joinToString(separator = "\n\n"))
             .apply {
-                cogitation.enunciations
+                cogitation
                     // the reasoning of Chat Completions is never replayed
                     .toTurns(intent = { it.script }, monologue = { null })
                     .forEach { turn ->
@@ -110,7 +110,7 @@ class OpenAIInference(
         .addInclude(ResponseIncludable.REASONING_ENCRYPTED_CONTENT)
         .store(false)
         .inputOfResponse(
-            cogitation.enunciations
+            cogitation
                 .toTurns(
                     intent = { ResponseInputItem.ofEasyInputMessage(it.script.message(EasyInputMessage.Role.ASSISTANT)) },
                     monologue = { it.toReasoningItem() }

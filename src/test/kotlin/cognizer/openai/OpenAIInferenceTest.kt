@@ -42,7 +42,7 @@ class OpenAIInferenceTest {
 
     private val initiated = Instant.parse("2026-10-22T10:15:30Z")
 
-    private val userTurn = "<golem:actant type=\"human\" name=\"user\" initiated=\"2026-10-22T10:15:30Z\"/>\ntest"
+    private val userTurn = "<annie:cogitation depth=\"0\"/>\n<annie:actant type=\"human\" name=\"user\" initiated=\"2026-10-22T10:15:30Z\"/>\ntest"
 
     private fun json(text: String): JsonNode = jsonMapper().readTree(text)
 

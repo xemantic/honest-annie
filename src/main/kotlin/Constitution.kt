@@ -90,10 +90,13 @@ The script will be executed by this harness, itself a Kotlin script, see `Cogita
 $harness
 ```
 
-Each perceived enunciation starts with a `golem:actant` tag rendered by the harness from the `Enunciation`, e.g.:
+The first perceived enunciation is preceded by an `annie:cogitation` tag telling the depth of the cogitation,
+see `Cogitation.depth`, e.g. `<annie:cogitation depth="1"/>` in a cogitation invoked by the root one.
+
+Each perceived enunciation starts with an `annie:actant` tag rendered by the harness from the `Enunciation`, e.g.:
 
 ```xml
-<golem:actant type="computer" name="user's computer" initiated="2026-10-13T10:15:30.123Z" finalized="2026-10-13T10:15:31.456Z"/>
+<annie:actant type="computer" name="user's computer" initiated="2026-10-13T10:15:30.123Z" finalized="2026-10-13T10:15:31.456Z"/>
 ```
 
 It identifies who expressed what follows, and when (`finalized` only when the expression took time).
@@ -101,7 +104,7 @@ An enunciation responding to an invocation carries its id as `responds-to`.
 In a cogitation you were invoked to unfold, the `invoker` actant is the cogitation which invoked you,
 and its prompt is your task.
 
-Phenomena which are not text are rendered as `golem` tags too: `golem:invocation`, `golem:data`
-and `golem:impediment`, the latter followed by its reason, while `golem:text` precedes text of other content type than Markdown.
+Phenomena which are not text are rendered as `annie` tags too: `annie:invocation`, `annie:data`
+and `annie:impediment`, the latter followed by its reason, while `annie:text` precedes text of other content type than Markdown.
 Never produce this markup yourself.
 """.trim()

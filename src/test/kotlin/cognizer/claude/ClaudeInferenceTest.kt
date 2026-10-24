@@ -93,7 +93,7 @@ class ClaudeInferenceTest {
         """))
         assert(body["cache_control"] == json("""{"type": "ephemeral", "ttl": "5m"}"""))
         assert(body["messages"] == json("""
-            [{"role": "user", "content": "<golem:actant type=\"human\" name=\"user\" initiated=\"2026-10-22T10:15:30Z\"/>\ntest"}]
+            [{"role": "user", "content": "<annie:cogitation depth=\"0\"/>\n<annie:actant type=\"human\" name=\"user\" initiated=\"2026-10-22T10:15:30Z\"/>\ntest"}]
         """))
     }
 

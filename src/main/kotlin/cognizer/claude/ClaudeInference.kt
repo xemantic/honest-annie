@@ -95,7 +95,7 @@ class ClaudeInference(
             }
         }
         .messages(
-            cogitation.enunciations
+            cogitation
                 .toTurns(
                     intent = { ContentBlockParam.ofText(TextBlockParam.builder().text(it.script).build()) },
                     monologue = { it.toBlock() }
