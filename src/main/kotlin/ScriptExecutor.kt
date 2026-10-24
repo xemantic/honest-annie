@@ -61,7 +61,7 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
         dependencies: ScriptDependencies.(collecting: Agency) -> Unit
     ): List<Phenomenon> {
         val collecting = CollectingAgency(agency)
-        val result = executor.execute(script) {
+        val result = executor.execute(script.unfenced()) {
             dependencies(collecting)
         }
         return collecting.collected + listOfNotNull(
@@ -76,6 +76,17 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
             }
         )
     }
+}
+
+/**
+ * The script without the Markdown code fence enclosing all of it, e.g. ` ```kotlin `, which some cognizers
+ * keep writing around their intents, failing to compile otherwise.
+ */
+private fun String.unfenced(): String {
+    val lines = trim().lines()
+    return if (lines.size >= 2 && lines.first().matches(Regex("```\\w*")) && lines.last() == "```") {
+        lines.subList(1, lines.size - 1).joinToString("\n")
+    } else this
 }
 
 /** The [agency] collecting the invocations made through it. */

@@ -147,6 +147,32 @@ class ScriptExecutorTest {
     }
 
     @Test
+    fun `should execute intent fenced as Markdown code block`() = runTest(timeout = 5.minutes) {
+        // when
+        val tagged = executor.execute("```kotlin\nval answer = 6 * 7\nanswer\n```", TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+        val untagged = executor.execute("\n```\n6 * 7\n```\n", TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(tagged == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+        assert(untagged == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should keep fences within intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute("val fence = \"```\"\n\"${'$'}{fence}kotlin\\n${'$'}fence\"", TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("```kotlin\n```", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
     fun `should provide dependencies to intent along with agency`() = runTest(timeout = 5.minutes) {
         // when
         val phenomena = executor.execute(
