@@ -51,6 +51,8 @@ or by any OpenAI-compatible endpoint set as `OPENAI_BASE_URL`, the `/v1` suffix 
 Cogitations are recorded in `ANNIE_COGITATIONS_DIR` (`cogitations` by default),
 and unfolded by the harness script at the `ANNIE_HARNESS` path,
 or by the default harness extracted from [DefaultHarness.kt](src/main/kotlin/DefaultHarness.kt) when not set.
+When `ANNIE_TOKEN_BUDGET` is set, the cogitation and the ones it invokes spend at most that many tokens,
+and are impeded once they have spent them.
 
 `./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 

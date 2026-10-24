@@ -392,6 +392,59 @@ class HarnessTest {
     }
 
     @Test
+    fun `should impede cogitation once token budget is spent`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer("6 * 7", restingIntent)
+
+        // when
+        val output = HarnessHost(executor, cognizer, store, tokenBudget = 1).cognize(cogitation(defaultHarness))
+
+        // then
+        assert(cognizer.perceived.size == 1)
+        assert(output.phenomena == listOf(
+            Phenomenon.Impediment("Token budget of 1 spent: 1 token(s) inferred by this cogitation and the ones invoked in its tree")
+        ))
+    }
+
+    @Test
+    fun `should spend token budget across the tree of cogitations`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer("agency.invoke(\"sub\")", "6 * 7", restingIntent)
+
+        // when
+        val output = HarnessHost(executor, cognizer, store, tokenBudget = 2).cognize(cogitation(defaultHarness))
+
+        // then
+        // the root and the invoked cogitation inferred once each, 1 token each, then both were impeded
+        assert(cognizer.perceived.size == 2)
+        val impediment = output.phenomena.single() as Phenomenon.Impediment
+        assert(impediment.reason.startsWith("Token budget of 2 spent"))
+    }
+
+    @Test
+    fun `should provide depth of cogitation to intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val depthHarness = """
+            import com.xemantic.ai.annie.*
+            agency.enunciate("depth " + agency.depth)
+            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("done")))
+        """.trimIndent()
+        val cognizer = ScriptedCognizer(
+            "agency.invoke(\"sub at depth ${'$'}{agency.depth}\", harness = ${depthHarness.quoted()})",
+            respondedIntent
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("depth 1")))
+        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }
+            .filterIsInstance<Phenomenon.Invocation>().single()
+        assert(invocation.prompt == "sub at depth 0")
+    }
+
+    @Test
     fun `should record root and invoked cogitations`() = runTest(timeout = 5.minutes) {
         // given
         val recordingDir = createTempDirectory("cogitations")

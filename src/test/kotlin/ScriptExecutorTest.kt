@@ -33,6 +33,7 @@ class ScriptExecutorTest {
     private class TestAgency : Agency {
         override val harness = ""
         override val parentCogitation: Cogitation? = null
+        override val depth = 0
         override val invocations = mutableListOf<Phenomenon.Invocation>()
         override val enunciated = mutableListOf<Phenomenon>()
         override val enunciationInitiated: Instant? = null

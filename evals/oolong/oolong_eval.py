@@ -588,7 +588,7 @@ def enunciated(stdout):
     return ("\n".join(texts) if texts else None), ("; ".join(impediments) or None)
 
 
-def cogitate(task_dir, run_dir, repeat, timeout):
+def cogitate(task_dir, run_dir, repeat, timeout, token_budget):
     task = json.loads((task_dir / "task.json").read_text())
     name = f"{task_dir.name}-{repeat}"
     recording_dir = run_dir / name
@@ -605,7 +605,8 @@ def cogitate(task_dir, run_dir, repeat, timeout):
     try:
         process = subprocess.run(
             [str(AGENT), prompt],
-            env=os.environ | {"ANNIE_COGITATIONS_DIR": str(recording_dir)},
+            env=os.environ | {"ANNIE_COGITATIONS_DIR": str(recording_dir)}
+                | ({"ANNIE_TOKEN_BUDGET": str(token_budget)} if token_budget else {}),
             capture_output=True, text=True, timeout=timeout
         )
         stdout, failure = process.stdout, (None if process.returncode == 0 else f"exit {process.returncode}")
@@ -654,13 +655,14 @@ def run(args):
         ).stdout.strip()),
         "set": set_name,
         "repeats": args.repeats,
+        "token_budget": args.token_budget or None,
         "tasks": [t.name for t in tasks],
     }, indent=2) + "\n")
     print(f"recording in {run_dir}")
     lock = threading.Lock()
 
     def one(job):
-        result = cogitate(*job, args.timeout)
+        result = cogitate(*job, args.timeout, args.token_budget)
         with lock:
             with open(run_dir / "results.jsonl", "a") as f:
                 f.write(json.dumps(result) + "\n")
@@ -735,6 +737,8 @@ if __name__ == "__main__":
     p.add_argument("--repeats", type=int, default=2)
     p.add_argument("--parallel", type=int, default=4)
     p.add_argument("--timeout", type=int, default=1800, help="seconds per cogitation")
+    p.add_argument("--token-budget", type=int, default=3_000_000,
+                   help="tokens the cogitation of a task may spend, the invoked ones included, 0 for no limit")
     p.add_argument("--tasks", nargs="*", help="substrings of task names to run, all by default")
     p.add_argument("--label", help="appended to the name of the run directory, e.g. what changed")
     p.set_defaults(command=run)

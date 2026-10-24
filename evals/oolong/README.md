@@ -16,8 +16,10 @@ python3 evals/oolong/oolong_eval.py report evals/oolong/data/runs/<run>         
 `prepare` takes one task per dataset by default, each dataset a different kind of question,
 or several with `--per-dataset N`.
 A set is never changed once prepared,
-and each run records its set, model and commit,
+and each run records its set, model, commit and token budget,
 so that runs stay comparable.
+Each task may spend 3M tokens, the invoked cogitations included, unless `--token-budget` says otherwise,
+so that a runaway tree of cogitations is impeded rather than spending the credits.
 Everything under `data/` is local and ignored by git.
 
 ## What the report tells

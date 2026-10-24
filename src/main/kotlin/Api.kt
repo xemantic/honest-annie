@@ -29,6 +29,8 @@ interface Agency {
     val harness: String
     /** [Cogitation] which invoked the current one, `null` for the root one. */
     val parentCogitation: Cogitation?
+    /** How deep the current cogitation is in its tree, see [Cogitation.depth]. */
+    val depth: Int
     /** Invocations made during this execution of the harness, e.g. by the intent it executes. */
     val invocations: List<Phenomenon.Invocation>
     /** Everything enunciated so far as the output of the current cogitation, in any execution of its harness. */

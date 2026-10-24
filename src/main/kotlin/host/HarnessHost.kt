@@ -22,6 +22,7 @@ import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Agency
+import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.ScriptExecutor as IntentExecutor
 import com.xemantic.ai.annie.cognizer.Cognizer
@@ -34,6 +35,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlinx.coroutines.*
@@ -71,12 +73,16 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  *
  * @param cognizer unfolding every cogitation, the root one and all the invoked ones.
  * @param recordingDir where cogitations are recorded by a [CogitationRecorder], `null` for no recording.
+ * @param tokenBudget the tokens all the inferences of a tree of cogitations may spend, see [Inference.total],
+ * `null` for no limit. Once spent, every cogitation of the tree is impeded at its next step instead of inferring again,
+ * the inferences still in progress being the only ones exceeding it.
  */
 class HarnessHost(
     private val executor: ScriptExecutor,
     private val cognizer: Cognizer,
     private val store: CogitationStore = InMemoryCogitationStore(),
-    private val recordingDir: Path? = null
+    private val recordingDir: Path? = null,
+    private val tokenBudget: Long? = null
 ) {
 
     private val intentExecutor = IntentExecutor(executor)
@@ -91,12 +97,14 @@ class HarnessHost(
      *
      * @property rested the output of the root cogitation, once it rests.
      * @property queue of the ids of unfoldings ready for the next step, shared by the whole tree of cogitations.
+     * @property spent the tokens inferred so far, shared by the whole tree of cogitations.
      */
     private class Runtime(
         val recorder: CogitationRecorder?,
         val job: Job,
         val rested: CompletableDeferred<Enunciation>,
         val queue: SendChannel<String>,
+        val spent: AtomicLong,
         handler: CoroutineExceptionHandler
     ) {
         val mutex = Mutex()
@@ -122,6 +130,7 @@ class HarnessHost(
             job = job,
             rested = rested,
             queue = queue,
+            spent = AtomicLong(),
             handler = CoroutineExceptionHandler { _, e -> rested.completeExceptionally(e) }
         )
         runtimes[root.id] = runtime
@@ -145,6 +154,12 @@ class HarnessHost(
         val runtime = runtimes.getValue(id)
         runtime.mutex.withLock {
             var unfolding = checkNotNull(store.load(id)) { "No unfolding $id" }
+            val spent = runtime.spent.get()
+            if (tokenBudget != null && spent >= tokenBudget) {
+                impede(unfolding, runtime, "Token budget of $tokenBudget spent: " +
+                        "$spent token(s) inferred by this cogitation and the ones invoked in its tree")
+                return
+            }
             val cogitation = unfolding.cogitation
             logger.info { "[$id] Executing harness on ${cogitation.enunciations.size} enunciation(s)" }
             val started = Clock.System.now()
@@ -223,6 +238,7 @@ class HarnessHost(
                     job = SupervisorJob(runtime.job),
                     rested = runtime.rested,
                     queue = runtime.queue,
+                    spent = runtime.spent,
                     handler = CoroutineExceptionHandler { _, e -> runtime.rested.completeExceptionally(e) }
                 )
                 runtime.invoked += invoked
@@ -239,7 +255,8 @@ class HarnessHost(
                             enunciations = listOf(Enunciation(
                                 actant = Actant.INVOKER,
                                 phenomena = listOf(Phenomenon.Text(invocation.prompt))
-                            ))
+                            )),
+                            depth = unfolding.cogitation.depth + 1
                         ),
                         parent = unfolding.id,
                         invocation = invocation
@@ -309,6 +326,7 @@ class HarnessHost(
             logger.warn(e) { "[$id] Inference failed after ${Clock.System.now() - initiated}" }
             throw e
         }.also { (phenomena, inference) ->
+            inference?.let { runtime.spent.addAndGet(it.total) }
             logger.info {
                 "[$id] Inferred in ${Clock.System.now() - initiated}: ${phenomena.kinds()}" +
                         (inference?.let { ", by ${it.model} of ${it.provider}: ${it.tokensDescription()}${it.stopDescription()}" } ?: "")
@@ -328,6 +346,8 @@ class HarnessHost(
         private var sealed = false
 
         override val harness: String = unfolding.cogitation.harness
+
+        override val depth: Int = unfolding.cogitation.depth
 
         override val invocations = CopyOnWriteArrayList<Phenomenon.Invocation>()
 

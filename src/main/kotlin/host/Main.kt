@@ -40,11 +40,13 @@ import kotlinx.coroutines.runBlocking
  * the `OPENAI_MODEL` served by the OpenAI-compatible endpoint at `OPENAI_BASE_URL` otherwise.
  *
  * Cogitations are recorded in `ANNIE_COGITATIONS_DIR`, `cogitations` by default, and unfolded
- * by the harness script at the `ANNIE_HARNESS` path, the [defaultHarness] when not set.
+ * by the harness script at the `ANNIE_HARNESS` path, the [defaultHarness] when not set,
+ * spending at most `ANNIE_TOKEN_BUDGET` tokens, when set, see [HarnessHost].
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")
     val harness = System.getenv("ANNIE_HARNESS")?.let { Path(it).readText() } ?: defaultHarness
+    val tokenBudget = System.getenv("ANNIE_TOKEN_BUDGET")?.toLong()
     val claudeModel = System.getenv("ANTHROPIC_MODEL")
     val client: AutoCloseable
     val cognizer: Cognizer
@@ -62,7 +64,9 @@ fun main(args: Array<String>) {
     client.use {
         val executor = ScriptExecutor()
         runBlocking {
-            val output = HarnessHost(executor, cognizer, recordingDir = cogitationsDir).cognize(Cogitation(
+            val output = HarnessHost(
+                executor, cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget
+            ).cognize(Cogitation(
                 constitution = listOf(constitution(harness)),
                 harness = harness,
                 enunciations = listOf(Enunciation(

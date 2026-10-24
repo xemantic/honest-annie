@@ -52,6 +52,8 @@ judgment, e.g. classifying, reading or interpreting, belongs to you or to the co
 but anything mechanical, e.g. counting, summing, sorting or matching, belongs to your scripts.
 Ask invoked cogitations only for judgments, each keyed by the item it judges, e.g. `17: True`,
 in a form a script can parse, and never for a number derived from them.
+When you are invoked for judgments, give them yourself rather than invoking further cogitations:
+every level of invocations, see `agency.depth`, multiplies the cost, and is worth it only to split work too large for you.
 
 The outcomes of invoked cogitations are part of the `cogitation` provided to your next intent,
 as enunciations responding to the ids of their invocations:

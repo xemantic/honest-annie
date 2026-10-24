@@ -215,11 +215,13 @@ data class Inference(
  * with the reason enunciated as a [Phenomenon.Impediment].
  *
  * @property harness the source of the harness script unfolding this cogitation.
+ * @property depth how deep this cogitation is in its tree: 0 for the root one, 1 for one it invokes, and so on.
  */
 data class Cogitation(
     val constitution: List<String>,
     val harness: String,
-    val enunciations: List<Enunciation>
+    val enunciations: List<Enunciation>,
+    val depth: Int = 0
 ) {
     operator fun plus(enunciation: Enunciation): Cogitation = copy(
         enunciations = enunciations + enunciation
