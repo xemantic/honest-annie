@@ -263,10 +263,10 @@ private fun String.message(role: EasyInputMessage.Role): EasyInputMessage =
     EasyInputMessage.builder().role(role).content(this).build()
 
 private val Monologue.Effort.openAIEffort: ReasoningEffort get() = when (this) {
-    Monologue.Effort.NONE -> ReasoningEffort.NONE
-    Monologue.Effort.MINIMAL -> ReasoningEffort.MINIMAL
-    Monologue.Effort.LOW -> ReasoningEffort.LOW
-    Monologue.Effort.MEDIUM -> ReasoningEffort.MEDIUM
-    Monologue.Effort.HIGH -> ReasoningEffort.HIGH
-    Monologue.Effort.XHIGH, Monologue.Effort.MAX -> ReasoningEffort.XHIGH
+    NONE -> ReasoningEffort.NONE
+    MINIMAL -> ReasoningEffort.MINIMAL
+    LOW -> ReasoningEffort.LOW
+    MEDIUM -> ReasoningEffort.MEDIUM
+    HIGH -> ReasoningEffort.HIGH
+    XHIGH, MAX -> ReasoningEffort.XHIGH
 }
