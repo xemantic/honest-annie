@@ -42,6 +42,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 
 /** The harness unfolding cogitations unless another one is given, see `harness.kts`. */
@@ -76,13 +77,16 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * @param tokenBudget the tokens all the inferences of a tree of cogitations may spend, see [Inference.total],
  * `null` for no limit. Once spent, every cogitation of the tree is impeded at its next step instead of inferring again,
  * the inferences still in progress being the only ones exceeding it.
+ * @param parallelism how many steps of a tree of cogitations may execute at a time, `null` for no limit.
+ * The steps beyond it wait in the queue.
  */
 class HarnessHost(
     private val executor: ScriptExecutor,
     private val cognizer: Cognizer,
     private val store: CogitationStore = InMemoryCogitationStore(),
     private val recordingDir: Path? = null,
-    private val tokenBudget: Long? = null
+    private val tokenBudget: Long? = null,
+    private val parallelism: Int? = null
 ) {
 
     private val intentExecutor = IntentExecutor(executor)
@@ -136,9 +140,14 @@ class HarnessHost(
         runtimes[root.id] = runtime
         store.save(root)
         queue.send(root.id)
+        val permits = parallelism?.let(::Semaphore)
         launch {
             for (id in queue) {
-                runtimes.getValue(id).scope.launch { step(id) }
+                permits?.acquire()
+                runtimes.getValue(id).scope.launch { step(id) }.also { job ->
+                    // released also when cancelled before it started
+                    if (permits != null) job.invokeOnCompletion { permits.release() }
+                }
             }
         }
         try {

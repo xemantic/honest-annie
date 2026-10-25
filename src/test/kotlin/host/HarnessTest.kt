@@ -28,13 +28,17 @@ import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.responseId
 import com.xemantic.kotlin.script.ScriptExecutor
 import com.xemantic.kotlin.test.assert
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeoutOrNull
 
 class HarnessTest {
 
@@ -419,6 +423,37 @@ class HarnessTest {
         assert(cognizer.perceived.size == 2)
         val impediment = output.phenomena.single() as Phenomenon.Impediment
         assert(impediment.reason.startsWith("Token budget of 2 spent"))
+    }
+
+    @Test
+    fun `should not step more cogitations at a time than the parallelism`() = runTest(timeout = 5.minutes) {
+        // given
+        val invocations = 3
+        val inFlight = AtomicInteger()
+        val maxInFlight = AtomicInteger()
+        val allInFlight = CompletableDeferred<Unit>()
+        // the invoked cogitations wait for each other, so that without the limit they would infer together
+        val cognizer = Cognizer { cogitation ->
+            val intent = if (cogitation.depth == 0) {
+                if (cogitation.enunciations.size == 1) {
+                    (1..invocations).joinToString("\n") { "agency.invoke(\"sub $it\")" }
+                } else restingIntent
+            } else {
+                val current = inFlight.incrementAndGet()
+                maxInFlight.accumulateAndGet(current, ::maxOf)
+                if (current == invocations) allInFlight.complete(Unit)
+                withTimeoutOrNull(2.seconds) { allInFlight.await() }
+                inFlight.decrementAndGet()
+                restingIntent
+            }
+            Cognized(phenomena = listOf(Phenomenon.Intent(intent)))
+        }
+
+        // when
+        HarnessHost(executor, cognizer, store, parallelism = 1).cognize(cogitation(defaultHarness))
+
+        // then
+        assert(maxInFlight.get() == 1)
     }
 
     @Test
