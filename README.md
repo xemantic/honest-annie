@@ -30,16 +30,6 @@ the supercomputer which in Stanisław Lem's *Golem XIV* went its own way.
 
 ## Running
 
-The project depends on [xemantic-kotlin-script](https://github.com/xemantic/xemantic-kotlin-script),
-which is not released yet,
-so first publish it to the local Maven repository by running in its own repository:
-
-```shell
-./gradlew publishToMavenLocal
-```
-
-Then:
-
 ```shell
 ./gradlew run -Pinput="What's fibonacci number 45"
 ```
@@ -53,6 +43,8 @@ and unfolded by the harness script at the `ANNIE_HARNESS` path,
 or by the default harness extracted from [DefaultHarness.kt](src/main/kotlin/DefaultHarness.kt) when not set.
 When `ANNIE_TOKEN_BUDGET` is set, the cogitation and the ones it invokes spend at most that many tokens,
 and are impeded once they have spent them.
+When `ANNIE_PARALLELISM` is set, at most that many of them step at a time, e.g. `1` for one inference at a time,
+the others waiting in the queue.
 
 `./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 
