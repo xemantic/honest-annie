@@ -195,17 +195,17 @@ class ClaudeInference(
 }
 
 private val Monologue.Visibility.claudeDisplay: ThinkingConfigAdaptive.Display get() = when (this) {
-    Monologue.Visibility.HIDDEN -> ThinkingConfigAdaptive.Display.OMITTED
-    Monologue.Visibility.SUMMARY -> ThinkingConfigAdaptive.Display.SUMMARIZED
+    HIDDEN -> ThinkingConfigAdaptive.Display.OMITTED
+    SUMMARY -> ThinkingConfigAdaptive.Display.SUMMARIZED
     // requires the thinking-display-updates-2026-08-18 beta header
-    Monologue.Visibility.UPDATES -> ThinkingConfigAdaptive.Display.of("updates")
+    UPDATES -> ThinkingConfigAdaptive.Display.of("updates")
 }
 
 /** Claude's lowest effort is `low`. */
 private val Monologue.Effort.claudeEffort: OutputConfig.Effort get() = when (this) {
-    Monologue.Effort.NONE, Monologue.Effort.MINIMAL, Monologue.Effort.LOW -> OutputConfig.Effort.LOW
-    Monologue.Effort.MEDIUM -> OutputConfig.Effort.MEDIUM
-    Monologue.Effort.HIGH -> OutputConfig.Effort.HIGH
-    Monologue.Effort.XHIGH -> OutputConfig.Effort.XHIGH
-    Monologue.Effort.MAX -> OutputConfig.Effort.MAX
+    NONE, MINIMAL, LOW -> OutputConfig.Effort.LOW
+    MEDIUM -> OutputConfig.Effort.MEDIUM
+    HIGH -> OutputConfig.Effort.HIGH
+    XHIGH -> OutputConfig.Effort.XHIGH
+    MAX -> OutputConfig.Effort.MAX
 }
