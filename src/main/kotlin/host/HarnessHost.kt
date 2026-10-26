@@ -79,7 +79,7 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * the inferences still in progress being the only ones exceeding it.
  * @param parallelism how many steps of a tree of cogitations may execute at a time, `null` for no limit.
  * The steps beyond it wait in the queue.
- * @param introspector of the Kotlin API available to scripts, provided to every harness.
+ * @param introspector of the Kotlin API available to scripts, resolving declarations for every [Agency].
  */
 class HarnessHost(
     private val executor: ScriptExecutor,
@@ -182,7 +182,6 @@ class HarnessHost(
                 "cogitation" provides cogitation
                 "cognizer" provides recordingCognizer(id, runtime)
                 "executor" provides intentExecutor
-                "introspector" provides introspector
                 provide<Agency>("agency", agency)
             }
             agency.seal()
@@ -408,6 +407,12 @@ class HarnessHost(
         override suspend fun impede(reason: String) {
             enunciate(Phenomenon.Impediment(reason))
         }
+
+        override fun resolveDeclaration(name: String, page: Int, pageSize: Int) =
+            introspector.resolve(name, page, pageSize)
+
+        override fun searchDeclarations(query: String, page: Int, pageSize: Int) =
+            introspector.search(query, page, pageSize)
 
         private suspend fun enunciate(phenomenon: Phenomenon) = lock.withLock {
             checkNotSealed()

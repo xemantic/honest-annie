@@ -319,10 +319,10 @@ class HarnessTest {
     }
 
     @Test
-    fun `should provide introspector to intent`() = runTest(timeout = 5.minutes) {
+    fun `should resolve declarations through agency of intent`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
-            "agency.enunciate(introspector.resolve(\"com.xemantic.ai.annie.Agency\") ?: \"not found\")"
+            "agency.enunciate(agency.resolveDeclaration(\"com.xemantic.ai.annie.Agency\") ?: \"not found\")"
         )
 
         // when

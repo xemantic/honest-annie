@@ -207,13 +207,7 @@ data class Inference(
  *   of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`; when the intent fails,
  *   the [Phenomenon.Impediment] describing the failure follows the invocations instead.
  *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated],
- * - `agency`: [Agency] within this cogitation, to be passed on to intents,
- * - `introspector`: `KotlinIntrospector` of the package `com.xemantic.kotlin.introspection`, whose
- *   `fun resolve(name: String, page: Int = 1, pageSize: Int = 10): String?` renders the Kotlin declaration
- *   of the fully qualified `name` available to scripts as its signature, with the extensions of the type,
- *   and whose `fun search(query: String, page: Int = 1, pageSize: Int = 10): String?` lists the fully qualified names
- *   of the declarations containing the `query`, both paged and `null` when nothing is found,
- *   to be passed on to intents.
+ * - `agency`: [Agency] within this cogitation, to be passed on to intents.
  *
  * The harness unfolds the cogitation by a single step, e.g. one inference, and is executed
  * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded:

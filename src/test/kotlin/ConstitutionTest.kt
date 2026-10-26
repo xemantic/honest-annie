@@ -33,7 +33,7 @@ class ConstitutionTest {
         assert("interface Agency" in template)
         assert("class Cogitation(" in template)
         assert("{{api}}" !in template && "{{cognition}}" !in template)
-        assert("introspector.resolve(" in template)
+        assert("agency.resolveDeclaration(" in template)
         assert("````kotlin\n{{harness}}\n````\n\n## Your answer\n\n" in template)
     }
 

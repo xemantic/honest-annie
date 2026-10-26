@@ -51,6 +51,8 @@ class ScriptExecutorTest {
         override suspend fun impede(reason: String) {
             enunciated += Phenomenon.Impediment(reason)
         }
+        override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
+        override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
     }
 
     @Test

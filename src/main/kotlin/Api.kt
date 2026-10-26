@@ -67,4 +67,20 @@ interface Agency {
     suspend fun enunciate(bytes: ByteArray, contentType: String? = null)
     /** Enunciates a [Phenomenon.Impediment] as the output of the current cogitation, like the text [enunciate]. */
     suspend fun impede(reason: String)
+    /**
+     * Renders the Kotlin declaration of the fully qualified [name], as available to scripts,
+     * e.g. `kotlinx.coroutines.flow.Flow`: its current signature, together with the extensions of a type,
+     * paged by [pageSize] declarations, the first [page] being `1`.
+     * Only Kotlin declarations can be resolved: Java classes, e.g. of the JDK, have no Kotlin metadata.
+     *
+     * @return the rendered declaration, or `null` when nothing is found.
+     */
+    fun resolveDeclaration(name: String, page: Int = 1, pageSize: Int = 10): String?
+    /**
+     * Lists the fully qualified names of the Kotlin declarations available to scripts containing the [query],
+     * to be resolved with [resolveDeclaration], paged like it.
+     *
+     * @return the names, or `null` when nothing is found.
+     */
+    fun searchDeclarations(query: String, page: Int = 1, pageSize: Int = 10): String?
 }

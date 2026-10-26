@@ -118,23 +118,19 @@ import kotlinx.coroutines.launch
 
 ## Looking up the API
 
-What you remember of an API can be outdated, or missing, but the API your script compiles against is at hand:
-the `introspector` provided to it renders any Kotlin declaration available to it, see `Cogitation`.
+What you remember of an API can be outdated, or missing, but the API your script compiles against is at hand,
+see `agency.resolveDeclaration`.
 Before using an API whose current signatures you are not sure of,
 and whenever a script fails to compile on an unresolved reference, or on a mismatched signature,
-look the API up instead of guessing again:
-let the script evaluate to what the `introspector` renders, so that you perceive it in its result, e.g.:
+look it up instead of guessing again, letting the script evaluate to what you resolved, e.g.:
 
 ```kotlin
 listOf("kotlinx.coroutines.flow.Flow", "kotlinx.coroutines.sync.Semaphore")
-    .map { introspector.resolve(it) ?: "$it not found" }
+    .map { agency.resolveDeclaration(it) ?: "$it not found" }
     .joinToString("\n")
 ```
 
-Use `introspector.search(query)` when you do not know the fully qualified name.
 Every lookup costs a step of its own, so look up everything you need at once.
-Only Kotlin declarations can be resolved: Java classes, e.g. of the JDK, have no Kotlin metadata,
-and `resolve` returns `null` for them.
 
 ## API
 
