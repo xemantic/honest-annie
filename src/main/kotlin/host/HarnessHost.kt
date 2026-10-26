@@ -28,6 +28,7 @@ import com.xemantic.ai.annie.ScriptExecutor as IntentExecutor
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.randomId
 import com.xemantic.ai.annie.responseId
+import com.xemantic.kotlin.introspection.KotlinIntrospector
 import com.xemantic.kotlin.script.ScriptExecutor
 import com.xemantic.kotlin.script.ScriptResult
 import com.xemantic.kotlin.script.execute
@@ -79,6 +80,7 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * the inferences still in progress being the only ones exceeding it.
  * @param parallelism how many steps of a tree of cogitations may execute at a time, `null` for no limit.
  * The steps beyond it wait in the queue.
+ * @param introspector of the Kotlin API available to scripts, provided to every harness.
  */
 class HarnessHost(
     private val executor: ScriptExecutor,
@@ -86,7 +88,8 @@ class HarnessHost(
     private val store: CogitationStore = InMemoryCogitationStore(),
     private val recordingDir: Path? = null,
     private val tokenBudget: Long? = null,
-    private val parallelism: Int? = null
+    private val parallelism: Int? = null,
+    private val introspector: KotlinIntrospector = lazyKotlinIntrospector()
 ) {
 
     private val intentExecutor = IntentExecutor(executor)
@@ -180,6 +183,7 @@ class HarnessHost(
                 "cogitation" provides cogitation
                 "cognizer" provides recordingCognizer(id, runtime)
                 "executor" provides intentExecutor
+                "introspector" provides introspector
                 provide<Agency>("agency", agency)
             }
             unfolding = agency.seal()

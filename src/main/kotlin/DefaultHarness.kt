@@ -24,7 +24,8 @@ package com.xemantic.ai.annie
 // Each intent is executed as a Kotlin script, its body evaluated as a suspending block with a `CoroutineScope`
 // receiver, in the coroutine of the harness, and the value of its last expression is ignored. These properties are provided:
 // - `cogitation`: Cogitation including the enunciation carrying the intent,
-// - `agency`: Agency within the cogitation, invoking new ones and enunciating its output.
+// - `agency`: Agency within the cogitation, invoking new ones and enunciating its output,
+// - `introspector`: KotlinIntrospector resolving the Kotlin API available to the intent.
 //
 // What an intent enunciates through `agency` is the output of the cogitation, perceived by its invoker.
 // Its result is enunciated by the computer, responding to the intent: the invocations it made, in their order,
@@ -35,6 +36,7 @@ package com.xemantic.ai.annie
 // An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment instead,
 // as its intent might be cut short.
 import com.xemantic.ai.annie.cognizer.Cognizer
+import com.xemantic.kotlin.introspection.KotlinIntrospector
 import kotlin.time.Clock
 
 /**
@@ -46,7 +48,8 @@ private suspend fun unfold(
     cogitation: Cogitation,
     cognizer: Cognizer,
     executor: ScriptExecutor,
-    agency: Agency
+    agency: Agency,
+    introspector: KotlinIntrospector
 ): Cogitation {
     val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
     val inferenceInitiated = Clock.System.now()
@@ -72,6 +75,7 @@ private suspend fun unfold(
         val result = executor.execute(intent.script, agency) { collecting ->
             "cogitation" provides inferred
             "agency" provides collecting
+            "introspector" provides introspector
         }
         val enunciated = agency.enunciated.size > output
         val rests = result.isEmpty()

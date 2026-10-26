@@ -135,7 +135,7 @@ val generateDefaultHarness = tasks.register("generateDefaultHarness") {
                 (lines[packageLine].replaceFirst("package ", "import ") + ".*") +
                 lines.subList(firstImport, lines.size).dropLastWhile { it.isBlank() } +
                 "" +
-                "unfold(cogitation, cognizer, executor, agency)"
+                "unfold(cogitation, cognizer, executor, agency, introspector)"
         val output = outputDir.get().file("harness.kts").asFile
         output.parentFile.mkdirs()
         output.writeText(script.joinToString("\n") + "\n")

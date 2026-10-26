@@ -298,6 +298,22 @@ class HarnessTest {
     }
 
     @Test
+    fun `should provide introspector to intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            "agency.enunciate(introspector.resolve(\"com.xemantic.ai.annie.Agency\") ?: \"not found\")"
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        val text = (output.phenomena.single() as Phenomenon.Text).text
+        assert("interface Agency" in text)
+        assert("fun invoke(" in text)
+    }
+
+    @Test
     fun `should perceive response to invocation of cogitation unfolded by another harness`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
