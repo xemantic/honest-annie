@@ -38,7 +38,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Clock
-import kotlin.time.Instant
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
@@ -186,7 +185,7 @@ class HarnessHost(
                 "introspector" provides introspector
                 provide<Agency>("agency", agency)
             }
-            unfolding = agency.seal()
+            agency.seal()
             logger.debug { "[$id] Harness executed in ${Clock.System.now() - started}" }
             val failure = when (result) {
                 is ScriptResult.Error -> "Harness failed to unfold the cogitation:\n${result.message}"
@@ -208,18 +207,17 @@ class HarnessHost(
         }
     }
 
-    /** Rests the cogitation of the [unfolding] on behalf of its failing harness, enunciating the impediment. */
+    /**
+     * Rests the cogitation of the [unfolding] on behalf of its failing harness, enunciating the impediment,
+     * which follows the output of the cogitation.
+     */
     private suspend fun impede(unfolding: Unfolding, runtime: Runtime, reason: String) {
         logger.warn { "[${unfolding.id}] Resting cogitation with impediment: $reason" }
-        val impediment = Phenomenon.Impediment(reason)
-        val impeded = unfolding.copy(
-            cogitation = unfolding.cogitation + Enunciation(actant = host, phenomena = listOf(impediment)),
-            enunciated = unfolding.enunciated + impediment,
-            enunciationInitiated = unfolding.enunciationInitiated ?: Clock.System.now()
-        )
+        val impediment = Enunciation(actant = host, phenomena = listOf(Phenomenon.Impediment(reason)))
+        val impeded = unfolding.copy(cogitation = unfolding.cogitation + impediment)
         store.save(impeded)
         runtime.recorder?.record(impeded.cogitation)
-        rested(impeded, runtime)
+        rested(impeded, runtime, extra = impediment)
     }
 
     /**
@@ -232,7 +230,7 @@ class HarnessHost(
         val cogitation = unfolding.cogitation
         when {
             cogitation.unansweredInvocations.isNotEmpty() -> dispatch(unfolding, runtime)
-            cogitation.enunciations.lastOrNull()?.actant == Actant.SELF -> rested(unfolding, runtime)
+            cogitation.enunciations.lastOrNull()?.actant == Actant.SELF -> rested(unfolding, runtime, extra = null)
             else -> {
                 logger.info { "[${unfolding.id}] Unfolded to ${cogitation.enunciations.size} enunciation(s), queued for the next step" }
                 runtime.queue.send(unfolding.id)
@@ -280,11 +278,16 @@ class HarnessHost(
             }
     }
 
-    /** Delivers the output of the rested [unfolding] to its invoker. */
-    private suspend fun rested(unfolding: Unfolding, runtime: Runtime) {
+    /**
+     * Delivers the output of the rested [unfolding] to its invoker, see [Cogitation.output],
+     * followed by the phenomena of the [extra] enunciation, if any.
+     */
+    private suspend fun rested(unfolding: Unfolding, runtime: Runtime, extra: Enunciation?) {
+        val enunciations = unfolding.cogitation.enunciations.filter { it.isOutput } + listOfNotNull(extra)
+        val output = enunciations.flatMap { it.phenomena }
         logger.info {
             "[${unfolding.id}] Rested after ${Clock.System.now() - unfolding.initiated}, " +
-                    "${unfolding.cogitation.enunciations.size} enunciation(s), output: ${unfolding.enunciated.kinds()}"
+                    "${unfolding.cogitation.enunciations.size} enunciation(s), output: ${output.kinds()}"
         }
         runtime.invoked.forEach { it.job.cancel() }
         val parent = unfolding.parent
@@ -293,9 +296,9 @@ class HarnessHost(
         if (parent == null || invocation == null) {
             runtime.rested.complete(Enunciation(
                 actant = Actant.SELF,
-                initiated = unfolding.enunciationInitiated ?: now,
+                initiated = enunciations.firstOrNull()?.initiated ?: now,
                 finalized = now,
-                phenomena = unfolding.enunciated
+                phenomena = output
             ))
             return
         }
@@ -304,7 +307,7 @@ class HarnessHost(
             initiated = unfolding.initiated,
             finalized = now,
             respondsTo = invocation.id,
-            phenomena = unfolding.enunciated
+            phenomena = output
         ))
     }
 
@@ -349,7 +352,7 @@ class HarnessHost(
 
     /** [Agency] of a single execution of the harness of the [unfolding], see [seal]. */
     private inner class HostedAgency(
-        @Volatile private var unfolding: Unfolding,
+        private val unfolding: Unfolding,
         override val parentCogitation: Cogitation?
     ) : Agency {
 
@@ -366,14 +369,11 @@ class HarnessHost(
 
         override val invocations = CopyOnWriteArrayList<Phenomenon.Invocation>()
 
-        override val enunciated: List<Phenomenon> get() = unfolding.enunciated
+        override val enunciated = CopyOnWriteArrayList<Phenomenon>()
 
-        override val enunciationInitiated: Instant? get() = unfolding.enunciationInitiated
-
-        /** Seals this agency once the harness has evaluated, returning the unfolding as it was left. */
-        suspend fun seal(): Unfolding = lock.withLock {
+        /** Seals this agency once the harness has evaluated. */
+        suspend fun seal(): Unit = lock.withLock {
             sealed = true
-            unfolding
         }
 
         private fun checkNotSealed() {
@@ -418,11 +418,7 @@ class HarnessHost(
                     else -> phenomenon.kind
                 }
             }
-            unfolding = unfolding.copy(
-                enunciated = unfolding.enunciated + phenomenon,
-                enunciationInitiated = unfolding.enunciationInitiated ?: Clock.System.now()
-            )
-            store.save(unfolding)
+            enunciated += phenomenon
         }
 
     }

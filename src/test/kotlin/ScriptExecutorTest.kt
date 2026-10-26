@@ -21,7 +21,6 @@ package com.xemantic.ai.annie
 import com.xemantic.kotlin.test.assert
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Instant
 import kotlinx.coroutines.test.runTest
 import com.xemantic.kotlin.script.ScriptExecutor as KotlinScriptExecutor
 
@@ -37,7 +36,6 @@ class ScriptExecutorTest {
         override val depth = 0
         override val invocations = mutableListOf<Phenomenon.Invocation>()
         override val enunciated = mutableListOf<Phenomenon>()
-        override val enunciationInitiated: Instant? = null
         override fun invoke(prompt: String, constitution: String, harness: String) = Phenomenon.Invocation(
             id = "invocation-${invocations.size + 1}",
             prompt = prompt,

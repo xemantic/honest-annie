@@ -38,8 +38,7 @@ interface ScriptExecutor {
      * ```
      *
      * Only the invocations of the collecting agency form the result, not those of the [agency] itself.
-     * What the script enunciates is not part of its result, but the output of the cogitation,
-     * see [Agency.enunciated].
+     * What the script enunciates is not part of its result, but its output, see [Agency.enunciated].
      *
      * @return the invocations the script made through the collecting agency, in their order,
      * followed by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,

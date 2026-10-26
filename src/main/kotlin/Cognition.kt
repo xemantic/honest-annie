@@ -128,6 +128,13 @@ data class Enunciation(
         }
     }
     val duration: Duration get() = finalized - initiated
+    /**
+     * Whether this is the output of its cogitation, addressed to its invoker, see [Cogitation.output]:
+     * enunciated by [Actant.SELF], neither expressing intents and monologues, nor responding to a request,
+     * e.g. what an intent enunciates through its agency.
+     */
+    val isOutput: Boolean get() = actant == Actant.SELF && respondsTo == null
+            && phenomena.none { it is Phenomenon.Intent || it is Phenomenon.Monologue }
 }
 
 /**
@@ -199,7 +206,7 @@ data class Inference(
  *   and returns the result of the intent: these invocations, in their order, followed by the value
  *   of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`; when the intent fails,
  *   the [Phenomenon.Impediment] describing the failure follows the invocations instead.
- *   What the intent enunciates through the agency is not part of its result, but the output of the cogitation,
+ *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated],
  * - `agency`: [Agency] within this cogitation, to be passed on to intents,
  * - `introspector`: `KotlinIntrospector` of the package `com.xemantic.kotlin.introspection`, whose
  *   `fun resolve(name: String, page: Int = 1, pageSize: Int = 10): String?` renders the Kotlin declaration
@@ -209,12 +216,12 @@ data class Inference(
  *   to be passed on to intents.
  *
  * The harness unfolds the cogitation by a single step, e.g. one inference, and is executed
- * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. an intent enunciating output, which is not responded:
+ * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded:
  * then the cogitation rests, until another interaction progresses it.
  * A cogitation awaiting [unansweredInvocations] is not unfolded further
  * until all of them are answered, the responding [Enunciation]s appended to it.
- * The output of a cogitation, everything enunciated through its agency, is perceived by its invoker
- * once it rests, as the enunciation of [Actant.SELF] responding to the invocation.
+ * The [output] of a cogitation is perceived by its invoker once it rests,
+ * as the enunciation of [Actant.SELF] responding to the invocation.
  *
  * A harness which fails to compile, throws, evaluates to anything else than a [Cogitation],
  * or evaluates to the given cogitation, not unfolded, has its cogitation rested by the host,
@@ -244,6 +251,8 @@ data class Cogitation(
     }
     val unansweredInvocations: List<Phenomenon.Invocation> get() =
         unansweredRequests.filterIsInstance<Phenomenon.Invocation>()
+    /** The phenomena of every [Enunciation.isOutput] of this cogitation, in their order. */
+    val output: List<Phenomenon> get() = enunciations.filter { it.isOutput }.flatMap { it.phenomena }
 }
 
 /** Id of the enunciation responding to the request with [requestId], the same however many times it is enunciated. */

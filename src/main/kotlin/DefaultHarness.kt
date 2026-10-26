@@ -27,14 +27,15 @@ package com.xemantic.ai.annie
 // - `agency`: Agency within the cogitation, invoking new ones and enunciating its output,
 // - `introspector`: KotlinIntrospector resolving the Kotlin API available to the intent.
 //
-// What an intent enunciates through `agency` is the output of the cogitation, perceived by its invoker.
-// Its result is enunciated by the computer, responding to the intent: the invocations it made, in their order,
+// What an intent enunciates through `agency` is the output of the cogitation, enunciated by self after the intent,
+// perceived by its invoker, and by the cognizer too, if the cogitation is unfolded further.
+// The result of the intent is enunciated by the computer, responding to the intent: the invocations it made, in their order,
 // followed by its value, unless `Unit` or `null`, or by the impediment describing its failure, if it failed.
 // The cogitation rests, until another interaction progresses it, when the intent is not responded:
 // when it enunciated output, invoking nothing and not failing, its value being ignored,
 // or when its result is empty.
-// An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment instead,
-// as its intent might be cut short.
+// An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment
+// enunciated by self instead, as its intent might be cut short.
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.kotlin.introspection.KotlinIntrospector
 import kotlin.time.Clock
@@ -63,30 +64,38 @@ private suspend fun unfold(
     )
     val intent = phenomena.filterIsInstance<Phenomenon.Intent>().lastOrNull()
     val stop = inference?.stop
+    fun impeded(reason: String) = inferred + Enunciation(
+        actant = Actant.SELF,
+        phenomena = listOf(Phenomenon.Impediment(reason))
+    )
     return if (stop != null && stop.kind != Inference.Stop.Kind.COMPLETED) {
-        agency.impede("Inference not completed, stopped by ${stop.reason}")
-        inferred
+        impeded("Inference not completed, stopped by ${stop.reason}")
     } else if (intent == null) {
-        agency.impede("No intent expressed")
-        inferred
+        impeded("No intent expressed")
     } else {
         val initiated = Clock.System.now()
-        val output = agency.enunciated.size
         val result = executor.execute(intent.script, agency) { collecting ->
             "cogitation" provides inferred
             "agency" provides collecting
             "introspector" provides introspector
         }
-        val enunciated = agency.enunciated.size > output
+        val executed = Clock.System.now()
+        val output = agency.enunciated
+        val enunciated = if (output.isEmpty()) inferred else inferred + Enunciation(
+            actant = Actant.SELF,
+            initiated = initiated,
+            finalized = executed,
+            phenomena = output
+        )
         val rests = result.isEmpty()
-                || enunciated && result.none { it is Phenomenon.Invocation || it is Phenomenon.Impediment }
+                || output.isNotEmpty() && result.none { it is Phenomenon.Invocation || it is Phenomenon.Impediment }
         if (rests) {
-            inferred
+            enunciated
         } else {
-            inferred + Enunciation(
+            enunciated + Enunciation(
                 actant = computer,
                 initiated = initiated,
-                finalized = Clock.System.now(),
+                finalized = executed,
                 respondsTo = intent.id,
                 phenomena = result
             )

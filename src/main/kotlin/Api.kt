@@ -18,8 +18,6 @@
 
 package com.xemantic.ai.annie
 
-import kotlin.time.Instant
-
 /**
  * The agency within the current cogitation: how its harness, and the intents it executes, act within it,
  * provided to both as `agency`, see [Cogitation]. It cannot be used once the harness has evaluated.
@@ -38,10 +36,11 @@ interface Agency {
     val depth: Int
     /** Invocations made during this execution of the harness, e.g. by the intent it executes. */
     val invocations: List<Phenomenon.Invocation>
-    /** Everything enunciated so far as the output of the current cogitation, in any execution of its harness. */
+    /**
+     * Output enunciated during this execution of the harness, e.g. by the intent it executes,
+     * to be enunciated by the harness in the cogitation it unfolds, see [Enunciation.isOutput].
+     */
     val enunciated: List<Phenomenon>
-    /** The moment the first phenomenon of the [enunciated] output was enunciated, `null` while there is none. */
-    val enunciationInitiated: Instant?
     /**
      * Invokes a cogitation under the [constitution], by default this [Agency.constitution],
      * unfolded by the [harness] script, which can be a different one, e.g. a modification of this [Agency.harness].
@@ -58,9 +57,10 @@ interface Agency {
         harness: String = this.harness,
     ): Phenomenon.Invocation
     /**
-     * Enunciates a [Phenomenon.Text] as the output of the current cogitation, which is perceived by its invoker
-     * once the cogitation rests, see [Cogitation]. Enunciated by an intent, it is not part of the result
-     * of the intent: what the intent needs to perceive itself is the value of its last expression.
+     * Enunciates a [Phenomenon.Text] as the output of the current cogitation, see [enunciated],
+     * which is perceived by its invoker once the cogitation rests, see [Cogitation.output].
+     * Enunciated by an intent, it is not part of the result of the intent, but precedes it in the cogitation:
+     * what the intent needs to perceive in the response to it is the value of its last expression.
      */
     suspend fun enunciate(text: String, contentType: String = Phenomenon.Text.MARKDOWN)
     /** Enunciates a [Phenomenon.Data] as the output of the current cogitation, like the text [enunciate]. */

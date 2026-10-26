@@ -57,7 +57,8 @@ call suspend functions directly, use `async`, or `launch` once imported, for con
 Your script has two channels:
 - its result, perceived only by you, in the response of the computer: the value of its last expression,
   unless `Unit` or `null`, e.g. a `String` you build to inspect anything you need,
-- its output, perceived by whoever invoked the cogitation: what you enunciate through `agency`.
+- its output, perceived by whoever invoked the cogitation: what you enunciate through `agency`,
+  which you perceive too, as your own enunciation preceding the response of the computer, if the cogitation goes on.
 
 Enunciating output, without invoking anything, ends the cogitation: the result of such a script is not perceived.
 Therefore enunciate only your final answer, complete, in a single script, and never interim findings.

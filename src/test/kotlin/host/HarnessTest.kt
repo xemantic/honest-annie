@@ -33,6 +33,7 @@ import kotlin.io.path.createTempDirectory
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
+import kotlin.io.path.readText
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -90,8 +91,8 @@ class HarnessTest {
     /** Harness of invoked cogitations, enunciating their prompt, without any inference. */
     private val echoHarness = """
         import com.xemantic.ai.annie.*
-        agency.enunciate("echo: " + (cogitation.enunciations.first().phenomena.first() as Phenomenon.Text).text)
-        cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("echoed")))
+        val prompt = (cogitation.enunciations.first().phenomena.first() as Phenomenon.Text).text
+        cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("echo: " + prompt)))
     """.trimIndent()
 
     /** This string as a Kotlin raw string literal. */
@@ -215,6 +216,26 @@ class HarnessTest {
     }
 
     @Test
+    fun `should perceive own output when not resting`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            """
+            agency.enunciate("interim")
+            agency.invoke("sub", harness = ECHO_HARNESS)
+            """.trimIndent().withEchoHarness(),
+            respondedIntent
+        )
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        val perceived = cognizer.perceived[1].enunciations
+        assert(perceived[2].actant == Actant.SELF && perceived[2].phenomena == listOf(Phenomenon.Text("interim")))
+        assert(perceived[3].actant.type == Actant.Type.COMPUTER)
+    }
+
+    @Test
     fun `should rest cogitation after intent producing no phenomena`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(restingIntent)
@@ -249,7 +270,7 @@ class HarnessTest {
     @Test
     fun `should enunciate impediment when no intent is expressed`() = runTest(timeout = 5.minutes) {
         // when
-        val output = cognize(Cognizer { Cognized(listOf(Phenomenon.Text("no kotlin"))) }, cogitation(defaultHarness))
+        val output = cognize(Cognizer { Cognized(listOf(Phenomenon.Monologue(listOf("no kotlin")))) }, cogitation(defaultHarness))
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Impediment("No intent expressed")))
@@ -266,8 +287,8 @@ class HarnessTest {
                     phenomena = listOf(Phenomenon.Text("step"))
                 )
             } else {
-                agency.enunciate("after ${'$'}{cogitation.enunciations.size}")
-                cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("done")))
+                val after = "after ${'$'}{cogitation.enunciations.size}"
+                cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text(after)))
             }
         """.trimIndent()
 
@@ -344,8 +365,8 @@ class HarnessTest {
         val actantHarness = """
             import com.xemantic.ai.annie.*
             val actant = cogitation.enunciations.single().actant
-            agency.enunciate(actant.type.name + " " + actant.name)
-            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("done")))
+            val text = actant.type.name + " " + actant.name
+            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text(text)))
         """.trimIndent()
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub\", harness = ${actantHarness.quoted()})",
@@ -477,8 +498,7 @@ class HarnessTest {
         // given
         val depthHarness = """
             import com.xemantic.ai.annie.*
-            agency.enunciate("depth " + agency.depth)
-            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("done")))
+            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("depth " + agency.depth)))
         """.trimIndent()
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub at depth ${'$'}{agency.depth}\", harness = ${depthHarness.quoted()})",
@@ -531,12 +551,26 @@ class HarnessTest {
         assert(files.containsAll(listOf(
             "cogitation.md", "constitution.md", "harness.kts",
             "001-1-human-text.md", "002-1-self-intent.kts", "003-1-computer-invocation.md",
-            "004-1-self-text.md", "005-1-self-intent.kts"
+            "004-1-self-text.md", "005-1-self-intent.kts", "006-1-self-text.md"
         )))
-        assert(files.none { it.startsWith("006-") })
+        assert(files.none { it.startsWith("007-") })
         val invoked = root.listDirectoryEntries().single { it.isDirectory() }
         assert(invoked.name.startsWith("003-1-"))
         assert(invoked.listDirectoryEntries().any { it.name == "002-1-self-text.md" })
+    }
+
+    @Test
+    fun `should record output of root cogitation`() = runTest(timeout = 5.minutes) {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cognizer = ScriptedCognizer("agency.enunciate(\"answer is 42\")")
+
+        // when
+        HarnessHost(executor, cognizer, store, recordingDir).cognize(cogitation(defaultHarness))
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        assert(root.resolve("003-1-self-text.md").readText() == "answer is 42")
     }
 
 }

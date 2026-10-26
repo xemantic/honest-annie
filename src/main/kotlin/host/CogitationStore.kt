@@ -19,7 +19,6 @@
 package com.xemantic.ai.annie.host
 
 import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Agency
 import com.xemantic.ai.annie.Phenomenon
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
@@ -31,16 +30,12 @@ import kotlin.time.Instant
  * Everything still to be done can be derived from unfoldings: each of the [Cogitation.unansweredInvocations]
  * of a cogitation is pending, and is unfolded by an [Unfolding] of its own.
  *
- * @property enunciated the output enunciated so far, see [Agency.enunciate].
- * @property enunciationInitiated the moment the first phenomenon of the output was enunciated.
  * @property id the id of the [invocation] which started it, a random one for a root.
  * @property parent the id of the unfolding whose [invocation] started this one, `null` for a root.
  */
 data class Unfolding(
     val id: String,
     val cogitation: Cogitation,
-    val enunciated: List<Phenomenon> = emptyList(),
-    val enunciationInitiated: Instant? = null,
     val parent: String? = null,
     val invocation: Phenomenon.Invocation? = null,
     val initiated: Instant = Clock.System.now()
