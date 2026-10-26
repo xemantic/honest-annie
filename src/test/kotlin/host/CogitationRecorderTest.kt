@@ -36,9 +36,9 @@ class CogitationRecorderTest {
 
     private val computer = Actant(type = Actant.Type.COMPUTER, name = "computer")
 
-    private val invocation = Phenomenon.Invocation(id = "sub", prompt = "sub", harness = "", constitution = null)
+    private val invocation = Phenomenon.Invocation(id = "sub", prompt = "sub", constitution = "", harness = "")
 
-    private val another = Phenomenon.Invocation(id = "another", prompt = "another", harness = "", constitution = null)
+    private val another = Phenomenon.Invocation(id = "another", prompt = "another", constitution = "", harness = "")
 
     @Test
     fun `should list recorded phenomena in the order of their enunciation`() = runTest {

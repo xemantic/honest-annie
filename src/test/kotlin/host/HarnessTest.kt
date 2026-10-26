@@ -480,6 +480,24 @@ class HarnessTest {
     }
 
     @Test
+    fun `should invoke cogitation under constitution of invoker by default`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            "agency.invoke(\"sub\", harness = ${echoHarness.quoted()})",
+            respondedIntent
+        )
+        val cogitation = cogitation(defaultHarness).copy(constitution = listOf("first", "second"))
+
+        // when
+        cognize(cognizer, cogitation)
+
+        // then
+        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }
+            .filterIsInstance<Phenomenon.Invocation>().single()
+        assert(invocation.constitution == "first\n\nsecond")
+    }
+
+    @Test
     fun `should record root and invoked cogitations`() = runTest(timeout = 5.minutes) {
         // given
         val recordingDir = createTempDirectory("cogitations")

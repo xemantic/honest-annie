@@ -98,6 +98,32 @@ class OpenAIInferenceTest {
     }
 
     @Test
+    fun `should request chat completion without system message when constitution is blank`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
+
+        // when
+        val body = json(inference.chatRequest(cogitation().copy(constitution = listOf("")))._body())
+
+        // then
+        assert(body["messages"] == json("""
+            [{"role": "user", "content": ${jsonMapper().writeValueAsString(userTurn)}}]
+        """))
+    }
+
+    @Test
+    fun `should request response without instructions when constitution is blank`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+
+        // when
+        val body = json(inference.responseRequest(cogitation().copy(constitution = listOf("")))._body())
+
+        // then
+        assert(body["instructions"] == null)
+    }
+
+    @Test
     fun `should perceive reasoning content of chat completion`() {
         // given
         val inference = OpenAIInference(client = client, model = "glm-5.3-flash")

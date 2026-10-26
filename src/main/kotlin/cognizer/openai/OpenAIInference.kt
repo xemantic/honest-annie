@@ -39,6 +39,7 @@ import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
 import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.cognizer.Turn
+import com.xemantic.ai.annie.cognizer.systemPrompt
 import com.xemantic.ai.annie.cognizer.toTurns
 import kotlinx.coroutines.future.await
 
@@ -84,7 +85,7 @@ class OpenAIInference(
             .model(model)
             .maxCompletionTokens(maxTokens)
             .apply { effort?.let { reasoningEffort(it.openAIEffort) } }
-            .addSystemMessage(cogitation.constitution.joinToString(separator = "\n\n"))
+            .apply { cogitation.systemPrompt?.let { addSystemMessage(it) } }
             .apply {
                 cogitation
                     // the reasoning of Chat Completions is never replayed
@@ -101,7 +102,7 @@ class OpenAIInference(
     internal fun responseRequest(cogitation: Cogitation): ResponseCreateParams = ResponseCreateParams.builder()
         .model(model)
         .maxOutputTokens(maxTokens)
-        .instructions(cogitation.constitution.joinToString(separator = "\n\n"))
+        .apply { cogitation.systemPrompt?.let { instructions(it) } }
         .reasoning(Reasoning.builder()
             .apply { effort?.let { effort(it.openAIEffort) } }
             .apply { if (visibility != Monologue.Visibility.HIDDEN) summary(Reasoning.Summary.AUTO) }

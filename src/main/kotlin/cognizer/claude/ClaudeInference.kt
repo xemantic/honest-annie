@@ -38,6 +38,7 @@ import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
 import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.cognizer.Turn
+import com.xemantic.ai.annie.cognizer.systemPrompt
 import com.xemantic.ai.annie.cognizer.toTurns
 import kotlinx.coroutines.future.await
 
@@ -80,12 +81,16 @@ class ClaudeInference(
     internal fun request(cogitation: Cogitation): MessageCreateParams = MessageCreateParams.builder()
         .model(model)
         .maxTokens(maxTokens)
-        .systemOfTextBlockParams(listOf(
-            TextBlockParam.builder()
-                .text(cogitation.constitution.joinToString(separator = "\n\n"))
-                .cacheControl(CacheControlEphemeral.builder().ttl(CacheControlEphemeral.Ttl.TTL_1H).build())
-                .build()
-        ))
+        .apply {
+            cogitation.systemPrompt?.let {
+                systemOfTextBlockParams(listOf(
+                    TextBlockParam.builder()
+                        .text(it)
+                        .cacheControl(CacheControlEphemeral.builder().ttl(CacheControlEphemeral.Ttl.TTL_1H).build())
+                        .build()
+                ))
+            }
+        }
         .cacheControl(CacheControlEphemeral.builder().ttl(tailCache).build())
         .thinking(ThinkingConfigAdaptive.builder().display(visibility.claudeDisplay).build())
         .apply {

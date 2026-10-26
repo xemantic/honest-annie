@@ -25,6 +25,9 @@ import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import kotlin.time.Instant
 
+/** The constitution as the system prompt, `null` when it is blank, since some APIs reject an empty one. */
+val Cogitation.systemPrompt: String? get() = constitution.joinToString(separator = "\n\n").ifBlank { null }
+
 /** A turn of the conversation with a model, the assistant [P]arts being specific to the API. */
 sealed interface Turn<out P> {
     class User(val text: String) : Turn<Nothing>

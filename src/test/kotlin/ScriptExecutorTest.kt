@@ -31,17 +31,18 @@ class ScriptExecutorTest {
 
     /** [Agency] keeping everything enunciated, and invoking nothing for real. */
     private class TestAgency : Agency {
+        override val constitution = ""
         override val harness = ""
         override val parentCogitation: Cogitation? = null
         override val depth = 0
         override val invocations = mutableListOf<Phenomenon.Invocation>()
         override val enunciated = mutableListOf<Phenomenon>()
         override val enunciationInitiated: Instant? = null
-        override fun invoke(prompt: String, harness: String, constitution: String?) = Phenomenon.Invocation(
+        override fun invoke(prompt: String, constitution: String, harness: String) = Phenomenon.Invocation(
             id = "invocation-${invocations.size + 1}",
             prompt = prompt,
-            harness = harness,
-            constitution = constitution
+            constitution = constitution,
+            harness = harness
         ).also { invocations += it }
         override suspend fun enunciate(text: String, contentType: String) {
             enunciated += Phenomenon.Text(text, contentType)

@@ -98,6 +98,19 @@ class ClaudeInferenceTest {
     }
 
     @Test
+    fun `should request without system prompt when constitution is blank`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+
+        // when
+        val body = inference.body(cogitation().copy(constitution = listOf("")))
+
+        // then
+        assert(body["system"] == null)
+        assert(body["cache_control"] == json("""{"type": "ephemeral", "ttl": "5m"}"""))
+    }
+
+    @Test
     fun `should leave effort to the model and omit monologue by default`() {
         // given
         val inference = ClaudeInference(client = client, model = "claude-opus-5-5")

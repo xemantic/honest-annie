@@ -96,8 +96,8 @@ private class CollectingAgency(private val agency: Agency) : Agency by agency {
 
     override fun invoke(
         prompt: String,
-        harness: String,
-        constitution: String?
-    ): Phenomenon.Invocation = agency.invoke(prompt, harness, constitution).also { collected += it }
+        constitution: String,
+        harness: String
+    ): Phenomenon.Invocation = agency.invoke(prompt, constitution, harness).also { collected += it }
 
 }

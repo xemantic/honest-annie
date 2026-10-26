@@ -25,6 +25,11 @@ import kotlin.time.Instant
  * provided to both as `agency`, see [Cogitation]. It cannot be used once the harness has evaluated.
  */
 interface Agency {
+    /**
+     * The constitution of the current cogitation, its parts joined as the cognizer perceives them,
+     * see [Cogitation.constitution]. It embeds the source of this [harness].
+     */
+    val constitution: String
     /** The source of the harness unfolding the current cogitation, see [Cogitation.harness]. */
     val harness: String
     /** [Cogitation] which invoked the current one, `null` for the root one. */
@@ -38,8 +43,8 @@ interface Agency {
     /** The moment the first phenomenon of the [enunciated] output was enunciated, `null` while there is none. */
     val enunciationInitiated: Instant?
     /**
-     * Invokes a cogitation unfolded by the [harness] script, which can be a different one,
-     * e.g. a modification of this [Agency.harness].
+     * Invokes a cogitation under the [constitution], by default this [Agency.constitution],
+     * unfolded by the [harness] script, which can be a different one, e.g. a modification of this [Agency.harness].
      * The invoked cogitation is unfolded by the same cognizer, starting with the [prompt]
      * enunciated by [Actant.INVOKER].
      *
@@ -49,8 +54,8 @@ interface Agency {
      */
     fun invoke(
         prompt: String,
+        constitution: String = this.constitution,
         harness: String = this.harness,
-        constitution: String? = constitution(harness),
     ): Phenomenon.Invocation
     /**
      * Enunciates a [Phenomenon.Text] as the output of the current cogitation, which is perceived by its invoker

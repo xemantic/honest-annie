@@ -259,7 +259,7 @@ class HarnessHost(
                     val child = store.load(invocation.id) ?: Unfolding(
                         id = invocation.id,
                         cogitation = Cogitation(
-                            constitution = listOfNotNull(invocation.constitution),
+                            constitution = listOf(invocation.constitution),
                             harness = invocation.harness,
                             enunciations = listOf(Enunciation(
                                 actant = Actant.INVOKER,
@@ -354,6 +354,8 @@ class HarnessHost(
         @Volatile
         private var sealed = false
 
+        override val constitution: String = unfolding.cogitation.constitution.joinToString(separator = "\n\n")
+
         override val harness: String = unfolding.cogitation.harness
 
         override val depth: Int = unfolding.cogitation.depth
@@ -376,15 +378,15 @@ class HarnessHost(
 
         override fun invoke(
             prompt: String,
+            constitution: String,
             harness: String,
-            constitution: String?,
         ): Phenomenon.Invocation {
             checkNotSealed()
             return Phenomenon.Invocation(
                 id = randomId(),
                 prompt = prompt,
-                harness = harness,
                 constitution = constitution,
+                harness = harness,
             ).also {
                 logger.info { "[${unfolding.id}] Intent invoked ${it.id}" }
                 invocations += it

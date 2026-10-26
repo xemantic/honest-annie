@@ -52,8 +52,8 @@ sealed interface Phenomenon {
     data class Invocation(
         override val id: String,
         val prompt: String,
-        val harness: String,
-        val constitution: String?
+        val constitution: String,
+        val harness: String
     ) : Request {
         override fun toString(): String = "Invocation(id=$id)"
     }
