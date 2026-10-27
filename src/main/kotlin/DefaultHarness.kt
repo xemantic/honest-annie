@@ -33,10 +33,14 @@ package com.xemantic.ai.annie
 // The cogitation rests, until another interaction progresses it, when the intent is not responded:
 // when it enunciated output, invoking nothing and not failing, its value being ignored,
 // or when its result is empty.
+// An inference expressing a malformed intent, see `Agency.isMalformed`, is discarded, inferring again instead,
+// at most `Agency.maxReinferences` times.
 // An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment
 // enunciated by self instead, as its intent might be cut short.
+import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * Unfolds the [cogitation] by a single step, the parameters being the properties provided to a harness,
@@ -50,8 +54,17 @@ private suspend fun unfold(
     agency: Agency
 ): Cogitation {
     val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
-    val inferenceInitiated = Clock.System.now()
-    val (phenomena, inference) = cognizer.cognize(cogitation)
+    var inferenceInitiated: Instant
+    var cognized: Cognized
+    var reinferences = 0
+    // A malformed intent, e.g. a tool call, is discarded, inferring again from the same cogitation,
+    // and executed, failing, only when still expressed after the last reinference.
+    do {
+        inferenceInitiated = Clock.System.now()
+        cognized = cognizer.cognize(cogitation)
+        val expressed = cognized.phenomena.filterIsInstance<Phenomenon.Intent>().lastOrNull()
+    } while (expressed != null && agency.isMalformed(expressed) && reinferences++ < agency.maxReinferences)
+    val (phenomena, inference) = cognized
     val inferred = cogitation + Enunciation(
         actant = Actant.SELF,
         initiated = inferenceInitiated,

@@ -70,7 +70,8 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * in the [store] at each step.
  *
  * Recording is done here and not by the harness: every inference of the cognizer provided to it is recorded,
- * and so is the cogitation each execution of the harness evaluates to.
+ * and so is the cogitation each execution of the harness evaluates to, preceded by the inferences
+ * the harness discarded, not enunciating them, e.g. in place of a malformed intent, see [CogitationRecorder.record].
  * What the host does is logged, without the content of the phenomena, which is recorded instead.
  *
  * @param cognizer unfolding every cogitation, the root one and all the invoked ones.
@@ -81,6 +82,9 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * @param parallelism how many steps of a tree of cogitations may execute at a time, `null` for no limit.
  * The steps beyond it wait in the queue.
  * @param introspector of the Kotlin API available to scripts, resolving declarations for every [Agency].
+ * @param isMalformed whether an intent is not shaped as a Kotlin script, see [Agency.isMalformed],
+ * by default whether it [isToolCall].
+ * @param maxReinferences how many times a harness infers again in place of a malformed intent, see [Agency.maxReinferences].
  */
 class HarnessHost(
     private val executor: ScriptExecutor,
@@ -89,7 +93,9 @@ class HarnessHost(
     private val recordingDir: Path? = null,
     private val tokenBudget: Long? = null,
     private val parallelism: Int? = null,
-    private val introspector: KotlinIntrospector = lazyKotlinIntrospector()
+    private val introspector: KotlinIntrospector = lazyKotlinIntrospector(),
+    private val isMalformed: (Phenomenon.Intent) -> Boolean = Phenomenon.Intent::isToolCall,
+    private val maxReinferences: Int = 1
 ) {
 
     private val intentExecutor = IntentExecutor(executor)
@@ -179,9 +185,10 @@ class HarnessHost(
                 unfolding = unfolding,
                 parentCogitation = unfolding.parent?.let { store.load(it)?.cogitation }
             )
+            val inferred = CopyOnWriteArrayList<Enunciation>()
             val result = executor.execute(cogitation.harness) {
                 "cogitation" provides cogitation
-                "cognizer" provides recordingCognizer(id, runtime)
+                "cognizer" provides recordingCognizer(id, runtime, inferred)
                 "executor" provides intentExecutor
                 provide<Agency>("agency", agency)
             }
@@ -199,34 +206,46 @@ class HarnessHost(
                     else -> "Harness evaluated to $unfolded instead of the unfolded Cogitation"
                 }
             }
+            val unfolded = unfolding.cogitation.enunciations.drop(cogitation.enunciations.size)
+            val discarded = inferred.filter { inference ->
+                unfolded.none { it.phenomena == inference.phenomena && it.inference == inference.inference }
+            }
+            if (discarded.isNotEmpty()) {
+                logger.info { "[$id] Harness discarded ${discarded.size} inference(s)" }
+            }
             if (failure != null) {
-                impede(unfolding, runtime, failure)
+                impede(unfolding, runtime, failure, discarded)
             } else {
-                settle(unfolding, runtime)
+                settle(unfolding, runtime, discarded)
             }
         }
     }
 
     /**
      * Rests the cogitation of the [unfolding] on behalf of its failing harness, enunciating the impediment,
-     * which follows the output of the cogitation.
+     * which follows the output of the cogitation, recording the [discarded] inferences before it.
      */
-    private suspend fun impede(unfolding: Unfolding, runtime: Runtime, reason: String) {
+    private suspend fun impede(
+        unfolding: Unfolding,
+        runtime: Runtime,
+        reason: String,
+        discarded: List<Enunciation> = emptyList()
+    ) {
         logger.warn { "[${unfolding.id}] Resting cogitation with impediment: $reason" }
         val impediment = Enunciation(actant = host, phenomena = listOf(Phenomenon.Impediment(reason)))
         val impeded = unfolding.copy(cogitation = unfolding.cogitation + impediment)
         store.save(impeded)
-        runtime.recorder?.record(impeded.cogitation)
+        runtime.recorder?.record(impeded.cogitation, discarded)
         rested(impeded, runtime, extra = impediment)
     }
 
     /**
-     * Stores and records the [unfolding], then either dispatches the invocations it awaits,
-     * responds to its invoker once it rests, or queues it for the next step.
+     * Stores and records the [unfolding], preceded by the [discarded] inferences, then either dispatches
+     * the invocations it awaits, responds to its invoker once it rests, or queues it for the next step.
      */
-    private suspend fun settle(unfolding: Unfolding, runtime: Runtime) {
+    private suspend fun settle(unfolding: Unfolding, runtime: Runtime, discarded: List<Enunciation>) {
         store.save(unfolding)
-        runtime.recorder?.record(unfolding.cogitation)
+        runtime.recorder?.record(unfolding.cogitation, discarded)
         val cogitation = unfolding.cogitation
         when {
             cogitation.unansweredInvocations.isNotEmpty() -> dispatch(unfolding, runtime)
@@ -331,8 +350,15 @@ class HarnessHost(
         }
     }
 
-    /** The [cognizer] recording and logging each inference of the unfolding [id]. */
-    private fun recordingCognizer(id: String, runtime: Runtime) = Cognizer { cogitation ->
+    /**
+     * The [cognizer] recording and logging each inference of the unfolding [id],
+     * collecting them as [inferred] enunciations, to tell the ones the harness discards.
+     */
+    private fun recordingCognizer(
+        id: String,
+        runtime: Runtime,
+        inferred: MutableList<Enunciation>
+    ) = Cognizer { cogitation ->
         runtime.recorder?.record(cogitation)
         logger.info { "[$id] Inferring from ${cogitation.enunciations.size} enunciation(s)" }
         val initiated = Clock.System.now()
@@ -343,6 +369,13 @@ class HarnessHost(
             throw e
         }.also { (phenomena, inference) ->
             inference?.let { runtime.spent.addAndGet(it.total) }
+            inferred += Enunciation(
+                actant = Actant.SELF,
+                initiated = initiated,
+                finalized = Clock.System.now(),
+                phenomena = phenomena,
+                inference = inference
+            )
             logger.info {
                 "[$id] Inferred in ${Clock.System.now() - initiated}: ${phenomena.kinds()}" +
                         (inference?.let { ", by ${it.model} of ${it.provider}: ${it.tokensDescription()}${it.stopDescription()}" } ?: "")
@@ -409,6 +442,10 @@ class HarnessHost(
             enunciate(Phenomenon.Impediment(reason))
         }
 
+        override fun isMalformed(intent: Phenomenon.Intent) = this@HarnessHost.isMalformed(intent)
+
+        override val maxReinferences = this@HarnessHost.maxReinferences
+
         override fun resolveDeclaration(name: String, page: Int, pageSize: Int) =
             introspector.resolve(name, page, pageSize)
 
@@ -443,6 +480,12 @@ class HarnessHost(
     }
 
 }
+
+/**
+ * Whether this intent is a tool call, starting with `<invoke` in the markup of Claude's training,
+ * which no request declares, so that it never compiles as a Kotlin script.
+ */
+val Phenomenon.Intent.isToolCall: Boolean get() = script.trimStart().startsWith("<invoke")
 
 /** The kinds of these phenomena, e.g. `[monologue, intent]`. */
 private fun List<Phenomenon>.kinds(): String = joinToString(prefix = "[", postfix = "]") { it.kind }

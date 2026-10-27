@@ -267,6 +267,109 @@ class HarnessTest {
         assert((response.phenomena.single() as Phenomenon.Impediment).reason.contains("boom"))
     }
 
+    /** Intent written as a tool call, in the markup of Claude's training, followed by a result made up by the model. */
+    private val toolCallIntent = """
+        <invoke name="fetch">
+        <parameter name="url">https://raw.githubusercontent.com/xemantic/honest-annie/main/README.md</parameter>
+        </invoke>
+
+        <error>Failed to fetch:https://raw.githubusercontent.com/xemantic/honest-annie/main/README.md</error>
+    """.trimIndent()
+
+    @Test
+    fun `should infer again from the same cogitation instead of executing tool call`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            toolCallIntent,
+            "agency.enunciate(\"fetched\")"
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("fetched")))
+        assert(cognizer.perceived.size == 2)
+        assert(cognizer.perceived[1] == cognizer.perceived[0])
+    }
+
+    @Test
+    fun `should respond to tool call expressed again with impediment`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            toolCallIntent,
+            toolCallIntent,
+            "agency.impede(\"cannot proceed\")"
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Impediment("cannot proceed")))
+        assert(cognizer.perceived.size == 3)
+        val intents = cognizer.perceived[2].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Intent>()
+        assert(intents.map { it.script } == listOf(toolCallIntent))
+        val response = cognizer.perceived[2].enunciations.last()
+        assert(response.actant.type == Actant.Type.COMPUTER)
+        assert(response.phenomena.single() is Phenomenon.Impediment)
+    }
+
+    @Test
+    fun `should infer again as many times as configured in place of malformed intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            toolCallIntent,
+            toolCallIntent,
+            toolCallIntent,
+            "agency.enunciate(\"fetched\")"
+        )
+
+        // when
+        val output = HarnessHost(executor, cognizer, store, maxReinferences = 3).cognize(cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("fetched")))
+        assert(cognizer.perceived.size == 4)
+        assert(cognizer.perceived.all { it == cognizer.perceived[0] })
+    }
+
+    @Test
+    fun `should execute malformed intent without inferring again when not configured to`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            toolCallIntent,
+            "agency.impede(\"cannot proceed\")"
+        )
+
+        // when
+        val output = HarnessHost(executor, cognizer, store, maxReinferences = 0).cognize(cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Impediment("cannot proceed")))
+        assert(cognizer.perceived.size == 2)
+        assert(cognizer.perceived[1].enunciations.last().phenomena.single() is Phenomenon.Impediment)
+    }
+
+    @Test
+    fun `should infer again in place of intent malformed by the configured predicate`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            "6 * 7",
+            "agency.enunciate(\"answer\")"
+        )
+
+        // when
+        val output = HarnessHost(
+            executor, cognizer, store, isMalformed = { it.script == "6 * 7" }
+        ).cognize(cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("answer")))
+        assert(cognizer.perceived.size == 2)
+        assert(cognizer.perceived[1] == cognizer.perceived[0])
+    }
+
     @Test
     fun `should enunciate impediment when no intent is expressed`() = runTest(timeout = 5.minutes) {
         // when
@@ -574,6 +677,25 @@ class HarnessTest {
         val invoked = root.listDirectoryEntries().single { it.isDirectory() }
         assert(invoked.name.startsWith("003-1-"))
         assert(invoked.listDirectoryEntries().any { it.name == "002-1-self-text.md" })
+    }
+
+    @Test
+    fun `should record inference discarded by harness without enunciating it`() = runTest(timeout = 5.minutes) {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cognizer = ScriptedCognizer(
+            toolCallIntent,
+            "agency.enunciate(\"fetched\")"
+        )
+
+        // when
+        HarnessHost(executor, cognizer, store, recordingDir).cognize(cogitation(defaultHarness))
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        assert(root.resolve("002-discarded-1-1-self-intent.kts").readText() == toolCallIntent)
+        assert(root.resolve("002-1-self-intent.kts").readText() == "agency.enunciate(\"fetched\")")
+        assert(root.resolve("inferences.json").readText().contains("\"enunciation\": \"002-discarded-1\""))
     }
 
     @Test

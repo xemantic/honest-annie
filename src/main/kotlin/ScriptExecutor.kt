@@ -78,15 +78,29 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
 }
 
 /**
- * The script without the Markdown code fence enclosing all of it, e.g. ` ```kotlin `, which some cognizers
- * keep writing around their intents, failing to compile otherwise.
+ * The script within the first Markdown code fence, e.g. ` ```kotlin `, which some cognizers keep writing
+ * around their intents, often with text before and after it, which is discarded, failing to compile otherwise.
+ * Fences nested within it, e.g. in a multiline string of Markdown, are counted, so that only the fence
+ * closing the first one ends the script: a fence with an info string opens, and a bare one closes.
+ * A script without a fence is kept as is, and one whose fence is never closed extends to its end.
  */
 private fun String.unfenced(): String {
-    val lines = trim().lines()
-    return if (lines.size >= 2 && lines.first().matches(Regex("```\\w*")) && lines.last() == "```") {
-        lines.subList(1, lines.size - 1).joinToString("\n")
-    } else this
+    val lines = lines()
+    val opening = lines.indexOfFirst { it.trim().matches(FENCE) }
+    if (opening < 0) return this
+    var depth = 0
+    val closing = (opening + 1 until lines.size).firstOrNull { index ->
+        val line = lines[index].trim()
+        when {
+            line == "```" -> depth-- == 0
+            line.matches(FENCE) -> { depth++; false }
+            else -> false
+        }
+    } ?: lines.size
+    return lines.subList(opening + 1, closing).joinToString("\n")
 }
+
+private val FENCE = Regex("```[\\w+-]*")
 
 /** The [agency] collecting the invocations made through it. */
 private class CollectingAgency(private val agency: Agency) : Agency by agency {

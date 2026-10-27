@@ -52,6 +52,8 @@ class ScriptExecutorTest {
         override suspend fun impede(reason: String) {
             enunciated += Phenomenon.Impediment(reason)
         }
+        override fun isMalformed(intent: Phenomenon.Intent) = false
+        override val maxReinferences = 0
         override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
         override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
         override suspend fun execute(
@@ -175,12 +177,60 @@ class ScriptExecutorTest {
     @Test
     fun `should keep fences within intent`() = runTest(timeout = 5.minutes) {
         // when
-        val phenomena = executor.execute("val fence = \"```\"\n\"${'$'}{fence}kotlin\\n${'$'}fence\"", TestAgency()) { collecting ->
+        val phenomena = executor.execute($$"val fence = \"```\"\n\"${fence}kotlin\\n$fence\"", TestAgency()) { collecting ->
             "agency" provides collecting
         }
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("```kotlin\n```", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should execute fenced intent, discarding text around the fence`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            """
+            Forgot the import, fixed:
+
+            ```kotlin
+            val answer = 6 * 7
+            answer
+            ```
+
+            This should evaluate to 42.
+            """.trimIndent(),
+            TestAgency()
+        ) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should keep fences nested within fenced intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            """
+            The script enunciating Markdown:
+            ```kotlin
+            val markdown = '''
+            ```kotlin
+            println()
+            ```
+            '''
+            markdown.trim()
+            ```
+            Done.
+            """.trimIndent().replace("'''", "\"\"\""),
+            TestAgency()
+        ) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("```kotlin\nprintln()\n```", Phenomenon.Text.PLAIN)))
     }
 
     @Test

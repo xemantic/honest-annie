@@ -42,13 +42,15 @@ import kotlinx.coroutines.runBlocking
  * Cogitations are recorded in `ANNIE_COGITATIONS_DIR`, `cogitations` by default, and unfolded
  * by the harness script at the `ANNIE_HARNESS` path, the [defaultHarness] when not set,
  * spending at most `ANNIE_TOKEN_BUDGET` tokens, and stepping at most `ANNIE_PARALLELISM` cogitations
- * at a time, when set, see [HarnessHost].
+ * at a time, when set, inferring again at most `ANNIE_REINFERENCES` times, 1 by default,
+ * in place of a malformed intent, see [HarnessHost].
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")
     val harness = System.getenv("ANNIE_HARNESS")?.let { Path(it).readText() } ?: defaultHarness
     val tokenBudget = System.getenv("ANNIE_TOKEN_BUDGET")?.toLong()
     val parallelism = System.getenv("ANNIE_PARALLELISM")?.toInt()
+    val maxReinferences = System.getenv("ANNIE_REINFERENCES")?.toInt() ?: 1
     val claudeModel = System.getenv("ANTHROPIC_MODEL")
     val client: AutoCloseable
     val cognizer: Cognizer
@@ -67,7 +69,8 @@ fun main(args: Array<String>) {
         val executor = ScriptExecutor()
         runBlocking {
             val output = HarnessHost(
-                executor, cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism
+                executor, cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism,
+                maxReinferences = maxReinferences
             ).cognize(Cogitation(
                 constitution = listOf(constitution(harness)),
                 harness = harness,
