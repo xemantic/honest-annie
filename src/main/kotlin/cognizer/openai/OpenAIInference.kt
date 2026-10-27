@@ -43,7 +43,10 @@ import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.cognizer.Turn
 import com.xemantic.ai.annie.cognizer.systemPrompt
 import com.xemantic.ai.annie.cognizer.toTurns
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.future.await
+
+private val logger = KotlinLogging.logger {}
 
 /**
  * A [Cognizer] speaking to an OpenAI-compatible model through the official OpenAI SDK,
@@ -225,6 +228,10 @@ class OpenAIInference(
                 .orElseGet { "<invoke>\n${jsonMapper().writeValueAsString(call)}\n</invoke>" }
         }
         val intent = listOfNotNull(message.content().orElse(null)) + toolCalls
+        if (intent.isEmpty()) {
+            // what the output tokens were spent on is not perceived, e.g. a field of the endpoint's own
+            logger.warn { "Chat completion with neither content nor tool calls: ${jsonMapper().writeValueAsString(message)}" }
+        }
         return listOfNotNull(
             reasoning?.takeIf { it.isNotEmpty() }?.let {
                 Monologue(summary = listOf(it), role = Monologue.Role.REASONING)
