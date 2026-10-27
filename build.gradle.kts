@@ -147,6 +147,76 @@ sourceSets.main {
     resources.srcDir(generateDefaultHarness)
 }
 
+// The Java runtime of the JDK running the build, linked with the modules the scripts of cognizers can use:
+// all of Java SE, not only the ones the harness depends on, plus the JDK modules the Kotlin compiler relies on.
+val runtimeImage = tasks.register<Exec>("runtimeImage") {
+    group = "annie"
+    description = "Links the Java runtime bundled with the runtime distribution"
+    val javaHome = System.getProperty("java.home")
+    val modules = listOf(
+        "java.se",
+        "jdk.compiler",
+        "jdk.unsupported",
+        "jdk.zipfs",
+        "jdk.charsets",
+        "jdk.localedata",
+        "jdk.crypto.cryptoki",
+        "jdk.httpserver",
+        "jdk.management",
+        "jdk.naming.dns",
+        "jdk.net",
+        "jdk.security.auth"
+    )
+    val outputDir = layout.buildDirectory.dir("runtime-image")
+    inputs.property("javaHome", javaHome)
+    inputs.property("modules", modules)
+    outputs.dir(outputDir)
+    executable = "$javaHome/bin/jlink"
+    args(
+        "--add-modules", modules.joinToString(","),
+        "--strip-debug",
+        "--no-man-pages",
+        "--no-header-files",
+        "--compress", "zip-6",
+        "--output", outputDir.get().asFile.path
+    )
+    // jlink refuses to write into an existing directory
+    doFirst { outputDir.get().asFile.deleteRecursively() }
+}
+
+// The distribution carrying its own Java runtime, which its start script uses instead of JAVA_HOME.
+distributions.register("runtime") {
+    contents {
+        from(tasks.installDist)
+        exclude("bin/*.bat")
+        filesMatching("bin/${project.name}") {
+            filter { line ->
+                if (line.startsWith("if [ -n \"\$JAVA_HOME\" ] ; then")) "JAVA_HOME=\$APP_HOME/runtime\n$line" else line
+            }
+        }
+        into("runtime") {
+            from(runtimeImage)
+            // jlink makes the legal notices read-only, which would fail installing the distribution again
+            filesMatching("**/legal/**") { permissions { user { write = true } } }
+        }
+    }
+}
+
+// The runtime is native, so its archive is named after the platform of the build, e.g. linux-x64 or macos-arm64.
+tasks.named<Tar>("runtimeDistTar") {
+    val os = System.getProperty("os.name").lowercase().let { if ("mac" in it) "macos" else it.substringBefore(' ') }
+    val arch = System.getProperty("os.arch").let { if (it == "aarch64") "arm64" else if (it == "amd64" || it == "x86_64") "x64" else it }
+    archiveClassifier = "$os-$arch"
+    archiveExtension = "tar.gz"
+    compression = Compression.GZIP
+    // archives have fixed permissions by default, which would make the launcher and the runtime non-executable
+    useFileSystemPermissions()
+}
+
+tasks.named("runtimeDistZip") {
+    enabled = false
+}
+
 tasks.register<JavaExec>("listModels") {
     group = "annie"
     description = "Lists models exposed by the OpenAI-compatible endpoint at OPENAI_BASE_URL"

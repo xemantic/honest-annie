@@ -1,0 +1,49 @@
+# Packages honest-annie with its own Java runtime for each platform, attaching the packages to the release of a tag
+name: Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  package:
+    strategy:
+      matrix:
+        runner:
+          - ubuntu-latest     # linux-x64
+          - ubuntu-24.04-arm  # linux-arm64
+          - macos-latest      # macos-arm64
+          - macos-15-intel    # macos-x64
+    uses: xemantic/.github/.github/workflows/build-gradle.yml@main
+    secrets: inherit
+    with:
+      runs_on: ${{ matrix.runner }}
+      # Temurin 27 is not available for macOS on x64
+      java_distribution: zulu
+      java_version: 27
+      gradle_args: runtimeDistTar
+      artifact_path: build/distributions/*.tar.gz
+      artifact_name: honest-annie-${{ matrix.runner }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          path: packages
+          merge-multiple: true
+
+      - name: Attach packages to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          gh release upload "$GITHUB_REF_NAME" packages/*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber

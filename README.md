@@ -48,6 +48,15 @@ the others waiting in the queue.
 
 `./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 
+### Running without a JDK
+
+`./gradlew runtimeDistTar` packages honest-annie together with its own Java runtime,
+linked by `jlink` from the JDK running the build,
+as `build/distributions/honest-annie-runtime-<version>-<platform>.tar.gz`, e.g. `macos-arm64`.
+Once extracted, `bin/honest-annie "What's fibonacci number 45"` runs it with no other Java installed.
+The [Package](.github/workflows/package.yml) workflow builds these packages for Linux and macOS, on x64 and arm64,
+and attaches them to the release of each `v*` tag.
+
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE)
