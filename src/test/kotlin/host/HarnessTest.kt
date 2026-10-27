@@ -85,8 +85,8 @@ class HarnessTest {
         ))
     )
 
-    /** Intent producing no phenomena, which ends the loop of inferences. */
-    private val restingIntent = "Unit"
+    /** Intent enunciating output, which ends the loop of inferences. */
+    private val restingIntent = "agency.enunciate(\"rested\")"
 
     /** Harness of invoked cogitations, enunciating their prompt, without any inference. */
     private val echoHarness = """
@@ -236,16 +236,19 @@ class HarnessTest {
     }
 
     @Test
-    fun `should rest cogitation after intent producing no phenomena`() = runTest(timeout = 5.minutes) {
+    fun `should tell intent producing no phenomena that nothing is perceived and infer again`() = runTest(timeout = 5.minutes) {
         // given
-        val cognizer = ScriptedCognizer(restingIntent)
+        val cognizer = ScriptedCognizer("println(42)", restingIntent)
 
         // when
         val output = cognize(cognizer, cogitation(defaultHarness))
 
         // then
-        assert(output.phenomena.isEmpty())
-        assert(cognizer.perceived.size == 1)
+        assert(output.phenomena == listOf(Phenomenon.Text("rested")))
+        assert(cognizer.perceived.size == 2)
+        val response = cognizer.perceived[1].enunciations.last()
+        assert(response.actant.type == Actant.Type.COMPUTER)
+        assert((response.phenomena.single() as Phenomenon.Text).text.startsWith("The intent evaluated to nothing"))
     }
 
     @Test

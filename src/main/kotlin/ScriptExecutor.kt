@@ -82,7 +82,8 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
  * around their intents, often with text before and after it, which is discarded, failing to compile otherwise.
  * Fences nested within it, e.g. in a multiline string of Markdown, are counted, so that only the fence
  * closing the first one ends the script: a fence with an info string opens, and a bare one closes.
- * A script without a fence is kept as is, and one whose fence is never closed extends to its end.
+ * A script without a fence is kept as is, and so is one with nothing within its first fence,
+ * while one whose fence is never closed extends to its end.
  */
 private fun String.unfenced(): String {
     val lines = lines()
@@ -97,7 +98,9 @@ private fun String.unfenced(): String {
             else -> false
         }
     } ?: lines.size
-    return lines.subList(opening + 1, closing).joinToString("\n")
+    val script = lines.subList(opening + 1, closing).joinToString("\n")
+    // a lone fence ending the text, e.g. of prose, closes rather than opens, executing the text as is
+    return script.ifBlank { this }
 }
 
 private val FENCE = Regex("```[\\w+-]*")

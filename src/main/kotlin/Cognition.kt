@@ -234,7 +234,7 @@ data class Cogitation(
         enunciations = enunciations + enunciation
     )
     /**
-     * Requests enunciated in this cogitation without a response to them, e.g. an intent producing no phenomena,
+     * Requests enunciated in this cogitation without a response to them, e.g. an intent enunciating output,
      * which is not responded.
      */
     val unansweredRequests: List<Phenomenon.Request> get() {

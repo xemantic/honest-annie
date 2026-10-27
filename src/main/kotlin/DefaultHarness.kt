@@ -31,8 +31,9 @@ package com.xemantic.ai.annie
 // The result of the intent is enunciated by the computer, responding to the intent: the invocations it made, in their order,
 // followed by its value, unless `Unit` or `null`, or by the impediment describing its failure, if it failed.
 // The cogitation rests, until another interaction progresses it, when the intent is not responded:
-// when it enunciated output, invoking nothing and not failing, its value being ignored,
-// or when its result is empty.
+// when it enunciated output, invoking nothing and not failing, its value being ignored.
+// An intent with an empty result, enunciating nothing, is responded with a text telling that nothing of it is perceived,
+// e.g. what it printed, instead of resting the cogitation with no output.
 // An inference expressing a malformed intent, see `Agency.isMalformed`, or completed without expressing any,
 // is discarded, inferring again instead, at most `Agency.maxReinferences` times.
 // An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment
@@ -54,6 +55,11 @@ private suspend fun unfold(
     agency: Agency
 ): Cogitation {
     val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
+    val nothingPerceived = Phenomenon.Text(
+        "The intent evaluated to nothing, and enunciated nothing, so that nothing of it is perceived, " +
+                "e.g. what it printed: evaluate to what you need to know, or enunciate your answer.",
+        Phenomenon.Text.PLAIN
+    )
     var inferenceInitiated: Instant
     var cognized: Cognized
     var reinferences = 0
@@ -99,8 +105,7 @@ private suspend fun unfold(
             finalized = executed,
             phenomena = output
         )
-        val rests = result.isEmpty()
-                || output.isNotEmpty() && result.none { it is Phenomenon.Invocation || it is Phenomenon.Impediment }
+        val rests = output.isNotEmpty() && result.none { it is Phenomenon.Invocation || it is Phenomenon.Impediment }
         if (rests) {
             enunciated
         } else {
@@ -109,7 +114,7 @@ private suspend fun unfold(
                 initiated = initiated,
                 finalized = executed,
                 respondsTo = intent.id,
-                phenomena = result
+                phenomena = result.ifEmpty { listOf(nothingPerceived) }
             )
         }
     }

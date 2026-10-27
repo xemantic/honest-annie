@@ -270,6 +270,20 @@ class ScriptExecutorTest {
     }
 
     @Test
+    fun `should execute intent ending with a lone fence as is, failing`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            "Subproblem 5 — the amine acylates the ester.\nBut waiting for computed confirmation.\n```",
+            TestAgency()
+        ) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(phenomena.single() is Phenomenon.Impediment)
+    }
+
+    @Test
     fun `should keep fences nested within fenced intent`() = runTest(timeout = 5.minutes) {
         // when
         val phenomena = executor.execute(
