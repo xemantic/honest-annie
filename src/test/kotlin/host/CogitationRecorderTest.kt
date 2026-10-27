@@ -256,6 +256,50 @@ class CogitationRecorderTest {
     }
 
     @Test
+    fun `should record discarded inferences before the enunciation following them`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val recorder = CogitationRecorder(recordingDir)
+        val question = Enunciation(
+            actant = Actant(type = Actant.Type.HUMAN, name = "user"),
+            initiated = Instant.parse("2026-10-23T13:14:39Z"),
+            phenomena = listOf(Phenomenon.Text("question"))
+        )
+        recorder.record(Cogitation(constitution = emptyList(), harness = "", enunciations = listOf(question)))
+        val discarded = inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L))
+            .copy(phenomena = listOf(Phenomenon.Monologue(listOf("thinking")), Phenomenon.Intent("<invoke name=\"fetch\">")))
+
+        // when
+        recorder.record(
+            Cogitation(
+                constitution = emptyList(),
+                harness = "",
+                enunciations = listOf(question, inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 2L)))
+            ),
+            discarded = listOf(discarded)
+        )
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        val files = root.listDirectoryEntries().map { it.name }.sorted() - setOf(
+            "cogitation.md", "constitution.md", "harness.kts", "inferences.json"
+        )
+        assert(files == listOf(
+            "001-1-human-text.md",
+            "002-1-self-intent.kts",
+            "002-discarded-1-1-self-monologue.md",
+            "002-discarded-1-2-self-intent.kts"
+        ))
+        assert(root.resolve("002-discarded-1-2-self-intent.kts").readText() == "<invoke name=\"fetch\">")
+        val index = root.resolve("cogitation.md").readText()
+        val discardedRow = index.indexOf("| 002-discarded-1 | self `self` |")
+        assert(discardedRow >= 0 && discardedRow < index.indexOf("| 002 | self `self` |"))
+        val json = root.resolve("inferences.json").readText()
+        assert(json.contains("\"enunciation\": \"002-discarded-1\""))
+        assert(json.contains("\"total\": {\"inferences\": 2, \"tokens\": {\"input\": 6, \"output\": 3}, \"total\": 9}"))
+    }
+
+    @Test
     fun `should index stop of inference`() = runTest {
         // given
         val recordingDir = createTempDirectory("cogitations")

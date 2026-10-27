@@ -42,6 +42,10 @@ import kotlinx.coroutines.withContext
  * so that the files are listed in the order of their enunciation, while `cogitation.md` indexes the enunciations, `constitution.md` holds the constitution,
  * and `harness.kts` the harness unfolding the cogitation.
  *
+ * Inferences discarded by the harness, not enunciated in the cogitation, are recorded too, for inspection,
+ * numbered after the enunciation following them, and by their order, e.g. `002-discarded-1-1-self-intent.kts`,
+ * see [record].
+ *
  * Invoked cogitations are recorded in subfolders prefixed with the number and position of
  * their invocation, e.g. `003-2-2026-10-14T15-02-08.074487Z`, listed next to `003-2-computer-invocation.md`,
  * see [invoked].
@@ -64,22 +68,32 @@ class CogitationRecorder(
     /** Positions of requests, the numbers of their enunciations followed by their positions within, by request id. */
     private val requests = mutableMapOf<String, String>()
 
-    /** The inferences of the recorded enunciations, by their numbers. */
-    private val inferences = mutableListOf<Pair<Int, Enunciation>>()
+    /** The inferences of the recorded enunciations, discarded ones included, by their labels, e.g. `002`. */
+    private val inferences = mutableListOf<Pair<String, Enunciation>>()
 
     /** The totals of the invoked cogitations, including the ones they invoke, by the names of their directories. */
     private val invoked = linkedMapOf<String, Totals>()
 
-    /** Records the enunciations of the [cogitation] not recorded yet. */
+    /**
+     * Records the enunciations of the [cogitation] not recorded yet,
+     * preceded by the [discarded] inferences, expressed as enunciations never enunciated in the cogitation.
+     */
     suspend fun record(
-        cogitation: Cogitation
+        cogitation: Cogitation,
+        discarded: List<Enunciation> = emptyList()
     ): Unit = withContext(Dispatchers.IO) {
         mutex.withLock {
             val dir = dir ?: createDir(cogitation).also { dir = it }
+            discarded.forEachIndexed { index, enunciation ->
+                val label = "${number(recorded + 1)}-discarded-${index + 1}"
+                record(dir, label, enunciation, discarded = true)
+                if (enunciation.inference != null) inferences += label to enunciation
+            }
             cogitation.enunciations.drop(recorded).forEach { enunciation ->
                 recorded++
-                record(dir, recorded, enunciation)
-                if (enunciation.inference != null) inferences += recorded to enunciation
+                val label = number(recorded)
+                record(dir, label, enunciation, discarded = false)
+                if (enunciation.inference != null) inferences += label to enunciation
             }
             write(dir)
         }
@@ -109,12 +123,12 @@ class CogitationRecorder(
 
     private fun inferencesJson(total: Totals) = buildString {
         append("{\n  \"inferences\": [")
-        append(inferences.joinToString(separator = ",", postfix = if (inferences.isEmpty()) "" else "\n  ") { (number, enunciation) ->
+        append(inferences.joinToString(separator = ",", postfix = if (inferences.isEmpty()) "" else "\n  ") { (label, enunciation) ->
             val inference = enunciation.inference!!
             """
             |
             |    {
-            |      "enunciation": "${number(number)}",
+            |      "enunciation": "$label",
             |      "initiated": "${enunciation.initiated}",
             |      "finalized": "${enunciation.finalized}",
             |      "model": ${inference.model.json()},
@@ -164,14 +178,15 @@ class CogitationRecorder(
         return dir
     }
 
-    private fun record(dir: Path, number: Int, enunciation: Enunciation) {
+    /** Records the [enunciation] labelled as [label], a [discarded] one being no request to respond to. */
+    private fun record(dir: Path, label: String, enunciation: Enunciation, discarded: Boolean) {
         val actant = enunciation.actant
         val kinds = mutableMapOf<String, Int>()
         // positions padded, so that 10 sorts after 9
         val width = enunciation.phenomena.size.toString().length
         val files = enunciation.phenomena.mapIndexed { index, phenomenon ->
-            val position = "${number(number)}-${(index + 1).toString().padStart(width, '0')}"
-            if (phenomenon is Phenomenon.Request) requests[phenomenon.id] = position
+            val position = "$label-${(index + 1).toString().padStart(width, '0')}"
+            if (phenomenon is Phenomenon.Request && !discarded) requests[phenomenon.id] = position
             val (kind, extension, content) = phenomenon.toFile()
             val count = kinds.merge(kind, 1, Int::plus)!!
             val suffix = if (count == 1) "" else "-$count"
@@ -183,7 +198,7 @@ class CogitationRecorder(
             requests[id]?.let { " ↩ $it" } ?: " ↩ `$id`"
         } ?: ""
         index.append(
-            "| ${number(number)} | ${actant.type.name.lowercase()} `${actant.name}`$responding " +
+            "| $label | ${actant.type.name.lowercase()} `${actant.name}`$responding " +
                     "| ${enunciation.initiated} | ${enunciation.duration} | ${files.joinToString(" ")} " +
                     "| ${enunciation.inference?.let { "`${it.model}` by ${it.provider}: ${it.tokensDescription()}${it.stopDescription()}" } ?: ""} |\n"
         )
