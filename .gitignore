@@ -50,5 +50,8 @@ bin/
 # OOLONG eval tasks and runs, see evals/oolong/oolong_eval.py
 /evals/oolong/data/
 
+# LongCoT eval tasks and runs, see evals/longcot/longcot_eval.py
+/evals/longcot/data/
+
 ### Python ###
 __pycache__/
