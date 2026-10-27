@@ -21,13 +21,13 @@ package com.xemantic.ai.annie.host
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
+import com.xemantic.ai.annie.Execution
 import com.xemantic.ai.annie.Agency
 import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.ScriptExecutor as IntentExecutor
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.randomId
-import com.xemantic.ai.annie.responseId
 import com.xemantic.kotlin.introspection.KotlinIntrospector
 import com.xemantic.kotlin.script.ScriptExecutor
 import com.xemantic.kotlin.script.ScriptResult
@@ -38,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Clock
+import kotlin.time.Duration
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
@@ -413,6 +414,19 @@ class HarnessHost(
 
         override fun searchDeclarations(query: String, page: Int, pageSize: Int) =
             introspector.search(query, page, pageSize)
+
+        override suspend fun execute(
+            command: List<String>,
+            input: String?,
+            directory: String?,
+            environment: Map<String, String>,
+            timeout: Duration,
+            maxOutputLength: Int
+        ): Execution {
+            checkNotSealed()
+            logger.info { "[${unfolding.id}] Executing process ${command.first()}" }
+            return executeProcess(command, input, directory, environment, timeout, maxOutputLength)
+        }
 
         private suspend fun enunciate(phenomenon: Phenomenon) = lock.withLock {
             checkNotSealed()

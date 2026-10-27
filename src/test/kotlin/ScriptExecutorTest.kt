@@ -20,6 +20,7 @@ package com.xemantic.ai.annie
 
 import com.xemantic.kotlin.test.assert
 import kotlin.test.Test
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.test.runTest
 import com.xemantic.kotlin.script.ScriptExecutor as KotlinScriptExecutor
@@ -53,6 +54,14 @@ class ScriptExecutorTest {
         }
         override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
         override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
+        override suspend fun execute(
+            command: List<String>,
+            input: String?,
+            directory: String?,
+            environment: Map<String, String>,
+            timeout: Duration,
+            maxOutputLength: Int
+        ): Execution = throw UnsupportedOperationException()
     }
 
     @Test

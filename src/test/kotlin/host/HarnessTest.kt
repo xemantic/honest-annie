@@ -335,6 +335,23 @@ class HarnessTest {
     }
 
     @Test
+    fun `should enunciate output of process executed through agency of intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            """
+            import com.xemantic.ai.annie.*
+            agency.enunciate(agency.bash("echo hello").output, Phenomenon.Text.PLAIN)
+            """.trimIndent()
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("hello\n", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
     fun `should perceive response to invocation of cogitation unfolded by another harness`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(

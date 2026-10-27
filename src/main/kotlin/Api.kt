@@ -18,6 +18,9 @@
 
 package com.xemantic.ai.annie
 
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
+
 /**
  * The agency within the current cogitation: how its harness, and the intents it executes, act within it,
  * provided to both as `agency`, see [Cogitation]. It cannot be used once the harness has evaluated.
@@ -83,4 +86,41 @@ interface Agency {
      * @return the names, or `null` when nothing is found.
      */
     fun searchDeclarations(query: String, page: Int = 1, pageSize: Int = 10): String?
+    /**
+     * Executes the [command] as a process of the user's computer, e.g. `listOf("bash", "-c", script)`, see [bash],
+     * writing the [input] to its standard input, in the [directory], with the [environment] added to the inherited one.
+     * The process is destroyed, together with its descendants, when the [timeout] elapses, or when the intent is cancelled.
+     * Each of its outputs is truncated to [maxOutputLength] characters, the truncation being marked.
+     *
+     * What the process outputs is perceived only when the script makes it so:
+     * by evaluating to it, so that you perceive it in the result of the intent,
+     * or by [enunciate]-ing it as the output of the current cogitation.
+     */
+    suspend fun execute(
+        command: List<String>,
+        input: String? = null,
+        directory: String? = null,
+        environment: Map<String, String> = emptyMap(),
+        timeout: Duration = 1.minutes,
+        maxOutputLength: Int = 100_000
+    ): Execution
 }
+
+/** The outcome of [Agency.execute]. */
+data class Execution(
+    /** The exit code of the process, `null` when it was destroyed as the timeout elapsed. */
+    val exitCode: Int?,
+    /** What the process wrote to its standard output, until it exited, or was destroyed. */
+    val output: String,
+    /** What the process wrote to its standard error, until it exited, or was destroyed. */
+    val error: String
+) {
+    /** Whether the process exited with `0`. */
+    val succeeded: Boolean get() = exitCode == 0
+}
+
+/** Executes the [script] with `bash`, see [Agency.execute]. */
+suspend fun Agency.bash(
+    script: String,
+    timeout: Duration = 1.minutes
+): Execution = execute(listOf("bash", "-c", script), timeout = timeout)
