@@ -20,9 +20,11 @@ package com.xemantic.ai.annie.cognizer.openai
 
 import com.openai.client.OpenAIClient
 import com.openai.core.JsonField
+import com.openai.core.jsonMapper
 import com.openai.models.ReasoningEffort
 import com.openai.models.chat.completions.ChatCompletion
 import com.openai.models.chat.completions.ChatCompletionCreateParams
+import com.openai.models.chat.completions.ChatCompletionToolChoiceOption
 import com.openai.models.responses.EasyInputMessage
 import com.openai.models.responses.Response
 import com.openai.models.responses.ResponseCreateParams
@@ -85,6 +87,8 @@ class OpenAIInference(
             .model(model)
             .maxCompletionTokens(maxTokens)
             .apply { effort?.let { reasoningEffort(it.openAIEffort) } }
+            // no tools are offered, so that the endpoint does not parse the tool calls the model writes anyway
+            .toolChoice(ChatCompletionToolChoiceOption.Auto.NONE)
             .apply { cogitation.systemPrompt?.let { addSystemMessage(it) } }
             .apply {
                 cogitation
@@ -214,11 +218,18 @@ class OpenAIInference(
         // not part of the OpenAI API, but returned by vLLM
         val reasoning = message._allProperties().let { it["reasoning_content"] ?: it["reasoning"] }
             ?.asString()?.orElse(null)
+        // no tools are offered to the model, but some endpoints parse the tool calls it writes anyway,
+        // rendered after the content, so that they are recorded, and told malformed when nothing else, see `isToolCall`
+        val toolCalls = message.toolCalls().orElse(emptyList()).map { call ->
+            call.function().map { "<invoke name=\"${it.function().name()}\">\n${it.function().arguments()}\n</invoke>" }
+                .orElseGet { "<invoke>\n${jsonMapper().writeValueAsString(call)}\n</invoke>" }
+        }
+        val intent = listOfNotNull(message.content().orElse(null)) + toolCalls
         return listOfNotNull(
             reasoning?.takeIf { it.isNotEmpty() }?.let {
                 Monologue(summary = listOf(it), role = Monologue.Role.REASONING)
             },
-            message.content().orElse(null)?.let { Phenomenon.Intent(it) }
+            intent.takeIf { it.isNotEmpty() }?.let { Phenomenon.Intent(it.joinToString("\n")) }
         )
     }
 

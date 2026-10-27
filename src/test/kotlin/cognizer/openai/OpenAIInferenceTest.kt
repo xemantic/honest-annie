@@ -31,6 +31,7 @@ import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
+import com.xemantic.ai.annie.host.isToolCall
 import com.xemantic.kotlin.test.assert
 import kotlin.test.Test
 import kotlin.time.Instant
@@ -67,7 +68,7 @@ class OpenAIInferenceTest {
     )
 
     @Test
-    fun `should request chat completion with reasoning effort without replaying reasoning`() {
+    fun `should request chat completion with reasoning effort and no tool choice without replaying reasoning`() {
         // given
         val inference = OpenAIInference(
             client = client,
@@ -92,7 +93,8 @@ class OpenAIInferenceTest {
               ],
               "model": "glm-5.3-flash",
               "max_completion_tokens": 8000,
-              "reasoning_effort": "low"
+              "reasoning_effort": "low",
+              "tool_choice": "none"
             }
         """))
     }
@@ -149,6 +151,76 @@ class OpenAIInferenceTest {
         assert(phenomena.first() == Monologue(summary = listOf("thought"), role = Monologue.Role.REASONING))
         assert((phenomena.last() as Phenomenon.Intent).script == "6 * 7")
         assert(phenomena.size == 2)
+    }
+
+    @Test
+    fun `should perceive tool calls of chat completion without content as intent of tool call`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val completion = jsonMapper().readValue("""
+            {
+              "id": "chatcmpl-1",
+              "object": "chat.completion",
+              "created": 0,
+              "model": "deepseek-v4_1-flash",
+              "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "logprobs": null,
+                "message": {
+                  "role": "assistant", "content": null, "refusal": null, "reasoning_content": "Let's run.",
+                  "tool_calls": [{
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "kotlin", "arguments": "{\"script\": \"6 * 7\"}"}
+                  }]
+                }
+              }]
+            }
+        """, ChatCompletion::class.java)
+
+        // when
+        val phenomena = inference.phenomena(completion)
+
+        // then
+        assert(phenomena.first() == Monologue(summary = listOf("Let's run."), role = Monologue.Role.REASONING))
+        val intent = phenomena.last() as Phenomenon.Intent
+        assert(intent.script == "<invoke name=\"kotlin\">\n{\"script\": \"6 * 7\"}\n</invoke>")
+        assert(intent.isToolCall)
+        assert(phenomena.size == 2)
+    }
+
+    @Test
+    fun `should perceive tool calls of chat completion after its content in the same intent`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val completion = jsonMapper().readValue("""
+            {
+              "id": "chatcmpl-1",
+              "object": "chat.completion",
+              "created": 0,
+              "model": "deepseek-v4_1-flash",
+              "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "logprobs": null,
+                "message": {
+                  "role": "assistant", "content": "6 * 7", "refusal": null,
+                  "tool_calls": [{
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "bash", "arguments": "{}"}
+                  }]
+                }
+              }]
+            }
+        """, ChatCompletion::class.java)
+
+        // when
+        val phenomena = inference.phenomena(completion)
+
+        // then
+        assert((phenomena.single() as Phenomenon.Intent).script == "6 * 7\n<invoke name=\"bash\">\n{}\n</invoke>")
     }
 
     @Test

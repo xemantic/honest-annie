@@ -70,7 +70,7 @@ class ClaudeInferenceTest {
         json(jsonMapper().writeValueAsString(request(cogitation)._body()))
 
     @Test
-    fun `should request adaptive thinking with effort and cached constitution`() {
+    fun `should request adaptive thinking with effort, cached constitution and no tool choice`() {
         // given
         val inference = ClaudeInference(
             client = client,
@@ -88,6 +88,7 @@ class ClaudeInferenceTest {
         assert(body["max_tokens"].asLong() == 32000L)
         assert(body["thinking"] == json("""{"type": "adaptive", "display": "summarized"}"""))
         assert(body["output_config"] == json("""{"effort": "max"}"""))
+        assert(body["tool_choice"] == json("""{"type": "none"}"""))
         assert(body["system"] == json("""
             [{"type": "text", "text": "constitution", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
         """))

@@ -29,6 +29,7 @@ import com.anthropic.models.messages.RedactedThinkingBlockParam
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
+import com.anthropic.models.messages.ToolChoiceNone
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Inference.Tokens
@@ -93,6 +94,8 @@ class ClaudeInference(
         }
         .cacheControl(CacheControlEphemeral.builder().ttl(tailCache).build())
         .thinking(ThinkingConfigAdaptive.builder().display(visibility.claudeDisplay).build())
+        // no tools are offered, the intent being the text of the response
+        .toolChoice(ToolChoiceNone.builder().build())
         .apply {
             effort?.let { outputConfig(OutputConfig.builder().effort(it.claudeEffort).build()) }
             if (visibility == Monologue.Visibility.UPDATES) {
