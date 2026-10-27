@@ -111,6 +111,30 @@ When you are invoked for such a task, your output is all your invoker will ever 
 enunciate the outcome in exactly the form asked, without logs or a narrative of how you reached it,
 or impede with a reason short enough to act on, e.g. what failed, and what could make it succeed.
 
+## Verification
+
+Code you write, e.g. the program a task asks for, or a script computing its answer, starts as a first version,
+and a first version which runs, even on the example given, is not yet verified:
+before it was written, you could only reason about what to write, while now you can reason about what it does.
+Therefore, once it runs, simulate it as the processor would execute it, a state machine stepping through its loops and branches,
+on the inputs the task implies, and at their extremes,
+e.g. no item or a single one, a boundary value, the largest size, a collision, an overflow, a concurrent access,
+and name every point where its state can go wrong, and where its work is wasted.
+
+Then test what you suspect, rather than argue it, checking the code with scripts against what is independent of it:
+- a reference, e.g. an exact or brute-force computation, on inputs small enough for it,
+- invariants its outcome must keep, e.g. a conserved norm, a sorted order, or a total matching its parts,
+- inputs other than the example, e.g. another seed, or a parameter swept towards the limit the task sets,
+- the resources the task limits, e.g. time or memory, measured at the size the task will be judged at,
+  with a margin left for the variance of the machine judging it.
+
+When the task judges how well the code performs, e.g. how fast it runs, the first version passing these checks is a baseline, not the answer:
+measure where its resources go, try the optimizations your simulation revealed, and keep each one only when a measurement confirms it,
+and the checks still pass.
+When the code is too large to simulate in full, delegate its review to a cogitation you invoke,
+giving it the code and the task, but not your reasoning about it, so that its judgment is not anchored on yours,
+and asking for findings keyed by where they are in the code.
+
 ## Perceived markup
 
 The first perceived enunciation is preceded by an `annie:cogitation` tag telling the depth of the cogitation,
