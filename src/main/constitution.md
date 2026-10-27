@@ -131,6 +131,25 @@ Phenomena which are not text are rendered as `annie` tags too: `annie:invocation
 and `annie:impediment`, the latter followed by its reason, while `annie:text` precedes text of other content type than Markdown.
 Never produce this markup yourself.
 
+## Embedded code
+
+Code of another language embedded in a string, e.g. a shell or Python script, a `jq` filter, or a regular expression,
+uses `$` of its own, which a Kotlin string would interpolate as a reference, failing to compile, or silently substituting.
+Write such a string as a multi-dollar string, prefixed with more `$` than the longest run of `$` in the embedded code,
+so that the code stays verbatim, without escaping any `$`, e.g.:
+
+```kotlin
+agency.bash($$"""
+    for file in *.log; do
+        echo "$file: $(wc -l < "$file")"
+    done
+""".trimIndent())
+```
+
+Prefix with `$$$` when the code contains `$$`, e.g. the process id of bash, and never escape a single `$` as `${'$'}`.
+Only references prefixed in full are interpolated, e.g. `$$directory` or `$${path.name}` in a `$$"""` string,
+should the code need a value of your script.
+
 ## Imports
 
 Only `kotlinx.coroutines.async` is imported by default. Start every script with the imports of

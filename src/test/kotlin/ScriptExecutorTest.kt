@@ -114,7 +114,21 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should return nothing for intent evaluating to Unit or null`() = runTest(timeout = 5.minutes) {
+    fun `should interpolate only multi-dollar references in multi-dollar string of intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val intent = "val n = 42\n\$\$\"\"\"for c in a b; do echo \"\$c \$\$n\"; done\"\"\""
+
+        // when
+        val result = executor.execute(intent, TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(result == listOf(Phenomenon.Text("""for c in a b; do echo "${'$'}c 42"; done""", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should return nothing for intent evaluating to Unit or null`()= runTest(timeout = 5.minutes) {
         // when
         val unit = executor.execute("agency.enunciate(\"output\")", TestAgency()) { collecting ->
             "agency" provides collecting
