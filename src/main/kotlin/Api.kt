@@ -76,7 +76,10 @@ interface Agency {
      * at most [maxReinferences] times.
      */
     fun isMalformed(intent: Phenomenon.Intent): Boolean
-    /** How many times the harness infers again, from the same cogitation, in place of a malformed intent, see [isMalformed]. */
+    /**
+     * How many times the harness infers again, from the same cogitation, in place of a malformed intent, see [isMalformed],
+     * or of an inference completed without expressing any.
+     */
     val maxReinferences: Int
     /**
      * Renders the Kotlin declaration of the fully qualified [name], as available to scripts,

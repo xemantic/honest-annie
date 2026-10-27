@@ -43,7 +43,7 @@ import kotlinx.coroutines.runBlocking
  * by the harness script at the `ANNIE_HARNESS` path, the [defaultHarness] when not set,
  * spending at most `ANNIE_TOKEN_BUDGET` tokens, and stepping at most `ANNIE_PARALLELISM` cogitations
  * at a time, when set, inferring again at most `ANNIE_REINFERENCES` times, 1 by default,
- * in place of a malformed intent, see [HarnessHost].
+ * in place of a malformed intent, or of none, see [HarnessHost].
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")

@@ -60,7 +60,7 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
         dependencies: ScriptDependencies.(collecting: Agency) -> Unit
     ): List<Phenomenon> {
         val collecting = CollectingAgency(agency)
-        val result = executor.execute(script.unfenced()) {
+        val result = executor.execute(script.unfenced().withoutParameterClosing()) {
             dependencies(collecting)
         }
         return collecting.collected + listOfNotNull(
@@ -101,6 +101,18 @@ private fun String.unfenced(): String {
 }
 
 private val FENCE = Regex("```[\\w+-]*")
+
+/**
+ * The script without the closing `</parameter>` tag of a tool call ending it, which some cognizers write
+ * after a script expressed as the parameter of a tool call, the rest of the call being taken apart by the endpoint,
+ * failing to compile otherwise.
+ */
+private fun String.withoutParameterClosing(): String {
+    val trimmed = trimEnd()
+    return if (trimmed.endsWith(PARAMETER_CLOSING)) trimmed.removeSuffix(PARAMETER_CLOSING) else this
+}
+
+private const val PARAMETER_CLOSING = "\n</parameter>"
 
 /** The [agency] collecting the invocations made through it. */
 private class CollectingAgency(private val agency: Agency) : Agency by agency {

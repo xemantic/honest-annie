@@ -380,6 +380,52 @@ class HarnessTest {
     }
 
     @Test
+    fun `should infer again from the same cogitation when no intent is expressed`() = runTest(timeout = 5.minutes) {
+        // given
+        val perceived = mutableListOf<Cogitation>()
+        val cognizer = Cognizer { cogitation ->
+            perceived += cogitation
+            Cognized(
+                if (perceived.size == 1) listOf(Phenomenon.Monologue(listOf("Let's run.")))
+                else listOf(Phenomenon.Intent("agency.enunciate(\"ran\")"))
+            )
+        }
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("ran")))
+        assert(perceived.size == 2)
+        assert(perceived[1] == perceived[0])
+    }
+
+    @Test
+    fun `should impede without inferring again when inference without intent is not completed`() = runTest(timeout = 5.minutes) {
+        // given
+        val inferences = AtomicInteger()
+        val cognizer = Cognizer {
+            inferences.incrementAndGet()
+            Cognized(
+                listOf(Phenomenon.Monologue(listOf("Let's"))),
+                Inference(
+                    model = "scripted",
+                    provider = "test",
+                    tokens = emptyMap(),
+                    stop = Inference.Stop(Inference.Stop.Kind.TRUNCATED, "length")
+                )
+            )
+        }
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Impediment("Inference not completed, stopped by length")))
+        assert(inferences.get() == 1)
+    }
+
+    @Test
     fun `should execute harness again until self enunciates last`() = runTest(timeout = 5.minutes) {
         // given
         val stepHarness = """

@@ -223,6 +223,28 @@ class ScriptExecutorTest {
     }
 
     @Test
+    fun `should execute intent, discarding closing tag of tool call parameter after it`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute("val answer = 6 * 7\nanswer\n</parameter>\n", TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should keep closing tag of tool call parameter within intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute("\"\"\"\n</parameter>\n\"\"\".trim()", TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("</parameter>", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
     fun `should keep fences nested within fenced intent`() = runTest(timeout = 5.minutes) {
         // when
         val phenomena = executor.execute(
