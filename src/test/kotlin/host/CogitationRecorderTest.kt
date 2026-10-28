@@ -120,6 +120,27 @@ class CogitationRecorderTest {
     }
 
     @Test
+    fun `should not record executed script of intent differing from its expression only by surrounding whitespace`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(Enunciation(
+                actant = Actant.SELF,
+                phenomena = listOf(Phenomenon.Intent("\n\nval answer = 6 * 7\nanswer\n"))
+            ))
+        )
+
+        // when
+        CogitationRecorder(recordingDir).record(cogitation)
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        assert(!root.resolve("001-1-self-intent-executed.kts").toFile().exists())
+    }
+
+    @Test
     fun `should index response with position of its request`() = runTest {
         // given
         val recordingDir = createTempDirectory("cogitations")

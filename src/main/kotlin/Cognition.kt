@@ -40,6 +40,7 @@ sealed interface Phenomenon {
         /**
          * The script of the [expression], the only part of it executed, and perceived again by the cognizer:
          * what precedes a line of perceived markup, e.g. an `annie:actant` tag of a response the cognizer made up itself,
+         * or a line of closing tags outside a multiline string, e.g. `</script>`, after which it repeats its script,
          * within the first Markdown code fence, if any, without the closing tags of a tool call ending it.
          */
         val script: String get() = expression.executable()

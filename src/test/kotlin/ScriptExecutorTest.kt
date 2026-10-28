@@ -129,6 +129,21 @@ class ScriptExecutorTest {
     }
 
     @Test
+    fun `should interpolate triple quotes of embedded code in multi-dollar string of intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val intent = "\$\$\"\"\"\ndef f(\$x):\n    \$\${\"\\\"\\\"\\\"\"}Doc.\$\${\"\\\"\\\"\\\"\"}\n\"\"\".trimIndent()"
+
+        // when
+        val result = executor.execute(intent, TestAgency()) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        val python = "def f(\$x):\n    \"\"\"Doc.\"\"\""
+        assert(result == listOf(Phenomenon.Text(python, Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
     fun `should return data value of intent as data, to perceive an image`() = runTest(timeout = 5.minutes) {
         // when
         val result = executor.execute(
@@ -237,6 +252,21 @@ class ScriptExecutorTest {
         // then
         val impediment = phenomena.single() as Phenomenon.Impediment
         assert(impediment.reason.contains("agency"))
+    }
+
+    @Test
+    fun `should impede intent failing to compile with a digest of the first errors`() = runTest(timeout = 5.minutes) {
+        // given
+        val python = (1..500).joinToString("\n") { "for i,o in enumerate(opts$it): print(i)" }
+
+        // when
+        val phenomena = executor.execute(python, TestAgency()) {}
+
+        // then
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert(reason.length <= 5000)
+        assert(reason.startsWith("script.kts:1:"))
+        assert(reason.contains(Regex("\\d+ more errors omitted")))
     }
 
     @Test

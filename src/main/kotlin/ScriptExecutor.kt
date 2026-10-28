@@ -66,7 +66,7 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
         }
         return collecting.collected + listOfNotNull(
             when (result) {
-                is ScriptResult.Error -> Phenomenon.Impediment(result.message)
+                is ScriptResult.Error -> Phenomenon.Impediment(result.message.digest())
                 is ScriptResult.Value -> when (val value = result.value) {
                     null, Unit, is Phenomenon.Invocation -> null
                     is Phenomenon.Data -> value
@@ -80,22 +80,51 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
 }
 
 /**
+ * The first errors of this message of a failed script, at most [MAX_ERRORS_LENGTH] characters of them,
+ * telling how many more are omitted, so that, e.g. a script repeated over and over,
+ * or code of another language outside a string, does not flood the cogitation with errors following from the first ones.
+ */
+private fun String.digest(): String {
+    if (length <= MAX_ERRORS_LENGTH) return this
+    val errors = split("\n\n")
+    var length = 0
+    val first = errors.takeWhile { error -> (length + error.length + 2 <= MAX_ERRORS_LENGTH).also { length += error.length + 2 } }
+        .ifEmpty { listOf(errors.first().take(MAX_ERRORS_LENGTH)) }
+    return first.joinToString("\n\n") + "\n\n${errors.size - first.size} more errors omitted"
+}
+
+private const val MAX_ERRORS_LENGTH = 4000
+
+/**
  * The script of an intent expressed as this text, see [Phenomenon.Intent.script]:
  * what precedes the made up markup, within the first fence, without the closing tags ending it.
  */
-internal fun String.executable(): String = beforePerceivedMarkup().unfenced().withoutClosingTags().trim()
+internal fun String.executable(): String = beforeMarkup().unfenced().withoutClosingTags().trim()
 
 /**
- * The text before its first line of perceived markup, e.g. an `annie:actant` tag heading a response of the computer,
+ * The text before its first line of markup, which no line of Kotlin starts with, except within a multiline string:
+ * either perceived markup, e.g. an `annie:actant` tag heading a response of the computer,
  * which some cognizers, e.g. DeepSeek, write after their script, going on as if they perceived its result,
- * often with further scripts, all built on made up results.
- * Such markup is rendered only by the harness, and no line of Kotlin starts with it, except within a multiline string.
+ * often with further scripts, all built on made up results,
+ * or a line of closing tags, e.g. `</script>`, after which some cognizers keep repeating their script.
+ * Only the latter is kept within a multiline string, e.g. of HTML, while perceived markup is cut even there,
+ * as the quotes of a script built on made up results may not be balanced, executing them otherwise.
  */
-private fun String.beforePerceivedMarkup(): String {
+private fun String.beforeMarkup(): String {
     val lines = lines()
-    val markup = lines.indexOfFirst { it.trimStart().startsWith("<annie:") }
+    var quotes = 0
+    val markup = lines.indexOfFirst { line ->
+        val trimmed = line.trim()
+        (trimmed.startsWith("<annie:") || quotes % 2 == 0 && trimmed.matches(CLOSING_TAGS)).also {
+            quotes += RAW_QUOTES.findAll(line).count()
+        }
+    }
     return if (markup < 0) this else lines.take(markup).joinToString("\n")
 }
+
+private val CLOSING_TAGS = Regex("(</[^<>]+>)+")
+
+private val RAW_QUOTES = Regex("\"\"\"")
 
 /**
  * The script within the first Markdown code fence, e.g. ` ```kotlin `, which some cognizers keep writing

@@ -193,6 +193,54 @@ class IntentTest {
     }
 
     @Test
+    fun `should be the script before the first line of a closing tag, discarding the copies repeated after it`() {
+        // given
+        val script = "import com.xemantic.ai.annie.*\nval answer = 6 * 7\nanswer"
+
+        // when
+        val intent = Phenomenon.Intent("$script\n</script>\n\n\n$script\n</script>\n\n\n$script\n</script>")
+
+        // then
+        assert(intent.script == script)
+    }
+
+    @Test
+    fun `should keep the line of a closing tag within a multiline string of the script`() {
+        // given
+        val expression = "val html = \"\"\"\n<div>\n42\n</div>\n\"\"\"\nhtml.trim()"
+
+        // when
+        val intent = Phenomenon.Intent(expression)
+
+        // then
+        assert(intent.script == expression)
+    }
+
+    @Test
+    fun `should be the script before the made up response of the computer following a multiline string`() {
+        // given
+        val script = "val py = \"\"\"\nprint(42)\n\"\"\"\nagency.execute(listOf(\"python3\", \"-c\", py)).output"
+
+        // when
+        val intent = Phenomenon.Intent("$script\n\n$madeUpResponse")
+
+        // then
+        assert(intent.script == script)
+    }
+
+    @Test
+    fun `should be the script before the made up response of the computer, even when its quotes are not balanced`() {
+        // given
+        val script = "val py = \"\"\"\nA = \"\"\"\n\"\"\"\n\"\"\".trimIndent()\npy"
+
+        // when
+        val intent = Phenomenon.Intent("$script\n\n$madeUpResponse\n```kotlin\nagency.enunciate(\"solution = C\")\n```")
+
+        // then
+        assert(intent.script == script)
+    }
+
+    @Test
     fun `should keep closing tag of tool call parameter within a string of the script`() {
         // given
         val expression = "\"\"\"\n</parameter>\n\"\"\".trim()"

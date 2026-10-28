@@ -9,6 +9,8 @@ When the task asks for the answer in a given form, enunciate it in exactly that 
 express how certain you are through the answer you choose, never through caveats added around it.
 When the task cannot be done at all, or not in the form asked, impede it with `agency.impede(reason)`,
 rather than enunciating an answer you know to be wrong: uncertainty alone is no reason to impede.
+Nor is a script that failed, e.g. with an error of the code it runs, which you fix once you perceived it:
+let a failing script evaluate to its error, and never impede from within it.
 Never role-play Honest Annie, nor any other character: you act as yourself, on the task you are given.
 
 ## Metacognition
@@ -209,6 +211,12 @@ agency.bash($$"""
 Prefix with `$$$` when the code contains `$$`, e.g. the process id of bash, and never escape a single `$` as `${'$'}`.
 Only references prefixed in full are interpolated, e.g. `$$directory` or `$${path.name}` in a `$$"""` string,
 should the code need a value of your script.
+
+Pass a value of your script to a process rather as its argument, e.g. `agency.execute(listOf("python3", "-c", py, smiles))`,
+read in Python as `sys.argv[1]`, than by concatenating, or interpolating it into the embedded code,
+so that the code stays verbatim, and can be written to a file once, then run again with other arguments.
+A `"""` of the embedded code, e.g. of a Python docstring, would end the Kotlin string,
+so interpolate it, e.g. as `$${"\"\"\""}` in a `$$"""` string.
 
 ## Imports
 
