@@ -104,6 +104,26 @@ class OpenAIInferenceTest {
     }
 
     @Test
+    fun `should replay only the executed script of intent in chat completion`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val expression = """
+            Checking first:
+            ```kotlin
+            6 * 7
+            ```
+            <annie:actant type="computer" name="user's computer" initiated="2026-10-27T20:37:16.835Z"/>
+            41
+        """.trimIndent()
+
+        // when
+        val body = json(inference.chatRequest(cogitation(Phenomenon.Intent(expression)))._body())
+
+        // then
+        assert(body["messages"][2] == json("""{"role": "assistant", "content": "6 * 7"}"""))
+    }
+
+    @Test
     fun `should request chat completion without system message when constitution is blank`() {
         // given
         val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
@@ -189,7 +209,7 @@ class OpenAIInferenceTest {
         // then
         assert(phenomena.first() == Monologue(summary = listOf("Let's run."), role = Monologue.Role.REASONING))
         val intent = phenomena.last() as Phenomenon.Intent
-        assert(intent.script == "<invoke name=\"kotlin\">\n{\"script\": \"6 * 7\"}\n</invoke>")
+        assert(intent.expression == "<invoke name=\"kotlin\">\n{\"script\": \"6 * 7\"}\n</invoke>")
         assert(intent.isToolCall)
         assert(phenomena.size == 2)
     }
@@ -224,7 +244,7 @@ class OpenAIInferenceTest {
         val phenomena = inference.phenomena(completion)
 
         // then
-        assert((phenomena.single() as Phenomenon.Intent).script == "6 * 7\n<invoke name=\"bash\">\n{}\n</invoke>")
+        assert((phenomena.single() as Phenomenon.Intent).expression == "6 * 7\n<invoke name=\"bash\">\n{}\n</invoke>")
     }
 
     @Test

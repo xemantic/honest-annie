@@ -312,7 +312,7 @@ class HarnessTest {
         assert(output.phenomena == listOf(Phenomenon.Impediment("cannot proceed")))
         assert(cognizer.perceived.size == 3)
         val intents = cognizer.perceived[2].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Intent>()
-        assert(intents.map { it.script } == listOf(toolCallIntent))
+        assert(intents.map { it.expression } == listOf(toolCallIntent))
         val response = cognizer.perceived[2].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
         assert(response.phenomena.single() is Phenomenon.Impediment)
@@ -759,6 +759,89 @@ class HarnessTest {
         // then
         val root = recordingDir.listDirectoryEntries().single()
         assert(root.resolve("003-1-self-text.md").readText() == "answer is 42")
+    }
+
+    /** The response of the computer which a cognizer, e.g. DeepSeek, might make up itself after its script. */
+    private val madeUpResponse = """
+        <annie:actant type="computer" name="user's computer" initiated="2026-10-27T20:37:16.835Z"/>
+        41
+    """.trimIndent()
+
+    @Test
+    fun `should execute only the script before the response of the computer made up by the cognizer`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            "6 * 7\n\n$madeUpResponse\nSo the answer is 41:\n```kotlin\nagency.enunciate(\"41\")\n```",
+            restingIntent
+        )
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        val perceived = cognizer.perceived[1].enunciations
+        assert(perceived.last().phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+        val intent = perceived.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Intent>().single()
+        assert(intent.script == "6 * 7")
+    }
+
+    @Test
+    fun `should infer again in place of intent expressing only the response of the computer made up by the cognizer`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            "$madeUpResponse\nSo the answer is 41.",
+            restingIntent
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("rested")))
+        assert(cognizer.perceived.size == 2)
+        assert(cognizer.perceived[1] == cognizer.perceived[0])
+    }
+
+    @Test
+    fun `should keep variables of agency across intents of cogitation`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer(
+            """
+            agency.variables["answer"] = 6 * 7
+            agency.variables["describe"] = { n: Int -> "answer is ${'$'}n" }
+            "stored"
+            """.trimIndent(),
+            """
+            @Suppress("UNCHECKED_CAST")
+            val describe = agency.variables["describe"] as (Int) -> String
+            agency.enunciate(describe(agency.variables["answer"] as Int))
+            """.trimIndent()
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("answer is 42")))
+    }
+
+    @Test
+    fun `should not share variables of agency with invoked cogitation`() = runTest(timeout = 5.minutes) {
+        // given
+        val variablesHarness = """
+            import com.xemantic.ai.annie.*
+            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("variables " + agency.variables)))
+        """.trimIndent()
+        val cognizer = ScriptedCognizer(
+            "agency.variables[\"answer\"] = 42\nagency.invoke(\"sub\", harness = ${variablesHarness.quoted()})",
+            respondedIntent
+        )
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("variables {}")))
     }
 
 }

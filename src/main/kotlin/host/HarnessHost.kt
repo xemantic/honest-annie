@@ -34,6 +34,7 @@ import com.xemantic.kotlin.script.ScriptResult
 import com.xemantic.kotlin.script.execute
 import io.github.oshai.kotlinlogging.KotlinLogging
 import java.nio.file.Path
+import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
@@ -83,7 +84,8 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * The steps beyond it wait in the queue.
  * @param introspector of the Kotlin API available to scripts, resolving declarations for every [Agency].
  * @param isMalformed whether an intent is not shaped as a Kotlin script, see [Agency.isMalformed],
- * by default whether it [isToolCall].
+ * by default whether it [isToolCall], or has no script, e.g. expressing only a response of the computer
+ * made up by the cognizer, see [Phenomenon.Intent.script].
  * @param maxReinferences how many times a harness infers again in place of a malformed intent, see [Agency.maxReinferences].
  */
 class HarnessHost(
@@ -94,7 +96,7 @@ class HarnessHost(
     private val tokenBudget: Long? = null,
     private val parallelism: Int? = null,
     private val introspector: KotlinIntrospector = lazyKotlinIntrospector(),
-    private val isMalformed: (Phenomenon.Intent) -> Boolean = Phenomenon.Intent::isToolCall,
+    private val isMalformed: (Phenomenon.Intent) -> Boolean = { it.isToolCall || it.script.isBlank() },
     private val maxReinferences: Int = 1
 ) {
 
@@ -111,6 +113,7 @@ class HarnessHost(
      * @property rested the output of the root cogitation, once it rests.
      * @property queue of the ids of unfoldings ready for the next step, shared by the whole tree of cogitations.
      * @property spent the tokens inferred so far, shared by the whole tree of cogitations.
+     * @property variables kept across the steps of the cogitation, see [Agency.variables].
      */
     private class Runtime(
         val recorder: CogitationRecorder?,
@@ -123,6 +126,7 @@ class HarnessHost(
         val mutex = Mutex()
         val scope = CoroutineScope(job + handler)
         val invoked = CopyOnWriteArrayList<Runtime>()
+        val variables: MutableMap<String, Any?> = Collections.synchronizedMap(mutableMapOf())
     }
 
     /**
@@ -183,7 +187,8 @@ class HarnessHost(
             val started = Clock.System.now()
             val agency = HostedAgency(
                 unfolding = unfolding,
-                parentCogitation = unfolding.parent?.let { store.load(it)?.cogitation }
+                parentCogitation = unfolding.parent?.let { store.load(it)?.cogitation },
+                variables = runtime.variables
             )
             val inferred = CopyOnWriteArrayList<Enunciation>()
             val result = executor.execute(cogitation.harness) {
@@ -386,7 +391,8 @@ class HarnessHost(
     /** [Agency] of a single execution of the harness of the [unfolding], see [seal]. */
     private inner class HostedAgency(
         private val unfolding: Unfolding,
-        override val parentCogitation: Cogitation?
+        override val parentCogitation: Cogitation?,
+        override val variables: MutableMap<String, Any?>
     ) : Agency {
 
         private val lock = Mutex()
@@ -485,7 +491,7 @@ class HarnessHost(
  * Whether this intent is a tool call, starting with `<invoke` in the markup of Claude's training,
  * which no request declares, so that it never compiles as a Kotlin script.
  */
-val Phenomenon.Intent.isToolCall: Boolean get() = script.trimStart().startsWith("<invoke")
+val Phenomenon.Intent.isToolCall: Boolean get() = expression.trimStart().startsWith("<invoke")
 
 /** The kinds of these phenomena, e.g. `[monologue, intent]`. */
 private fun List<Phenomenon>.kinds(): String = joinToString(prefix = "[", postfix = "]") { it.kind }

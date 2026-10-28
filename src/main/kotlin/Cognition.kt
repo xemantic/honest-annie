@@ -28,11 +28,22 @@ sealed interface Phenomenon {
     sealed interface Request : Phenomenon {
         val id: String
     }
-    /** Request to execute the [script], responded by its result, unless it produced no phenomena, see [Cogitation]. */
+    /**
+     * Request to execute the [script], responded by its result, unless it produced no phenomena, see [Cogitation].
+     *
+     * @property expression the text the cognizer expressed, recorded as is.
+     */
     data class Intent(
-        val script: String,
+        val expression: String,
         override val id: String = randomId()
-    ) : Request
+    ) : Request {
+        /**
+         * The script of the [expression], the only part of it executed, and perceived again by the cognizer:
+         * what precedes a line of perceived markup, e.g. an `annie:actant` tag of a response the cognizer made up itself,
+         * within the first Markdown code fence, if any, without the closing tags of a tool call ending it.
+         */
+        val script: String get() = expression.executable()
+    }
     data class Text(val text: String, val contentType: String = MARKDOWN) : Phenomenon {
         companion object {
             const val MARKDOWN = "text/markdown"

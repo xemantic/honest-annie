@@ -54,6 +54,7 @@ class ScriptExecutorTest {
         }
         override fun isMalformed(intent: Phenomenon.Intent) = false
         override val maxReinferences = 0
+        override val variables = mutableMapOf<String, Any?>()
         override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
         override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
         override suspend fun execute(
@@ -188,141 +189,6 @@ class ScriptExecutorTest {
 
         // then
         assert(phenomena == agency.invocations)
-    }
-
-    @Test
-    fun `should execute intent fenced as Markdown code block`() = runTest(timeout = 5.minutes) {
-        // when
-        val tagged = executor.execute("```kotlin\nval answer = 6 * 7\nanswer\n```", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
-        val untagged = executor.execute("\n```\n6 * 7\n```\n", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(tagged == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
-        assert(untagged == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
-    }
-
-    @Test
-    fun `should keep fences within intent`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute($$"val fence = \"```\"\n\"${fence}kotlin\\n$fence\"", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(phenomena == listOf(Phenomenon.Text("```kotlin\n```", Phenomenon.Text.PLAIN)))
-    }
-
-    @Test
-    fun `should execute fenced intent, discarding text around the fence`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute(
-            """
-            Forgot the import, fixed:
-
-            ```kotlin
-            val answer = 6 * 7
-            answer
-            ```
-
-            This should evaluate to 42.
-            """.trimIndent(),
-            TestAgency()
-        ) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
-    }
-
-    @Test
-    fun `should execute intent, discarding closing tag of tool call parameter after it`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute("val answer = 6 * 7\nanswer\n</parameter>\n", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
-    }
-
-    @Test
-    fun `should execute intent, discarding closing tag of tool call parameter ending its last line`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute($$"val answer = 6 * 7\n\"$answer\"</parameter>", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
-    }
-
-    @Test
-    fun `should execute intent, discarding closing tags of DeepSeek tool call after it`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute(
-            "val answer = 6 * 7\nanswer\n</｜DSML｜ parameter>\n</｜DSML｜ invoke>\n</body>\n</output>",
-            TestAgency()
-        ) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
-    }
-
-    @Test
-    fun `should keep closing tag of tool call parameter within intent`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute("\"\"\"\n</parameter>\n\"\"\".trim()", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(phenomena == listOf(Phenomenon.Text("</parameter>", Phenomenon.Text.PLAIN)))
-    }
-
-    @Test
-    fun `should execute intent ending with a lone fence as is, failing`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute(
-            "Subproblem 5 — the amine acylates the ester.\nBut waiting for computed confirmation.\n```",
-            TestAgency()
-        ) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(phenomena.single() is Phenomenon.Impediment)
-    }
-
-    @Test
-    fun `should keep fences nested within fenced intent`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute(
-            """
-            The script enunciating Markdown:
-            ```kotlin
-            val markdown = '''
-            ```kotlin
-            println()
-            ```
-            '''
-            markdown.trim()
-            ```
-            Done.
-            """.trimIndent().replace("'''", "\"\"\""),
-            TestAgency()
-        ) { collecting ->
-            "agency" provides collecting
-        }
-
-        // then
-        assert(phenomena == listOf(Phenomenon.Text("```kotlin\nprintln()\n```", Phenomenon.Text.PLAIN)))
     }
 
     @Test

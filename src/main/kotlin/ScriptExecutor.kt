@@ -61,7 +61,7 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
         dependencies: ScriptDependencies.(collecting: Agency) -> Unit
     ): List<Phenomenon> {
         val collecting = CollectingAgency(agency)
-        val result = executor.execute(script.unfenced().withoutClosingTags()) {
+        val result = executor.execute(script) {
             dependencies(collecting)
         }
         return collecting.collected + listOfNotNull(
@@ -77,6 +77,24 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
             }
         )
     }
+}
+
+/**
+ * The script of an intent expressed as this text, see [Phenomenon.Intent.script]:
+ * what precedes the made up markup, within the first fence, without the closing tags ending it.
+ */
+internal fun String.executable(): String = beforePerceivedMarkup().unfenced().withoutClosingTags().trim()
+
+/**
+ * The text before its first line of perceived markup, e.g. an `annie:actant` tag heading a response of the computer,
+ * which some cognizers, e.g. DeepSeek, write after their script, going on as if they perceived its result,
+ * often with further scripts, all built on made up results.
+ * Such markup is rendered only by the harness, and no line of Kotlin starts with it, except within a multiline string.
+ */
+private fun String.beforePerceivedMarkup(): String {
+    val lines = lines()
+    val markup = lines.indexOfFirst { it.trimStart().startsWith("<annie:") }
+    return if (markup < 0) this else lines.take(markup).joinToString("\n")
 }
 
 /**

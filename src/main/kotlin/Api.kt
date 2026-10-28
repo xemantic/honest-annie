@@ -45,6 +45,16 @@ interface Agency {
      */
     val enunciated: List<Phenomenon>
     /**
+     * Values kept by name across the intents of the current cogitation, e.g. parsed inputs, computed results,
+     * or helper functions as lambdas, so that a later intent continues from them, instead of computing,
+     * or copying them, again: `agency.variables["mols"] = mols`, then `agency.variables["mols"] as List<String>`.
+     * Never perceived, unless a script evaluates to them, and kept only in the memory of the host:
+     * not shared with invoked cogitations, and lost when the host restarts.
+     * Each intent compiles its own classes, so a value of a class declared by an intent cannot be used by another one:
+     * keep values of the Kotlin and Java libraries, e.g. strings, numbers, lists, maps and functions of them.
+     */
+    val variables: MutableMap<String, Any?>
+    /**
      * Invokes a cogitation under the [constitution], by default this [Agency.constitution],
      * unfolded by the [harness] script, which can be a different one, e.g. a modification of this [Agency.harness].
      * The invoked cogitation is unfolded by the same cognizer, starting with the [prompt]
@@ -72,7 +82,8 @@ interface Agency {
     suspend fun impede(reason: String)
     /**
      * Whether the [intent] is not shaped as a Kotlin script, e.g. a tool call in the markup of a model's training,
-     * often followed by a result the model made up itself, so that the harness infers again instead of executing it,
+     * often followed by a result the model made up itself, or nothing but such a result, see [Phenomenon.Intent.script],
+     * so that the harness infers again instead of executing it,
      * at most [maxReinferences] times.
      */
     fun isMalformed(intent: Phenomenon.Intent): Boolean

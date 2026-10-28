@@ -207,7 +207,7 @@ class ClaudeInference(
                 val text = block.asText().text()
                 val last = phenomena.lastOrNull()
                 if (last is Phenomenon.Intent) {
-                    phenomena[phenomena.lastIndex] = last.copy(script = "${last.script}\n$text")
+                    phenomena[phenomena.lastIndex] = last.copy(expression = "${last.expression}\n$text")
                 } else {
                     phenomena += Phenomenon.Intent(text)
                 }

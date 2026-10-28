@@ -228,6 +228,29 @@ class ClaudeInferenceTest {
     }
 
     @Test
+    fun `should replay only the executed script of intent`() {
+        // given
+        val inference = ClaudeInference(
+            client = client,
+            model = "anthropic.claude-opus-5-5",
+            modelId = "claude-opus-5-5"
+        )
+        val cogitation = cogitation(Enunciation(
+            actant = Actant(type = Actant.Type.SELF, name = "claude"),
+            initiated = initiated,
+            phenomena = listOf(Phenomenon.Intent("Checking first:\n```kotlin\n6 * 7\n```\nThis should evaluate to 42."))
+        ))
+
+        // when
+        val body = inference.body(cogitation)
+
+        // then
+        assert(body["messages"][1] == json("""
+            {"role": "assistant", "content": [{"type": "text", "text": "6 * 7"}]}
+        """))
+    }
+
+    @Test
     fun `should perceive thinking redacted thinking and text of response`() {
         // given
         val inference = ClaudeInference(

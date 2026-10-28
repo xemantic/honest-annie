@@ -94,6 +94,32 @@ class CogitationRecorderTest {
     }
 
     @Test
+    fun `should record executed script of intent beside its expression, when they differ`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val expression = "Checking first:\n```kotlin\n6 * 7\n```"
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(Enunciation(
+                actant = Actant.SELF,
+                phenomena = listOf(Phenomenon.Intent(expression), Phenomenon.Intent("1"))
+            ))
+        )
+
+        // when
+        CogitationRecorder(recordingDir).record(cogitation)
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        assert(root.resolve("001-1-self-intent.kts").readText() == expression)
+        assert(root.resolve("001-1-self-intent-executed.kts").readText() == "6 * 7")
+        assert(!root.resolve("001-2-self-intent-executed.kts").toFile().exists())
+        val index = root.resolve("cogitation.md").readText()
+        assert(index.contains("[intent](001-1-self-intent.kts) [executed](001-1-self-intent-executed.kts) [intent-2](001-2-self-intent.kts)"))
+    }
+
+    @Test
     fun `should index response with position of its request`() = runTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
