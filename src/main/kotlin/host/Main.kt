@@ -44,6 +44,7 @@ import kotlinx.coroutines.runBlocking
  * spending at most `ANNIE_TOKEN_BUDGET` tokens, and stepping at most `ANNIE_PARALLELISM` cogitations
  * at a time, when set, inferring again at most `ANNIE_REINFERENCES` times, 1 by default,
  * in place of a malformed intent, or of none, see [HarnessHost].
+ * The cognizer reasons with the `ANNIE_EFFORT`, e.g. `xhigh`, see [Monologue.Effort], the default of its model when not set.
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")
@@ -51,6 +52,7 @@ fun main(args: Array<String>) {
     val tokenBudget = System.getenv("ANNIE_TOKEN_BUDGET")?.toLong()
     val parallelism = System.getenv("ANNIE_PARALLELISM")?.toInt()
     val maxReinferences = System.getenv("ANNIE_REINFERENCES")?.toInt() ?: 1
+    val effort = System.getenv("ANNIE_EFFORT")?.let { Monologue.Effort.valueOf(it.uppercase()) }
     val claudeModel = System.getenv("ANTHROPIC_MODEL")
     val client: AutoCloseable
     val cognizer: Cognizer
@@ -58,12 +60,12 @@ fun main(args: Array<String>) {
         // the API key is read from ANTHROPIC_API_KEY
         val claude = AnthropicOkHttpClient.fromEnv()
         client = AutoCloseable(claude::close)
-        cognizer = ClaudeInference(claude, claudeModel, visibility = Monologue.Visibility.SUMMARY)
+        cognizer = ClaudeInference(claude, claudeModel, effort = effort, visibility = Monologue.Visibility.SUMMARY)
     } else {
         val model = System.getenv("OPENAI_MODEL") ?: error("Neither ANTHROPIC_MODEL nor OPENAI_MODEL is set")
         val openAI = openAIClient()
         client = AutoCloseable(openAI::close)
-        cognizer = OpenAIInference(openAI, model, provider = openAIProvider)
+        cognizer = OpenAIInference(openAI, model, provider = openAIProvider, effort = effort)
     }
     client.use {
         val executor = ScriptExecutor()

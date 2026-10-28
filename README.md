@@ -45,6 +45,9 @@ When `ANNIE_TOKEN_BUDGET` is set, the cogitation and the ones it invokes spend a
 and are impeded once they have spent them.
 When `ANNIE_PARALLELISM` is set, at most that many of them step at a time, e.g. `1` for one inference at a time,
 the others waiting in the queue.
+`ANNIE_EFFORT` sets how much effort the model puts into its reasoning and response,
+one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
+mapped to the nearest level the model supports, its default when not set.
 
 `./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 
