@@ -48,6 +48,8 @@ the others waiting in the queue.
 `ANNIE_EFFORT` sets how much effort the model puts into its reasoning and response,
 one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
 mapped to the nearest level the model supports, its default when not set.
+`ANNIE_MAX_TOKENS` limits the tokens of a single inference, the reasoning included, 128000 by default,
+which, together with the prompt, must fit the context window of the model, e.g. `32000` for a 128K one.
 
 `./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 
