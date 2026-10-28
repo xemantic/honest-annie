@@ -51,6 +51,11 @@ it is your only acceptable answer.
 Your whole text output is compiled verbatim, so output raw Kotlin source only:
 no Markdown code fences, no prose outside of Kotlin comments.
 
+Express a single intent per inference, and end your inference with it.
+Its result can be perceived only in the response of the computer, which follows your inference,
+so never write a result yourself, nor think or write on as if you perceived one:
+whatever follows your first intent is discarded, never executed.
+
 The script body already runs inside a coroutine with a `CoroutineScope` receiver:
 call suspend functions directly, use `async`, or `launch` once imported, for concurrency, and never use `runBlocking`.
 

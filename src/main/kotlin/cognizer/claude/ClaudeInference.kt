@@ -169,8 +169,17 @@ class ClaudeInference(
         )
     }
 
-    /** Thinking blocks become monologues, and consecutive text blocks a single intent. */
-    internal fun phenomena(message: Message): List<Phenomenon> = message.content().fold(
+    /**
+     * Thinking blocks become monologues, and consecutive text blocks a single intent.
+     * Thinking interleaved after the intent, and whatever follows it, is not perceived:
+     * the model continues as if it perceived the result of the intent, which is not executed yet.
+     */
+    internal fun phenomena(message: Message): List<Phenomenon> = message.content().let { content ->
+        val firstText = content.indexOfFirst { it.isText() }
+        if (firstText == -1) content else content.take(
+            content.drop(firstText).indexOfFirst { !it.isText() }.let { if (it == -1) content.size else firstText + it }
+        )
+    }.fold(
         mutableListOf()
     ) { phenomena, block ->
         when {

@@ -224,6 +224,42 @@ class ClaudeInferenceTest {
     }
 
     @Test
+    fun `should perceive only first intent of response thinking again after it`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val message = jsonMapper().readValue("""
+            {
+              "id": "msg_1",
+              "type": "message",
+              "role": "assistant",
+              "model": "claude-opus-5-5",
+              "content": [
+                {"type": "thinking", "thinking": "first", "signature": "sig1"},
+                {"type": "text", "text": "6 *"},
+                {"type": "text", "text": "7"},
+                {"type": "thinking", "thinking": "as if the result was perceived", "signature": "sig2"},
+                {"type": "text", "text": "42"}
+              ],
+              "stop_reason": "end_turn",
+              "stop_sequence": null,
+              "usage": {"input_tokens": 1, "output_tokens": 1}
+            }
+        """, Message::class.java)
+
+        // when
+        val phenomena = inference.phenomena(message)
+
+        // then
+        assert(phenomena.size == 2)
+        assert(phenomena.first() == Monologue(
+            summary = listOf("first"),
+            role = Monologue.Role.REASONING,
+            continuation = Continuation.ClaudeSignature(producedBy = "claude-opus-5-5", signature = "sig1")
+        ))
+        assert((phenomena.last() as Phenomenon.Intent).script == "6 *\n7")
+    }
+
+    @Test
     fun `should count tokens of response by category`() {
         // given
         val inference = ClaudeInference(
