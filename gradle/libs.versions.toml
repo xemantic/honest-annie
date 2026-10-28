@@ -11,6 +11,7 @@ logback = "1.6.5"
 xemanticKotlinIntrospection = "0.1.0"
 xemanticKotlinScript = "0.1.0"
 xemanticKotlinTest = "1.18.0"
+xemanticAiFileMagic = "0.4.0"
 asm = "9.10.1"
 # plugins
 versionCatalogUpdatePlugin = "1.1.1"
@@ -24,6 +25,7 @@ kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = 
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 xemantic-kotlin-introspection = { module = "com.xemantic.kotlin:xemantic-kotlin-introspection", version.ref = "xemanticKotlinIntrospection" }
 xemantic-kotlin-script = { module = "com.xemantic.kotlin:xemantic-kotlin-script", version.ref = "xemanticKotlinScript" }
+xemantic-ai-file-magic = { module = "com.xemantic.ai:xemantic-ai-file-magic", version.ref = "xemanticAiFileMagic" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 xemantic-kotlin-test = { module = "com.xemantic.kotlin:xemantic-kotlin-test", version.ref = "xemanticKotlinTest" }

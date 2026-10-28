@@ -30,7 +30,11 @@ import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
+import com.xemantic.ai.annie.cognizer.minimalPdf
+import com.xemantic.ai.annie.cognizer.redPixelPng
+import com.xemantic.ai.annie.cognizer.redPixelPngBase64
 import com.xemantic.kotlin.test.assert
+import kotlin.io.encoding.Base64
 import kotlin.test.Test
 import kotlin.time.Instant
 
@@ -95,6 +99,49 @@ class ClaudeInferenceTest {
         assert(body["cache_control"] == json("""{"type": "ephemeral", "ttl": "5m"}"""))
         assert(body["messages"] == json("""
             [{"role": "user", "content": "<annie:cogitation depth=\"0\"/>\n<annie:actant type=\"human\" name=\"user\" initiated=\"2026-10-22T10:15:30Z\"/>\ntest"}]
+        """))
+    }
+
+    @Test
+    fun `should request with image perceived after its markup`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+
+        // when
+        val body = inference.body(cogitation(
+            Enunciation(
+                actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+                initiated = initiated,
+                phenomena = listOf(Phenomenon.Data(redPixelPng, "image/png"))
+            )
+        ))
+
+        // then
+        assert(body["messages"] == json("""
+            [{"role": "user", "content": [
+              {"type": "text", "text": "<annie:cogitation depth=\"0\"/>\n<annie:actant type=\"human\" name=\"user\" initiated=\"2026-10-22T10:15:30Z\"/>\ntest\n\n<annie:actant type=\"computer\" name=\"user's computer\" initiated=\"2026-10-22T10:15:30Z\"/>\n<annie:data content-type=\"image/png\" size=\"70\"/>"},
+              {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "$redPixelPngBase64"}}
+            ]}]
+        """))
+    }
+
+    @Test
+    fun `should request with PDF document perceived after its markup`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+
+        // when
+        val body = inference.body(cogitation(
+            Enunciation(
+                actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+                initiated = initiated,
+                phenomena = listOf(Phenomenon.Data(minimalPdf, "application/pdf"))
+            )
+        ))
+
+        // then
+        assert(body["messages"][0]["content"][1] == json("""
+            {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "${Base64.encode(minimalPdf)}"}}
         """))
     }
 

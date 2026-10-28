@@ -23,13 +23,20 @@ import com.openai.core.JsonField
 import com.openai.core.jsonMapper
 import com.openai.models.ReasoningEffort
 import com.openai.models.chat.completions.ChatCompletion
+import com.openai.models.chat.completions.ChatCompletionContentPart
+import com.openai.models.chat.completions.ChatCompletionContentPartImage
+import com.openai.models.chat.completions.ChatCompletionContentPartText
 import com.openai.models.chat.completions.ChatCompletionCreateParams
 import com.openai.models.chat.completions.ChatCompletionToolChoiceOption
 import com.openai.models.responses.EasyInputMessage
 import com.openai.models.responses.Response
 import com.openai.models.responses.ResponseCreateParams
 import com.openai.models.responses.ResponseIncludable
+import com.openai.models.responses.ResponseInputContent
+import com.openai.models.responses.ResponseInputFile
+import com.openai.models.responses.ResponseInputImage
 import com.openai.models.responses.ResponseInputItem
+import com.openai.models.responses.ResponseInputText
 import com.openai.models.responses.ResponseReasoningItem
 import com.openai.models.Reasoning
 import com.xemantic.ai.annie.Cogitation
@@ -40,6 +47,7 @@ import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
 import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
+import com.xemantic.ai.annie.cognizer.Perceived
 import com.xemantic.ai.annie.cognizer.Turn
 import com.xemantic.ai.annie.cognizer.systemPrompt
 import com.xemantic.ai.annie.cognizer.toTurns
@@ -99,7 +107,10 @@ class OpenAIInference(
                     .toTurns(intent = { it.script }, monologue = { null })
                     .forEach { turn ->
                         when (turn) {
-                            is Turn.User -> addUserMessage(turn.text)
+                            is Turn.User -> turn.parts.singleOrNull().let { part ->
+                                if (part is Perceived.Text) addUserMessage(part.text)
+                                else addUserMessageOfArrayOfContentParts(turn.parts.map { it.toContentPart() })
+                            }
                             is Turn.Assistant -> addAssistantMessage(turn.parts.joinToString(separator = "\n"))
                         }
                     }
@@ -125,9 +136,7 @@ class OpenAIInference(
                 )
                 .flatMap { turn ->
                     when (turn) {
-                        is Turn.User -> listOf(
-                            ResponseInputItem.ofEasyInputMessage(turn.text.message(EasyInputMessage.Role.USER))
-                        )
+                        is Turn.User -> listOf(ResponseInputItem.ofEasyInputMessage(turn.message()))
                         is Turn.Assistant -> turn.parts
                     }
                 }
@@ -280,6 +289,40 @@ private fun <T : Any> JsonField<T>.known(): T? = asKnown().orElse(null)
 
 private fun String.message(role: EasyInputMessage.Role): EasyInputMessage =
     EasyInputMessage.builder().role(role).content(this).build()
+
+/** Text only as a string, as before images were perceived, so that the cached prefix of the cogitation stays the same. */
+private fun Turn.User.message(): EasyInputMessage = parts.singleOrNull().let { part ->
+    if (part is Perceived.Text) part.text.message(EasyInputMessage.Role.USER)
+    else EasyInputMessage.builder()
+        .role(EasyInputMessage.Role.USER)
+        .contentOfResponseInputMessageContentList(parts.map { it.toInputContent() })
+        .build()
+}
+
+private fun Perceived.toContentPart(): ChatCompletionContentPart = when (this) {
+    is Perceived.Text -> ChatCompletionContentPart.ofText(ChatCompletionContentPartText.builder().text(text).build())
+    is Perceived.Image -> ChatCompletionContentPart.ofImageUrl(ChatCompletionContentPartImage.builder()
+        .imageUrl(ChatCompletionContentPartImage.ImageUrl.builder().url(dataUrl).build())
+        .build())
+    is Perceived.Document -> ChatCompletionContentPart.ofFile(ChatCompletionContentPart.File.builder()
+        .file(ChatCompletionContentPart.File.FileObject.builder().filename(FILENAME).fileData(dataUrl).build())
+        .build())
+}
+
+private fun Perceived.toInputContent(): ResponseInputContent = when (this) {
+    is Perceived.Text -> ResponseInputContent.ofInputText(ResponseInputText.builder().text(text).build())
+    is Perceived.Image -> ResponseInputContent.ofInputImage(ResponseInputImage.builder()
+        .imageUrl(dataUrl)
+        .detail(ResponseInputImage.Detail.AUTO)
+        .build())
+    is Perceived.Document -> ResponseInputContent.ofInputFile(ResponseInputFile.builder()
+        .filename(FILENAME)
+        .fileData(dataUrl)
+        .build())
+}
+
+/** The name of every PDF document, required along its data, which tells the model nothing more than its markup. */
+private const val FILENAME = "document.pdf"
 
 private val Monologue.Effort.openAIEffort: ReasoningEffort get() = when (this) {
     NONE -> ReasoningEffort.NONE

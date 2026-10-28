@@ -66,6 +66,7 @@ dependencies {
     implementation(libs.xemantic.kotlin.script)
     implementation(libs.anthropic.java)
     implementation(libs.openai.java)
+    implementation(libs.xemantic.ai.file.magic)
     implementation(libs.kotlin.logging)
 
     runtimeOnly(libs.logback.classic)

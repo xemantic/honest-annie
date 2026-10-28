@@ -42,7 +42,8 @@ interface ScriptExecutor {
      *
      * @return the invocations the script made through the collecting agency, in their order,
      * followed by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
-     * unless it is `Unit`, `null`, an invocation, or a collection of nothing else.
+     * unless it is `Unit`, `null`, an invocation, or a collection of nothing else,
+     * or [Phenomenon.Data] as is, e.g. an image the cognizer sees.
      * If the script failed, the [Phenomenon.Impediment] describing the failure follows the invocations instead.
      */
     suspend fun execute(
@@ -68,6 +69,7 @@ fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : Sc
                 is ScriptResult.Error -> Phenomenon.Impediment(result.message)
                 is ScriptResult.Value -> when (val value = result.value) {
                     null, Unit, is Phenomenon.Invocation -> null
+                    is Phenomenon.Data -> value
                     // already in the result, e.g. `prompts.map { agency.invoke(it) }`
                     is Iterable<*> if value.any() && value.all { it is Phenomenon.Invocation } -> null
                     else -> Phenomenon.Text(value.toString(), Phenomenon.Text.PLAIN)

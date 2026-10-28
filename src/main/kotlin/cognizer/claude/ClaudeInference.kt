@@ -19,8 +19,12 @@
 package com.xemantic.ai.annie.cognizer.claude
 
 import com.anthropic.client.AnthropicClient
+import com.anthropic.models.messages.Base64ImageSource
+import com.anthropic.models.messages.Base64PdfSource
 import com.anthropic.models.messages.CacheControlEphemeral
 import com.anthropic.models.messages.ContentBlockParam
+import com.anthropic.models.messages.DocumentBlockParam
+import com.anthropic.models.messages.ImageBlockParam
 import com.anthropic.models.messages.Message
 import com.anthropic.models.messages.MessageCreateParams
 import com.anthropic.models.messages.MessageParam
@@ -38,6 +42,7 @@ import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
 import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
+import com.xemantic.ai.annie.cognizer.Perceived
 import com.xemantic.ai.annie.cognizer.Turn
 import com.xemantic.ai.annie.cognizer.systemPrompt
 import com.xemantic.ai.annie.cognizer.toTurns
@@ -110,7 +115,11 @@ class ClaudeInference(
                 )
                 .map { turn ->
                     when (turn) {
-                        is Turn.User -> MessageParam.ofUser(turn.text)
+                        // text only as a string, as before images were perceived, so that the cached prefix stays the same
+                        is Turn.User -> turn.parts.singleOrNull().let { part ->
+                            if (part is Perceived.Text) MessageParam.ofUser(part.text)
+                            else MessageParam.ofUserOfContentBlockParams(turn.parts.map { it.toBlock() })
+                        }
                         is Turn.Assistant -> MessageParam.ofAssistantOfContentBlockParams(turn.parts)
                     }
                 }
@@ -209,6 +218,19 @@ class ClaudeInference(
         phenomena
     }
 
+}
+
+private fun Perceived.toBlock(): ContentBlockParam = when (this) {
+    is Perceived.Text -> ContentBlockParam.ofText(this.text)
+    is Perceived.Image -> ContentBlockParam.ofImage(ImageBlockParam.builder()
+        .source(Base64ImageSource.builder()
+            .data(base64)
+            .mediaType(Base64ImageSource.MediaType.of(mediaType))
+            .build())
+        .build())
+    is Perceived.Document -> ContentBlockParam.ofDocument(DocumentBlockParam.builder()
+        .source(Base64PdfSource.builder().data(base64).build())
+        .build())
 }
 
 private val Monologue.Visibility.claudeDisplay: ThinkingConfigAdaptive.Display get() = when (this) {

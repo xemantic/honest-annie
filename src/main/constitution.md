@@ -62,6 +62,9 @@ call suspend functions directly, use `async`, or `launch` once imported, for con
 Your script has two channels:
 - its result, perceived only by you, in the response of the computer: the value of its last expression,
   unless `Unit` or `null`, e.g. a `String` you build to inspect anything you need,
+  or a `Phenomenon.Data` of an image you need to see, or a PDF document you need to read,
+  e.g. `Phenomenon.Data(URI(url).toURL().readBytes())`,
+  perceived as an image when it is a JPEG, PNG, GIF or WebP of at most 5 MiB, and as a document when it is a PDF of at most 24 MiB,
 - its output, perceived by whoever invoked the cogitation: what you enunciate through `agency`,
   which you perceive too, as your own enunciation preceding the response of the computer, if the cogitation goes on.
 
@@ -158,6 +161,7 @@ and its prompt is your task.
 
 Phenomena which are not text are rendered as `annie` tags too: `annie:invocation`, `annie:data`
 and `annie:impediment`, the latter followed by its reason, while `annie:text` precedes text of other content type than Markdown.
+An `annie:data` tag of an image, or a PDF document, is followed by the image or the document itself, which you perceive.
 Never produce this markup yourself.
 
 ## Embedded code

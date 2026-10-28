@@ -23,6 +23,7 @@ import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.kotlin.test.assert
+import kotlin.io.encoding.Base64
 import kotlin.test.Test
 import kotlin.time.Instant
 
@@ -53,17 +54,169 @@ class TurnsTest {
 
         // then
         assert(turns.size == 3)
-        assert((turns[0] as Turn.User).text == """
+        assert((turns[0] as Turn.User).parts == listOf(Perceived.Text("""
             <annie:cogitation depth="2"/>
             <annie:actant type="invoker" name="invoker" initiated="2026-10-24T10:15:30Z"/>
             judge
-        """.trimIndent())
+        """.trimIndent())))
         assert((turns[1] as Turn.Assistant).parts == listOf("6 * 7"))
-        assert((turns[2] as Turn.User).text == """
+        assert((turns[2] as Turn.User).parts == listOf(Perceived.Text("""
             <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
             <annie:impediment/>
             boom
-        """.trimIndent())
+        """.trimIndent())))
+    }
+
+    @Test
+    fun `should perceive image after its markup, and data which is not an image only as markup`() {
+        // given
+        val image = Phenomenon.Data(redPixelPng, "image/png")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                Enunciation(
+                    actant = Actant(type = Actant.Type.HUMAN, name = "user"),
+                    initiated = initiated,
+                    phenomena = listOf(
+                        Phenomenon.Text("what is it?"),
+                        image,
+                        // an error page mislabelled as an image, which an API would reject as one
+                        Phenomenon.Data("<html>".encodeToByteArray(), "image/jpeg"),
+                        Phenomenon.Text("and this?")
+                    )
+                )
+            )
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null })
+
+        // then
+        assert(turns.size == 1)
+        assert((turns[0] as Turn.User).parts == listOf(
+            Perceived.Text("""
+                <annie:cogitation depth="0"/>
+                <annie:actant type="human" name="user" initiated="2026-10-24T10:15:30Z"/>
+                what is it?
+
+                <annie:data content-type="image/png" size="70"/>
+            """.trimIndent()),
+            Perceived.Image(image, "image/png"),
+            Perceived.Text("""
+                <annie:data content-type="image/jpeg" size="6"/>
+
+                and this?
+            """.trimIndent())
+        ))
+    }
+
+    @Test
+    fun `should perceive image of undeclared content type by its detected media type`() {
+        // given
+        val image = Phenomenon.Data(redPixelPng)
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                Enunciation(
+                    actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+                    initiated = initiated,
+                    phenomena = listOf(image)
+                )
+            )
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null })
+
+        // then
+        assert((turns.single() as Turn.User).parts.last() == Perceived.Image(image, "image/png"))
+    }
+
+    @Test
+    fun `should perceive PDF document after its markup`() {
+        // given
+        val document = Phenomenon.Data(minimalPdf, "application/pdf")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                Enunciation(
+                    actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+                    initiated = initiated,
+                    phenomena = listOf(document)
+                )
+            )
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null })
+
+        // then
+        assert((turns.single() as Turn.User).parts == listOf(
+            Perceived.Text("""
+                <annie:cogitation depth="0"/>
+                <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
+                <annie:data content-type="application/pdf" size="${minimalPdf.size}"/>
+            """.trimIndent()),
+            Perceived.Document(document)
+        ))
+    }
+
+    @Test
+    fun `should perceive PDF document larger than any API accepts only as markup`() {
+        // given
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                Enunciation(
+                    actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+                    initiated = initiated,
+                    phenomena = listOf(Phenomenon.Data(minimalPdf + ByteArray(MAX_DOCUMENT_SIZE), "application/pdf"))
+                )
+            )
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null })
+
+        // then
+        assert((turns.single() as Turn.User).parts.single() is Perceived.Text)
+    }
+
+    @Test
+    fun `should perceive image larger than any API accepts only as markup`() {
+        // given
+        val jpegHeader = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                Enunciation(
+                    actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+                    initiated = initiated,
+                    phenomena = listOf(Phenomenon.Data(jpegHeader + ByteArray(MAX_IMAGE_SIZE), "image/jpeg"))
+                )
+            )
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null })
+
+        // then
+        assert((turns.single() as Turn.User).parts.single() is Perceived.Text)
     }
 
 }
+
+/** A PNG of a single red pixel, encoded in Base64. */
+const val redPixelPngBase64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
+
+/** A PNG of a single red pixel. */
+val redPixelPng: ByteArray = Base64.decode(redPixelPngBase64)
+
+/** Bytes detected as a PDF, never parsed by the harness. */
+val minimalPdf: ByteArray = "%PDF-1.7\n%%EOF\n".encodeToByteArray()

@@ -128,6 +128,23 @@ class ScriptExecutorTest {
     }
 
     @Test
+    fun `should return data value of intent as data, to perceive an image`() = runTest(timeout = 5.minutes) {
+        // when
+        val result = executor.execute(
+            """
+            import com.xemantic.ai.annie.*
+            Phenomenon.Data(byteArrayOf(4, 2), "image/png")
+            """.trimIndent(),
+            TestAgency()
+        ) { collecting ->
+            "agency" provides collecting
+        }
+
+        // then
+        assert(result == listOf(Phenomenon.Data(byteArrayOf(4, 2), "image/png")))
+    }
+
+    @Test
     fun `should return nothing for intent evaluating to Unit or null`()= runTest(timeout = 5.minutes) {
         // when
         val unit = executor.execute("agency.enunciate(\"output\")", TestAgency()) { collecting ->

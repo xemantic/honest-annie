@@ -23,6 +23,9 @@ import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
+import com.xemantic.ai.file.magic.MediaType
+import com.xemantic.ai.file.magic.detectMediaType
+import kotlin.io.encoding.Base64
 import kotlin.time.Instant
 
 /** The constitution as the system prompt, `null` when it is blank, since some APIs reject an empty one. */
@@ -30,9 +33,39 @@ val Cogitation.systemPrompt: String? get() = constitution.joinToString(separator
 
 /** A turn of the conversation with a model, the assistant [P]arts being specific to the API. */
 sealed interface Turn<out P> {
-    class User(val text: String) : Turn<Nothing>
+    /** Text perceived by the model, consecutive text merged into a single part, and the attachments in between. */
+    class User(val parts: List<Perceived>) : Turn<Nothing>
     class Assistant<P>(val parts: List<P>) : Turn<P>
 }
+
+/** What the model perceives in a [Turn.User]. */
+sealed interface Perceived {
+    data class Text(val text: String) : Perceived
+    /**
+     * The [data] passed to the model as is, of the [mediaType] detected from its bytes, not the declared one:
+     * the cogitation is replayed at every inference, so data which an API rejects would impede all of them.
+     */
+    sealed interface Attachment : Perceived {
+        val data: Phenomenon.Data
+        val mediaType: String
+        val base64: String get() = Base64.encode(data.bytes)
+        val dataUrl: String get() = "data:$mediaType;base64,$base64"
+    }
+    data class Image(override val data: Phenomenon.Data, override val mediaType: String) : Attachment
+    /** A PDF document, which a model not accepting one, e.g. served by vLLM, rejects. */
+    data class Document(override val data: Phenomenon.Data) : Attachment {
+        override val mediaType: String get() = MediaType.PDF.mime
+    }
+}
+
+/** The maximal size of an image accepted by every API, the one of Claude, a larger one is perceived only as markup. */
+const val MAX_IMAGE_SIZE: Int = 5 * 1024 * 1024
+
+/** The maximal size of a PDF document fitting Claude's 32 MB request once encoded in Base64, a larger one is perceived only as markup. */
+const val MAX_DOCUMENT_SIZE: Int = 24 * 1024 * 1024
+
+/** The media types of images accepted by every API. */
+private val imageMediaTypes = setOf(MediaType.JPEG, MediaType.PNG, MediaType.GIF, MediaType.WEBP)
 
 /**
  * Intents and monologues of the enunciations become assistant turns, everything else is perceived in user turns,
@@ -61,6 +94,7 @@ fun <P> Cogitation.toTurns(
                     val text = phenomenon.toText()
                     turns.appendUser(if (headed) text else "${enunciation.actantTag(invocations)}\n$text")
                     headed = true
+                    if (phenomenon is Phenomenon.Data) phenomenon.toAttachment()?.let { turns.appendUser(it) }
                 }
             }
         }
@@ -68,18 +102,40 @@ fun <P> Cogitation.toTurns(
     }
     val first = turns.indexOfFirst { it is Turn.User }
     if (first >= 0) {
-        turns[first] = Turn.User("<annie:cogitation depth=\"$depth\"/>\n${(turns[first] as Turn.User).text}")
+        // a user turn always starts with the text heading the enunciation
+        val parts = (turns[first] as Turn.User).parts
+        val heading = parts.first() as Perceived.Text
+        turns[first] = Turn.User(listOf(Perceived.Text("<annie:cogitation depth=\"$depth\"/>\n${heading.text}")) + parts.drop(1))
     }
     return turns
+}
+
+private fun Phenomenon.Data.toAttachment(): Perceived.Attachment? {
+    val mediaType = bytes.detectMediaType() ?: return null
+    return when (mediaType) {
+        in imageMediaTypes if bytes.size <= MAX_IMAGE_SIZE -> Perceived.Image(this, mediaType.mime)
+        MediaType.PDF if bytes.size <= MAX_DOCUMENT_SIZE -> Perceived.Document(this)
+        else -> null
+    }
 }
 
 private fun <P> MutableList<Turn<P>>.appendUser(text: String) {
     val last = lastOrNull()
     if (last is Turn.User) {
-        this[lastIndex] = Turn.User("${last.text}\n\n$text")
+        val lastPart = last.parts.last()
+        this[lastIndex] = Turn.User(
+            if (lastPart is Perceived.Text) last.parts.dropLast(1) + Perceived.Text("${lastPart.text}\n\n$text")
+            else last.parts + Perceived.Text(text)
+        )
     } else {
-        this += Turn.User(text)
+        this += Turn.User(listOf(Perceived.Text(text)))
     }
+}
+
+private fun <P> MutableList<Turn<P>>.appendUser(attachment: Perceived.Attachment) {
+    // an attachment is always perceived after its markup, so it never starts a turn
+    val last = last() as Turn.User
+    this[lastIndex] = Turn.User(last.parts + attachment)
 }
 
 private fun <P> MutableList<Turn<P>>.appendAssistant(part: P) {
@@ -122,7 +178,7 @@ private fun Phenomenon.toText(): String = when (this) {
     is Text -> if (contentType == Phenomenon.Text.MARKDOWN) text else {
         "<annie:text content-type=\"${contentType.xmlEscaped()}\"/>\n$text"
     }
-    // TODO pass data to the model as attachments, e.g. images and documents
+    // an image or a PDF document is perceived after this markup, see `toAttachment`
     is Data -> buildString {
         append("<annie:data")
         contentType?.let { append(" content-type=\"").append(it.xmlEscaped()).append('"') }

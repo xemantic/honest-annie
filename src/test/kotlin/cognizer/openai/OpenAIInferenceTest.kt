@@ -31,8 +31,12 @@ import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
+import com.xemantic.ai.annie.cognizer.minimalPdf
+import com.xemantic.ai.annie.cognizer.redPixelPng
+import com.xemantic.ai.annie.cognizer.redPixelPngBase64
 import com.xemantic.ai.annie.host.isToolCall
 import com.xemantic.kotlin.test.assert
+import kotlin.io.encoding.Base64
 import kotlin.test.Test
 import kotlin.time.Instant
 
@@ -222,6 +226,87 @@ class OpenAIInferenceTest {
         // then
         assert((phenomena.single() as Phenomenon.Intent).script == "6 * 7\n<invoke name=\"bash\">\n{}\n</invoke>")
     }
+
+    @Test
+    fun `should request chat completion with image perceived after its markup`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+
+        // when
+        val body = json(inference.chatRequest(perceivingImage)._body())
+
+        // then
+        assert(body["messages"][3] == json("""
+            {"role": "user", "content": [
+              {"type": "text", "text": ${jsonMapper().writeValueAsString(imageMarkup)}},
+              {"type": "image_url", "image_url": {"url": "data:image/png;base64,$redPixelPngBase64"}}
+            ]}
+        """))
+    }
+
+    @Test
+    fun `should request response with image perceived after its markup`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+
+        // when
+        val body = json(inference.responseRequest(perceivingImage)._body())
+
+        // then
+        assert(body["input"][2] == json("""
+            {"type": "message", "role": "user", "content": [
+              {"type": "input_text", "text": ${jsonMapper().writeValueAsString(imageMarkup)}},
+              {"type": "input_image", "detail": "auto", "image_url": "data:image/png;base64,$redPixelPngBase64"}
+            ]}
+        """))
+    }
+
+    @Test
+    fun `should request chat completion with PDF document perceived after its markup`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "gpt-6")
+
+        // when
+        val body = json(inference.chatRequest(perceivingDocument)._body())
+
+        // then
+        assert(body["messages"][3]["content"][1] == json("""
+            {"type": "file", "file": {"filename": "document.pdf", "file_data": "data:application/pdf;base64,${Base64.encode(minimalPdf)}"}}
+        """))
+    }
+
+    @Test
+    fun `should request response with PDF document perceived after its markup`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+
+        // when
+        val body = json(inference.responseRequest(perceivingDocument)._body())
+
+        // then
+        assert(body["input"][2]["content"][1] == json("""
+            {"type": "input_file", "filename": "document.pdf", "file_data": "data:application/pdf;base64,${Base64.encode(minimalPdf)}"}
+        """))
+    }
+
+    private val perceivingDocument = cogitation(Phenomenon.Intent("document()")).let {
+        it.copy(enunciations = it.enunciations + Enunciation(
+            actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+            initiated = initiated,
+            phenomena = listOf(Phenomenon.Data(minimalPdf, "application/pdf"))
+        ))
+    }
+
+    private val perceivingImage = cogitation(Phenomenon.Intent("image()")).let {
+        it.copy(enunciations = it.enunciations + Enunciation(
+            actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+            initiated = initiated,
+            phenomena = listOf(Phenomenon.Data(redPixelPng, "image/png"))
+        ))
+    }
+
+    private val imageMarkup = "<annie:actant type=\"computer\" name=\"user's computer\" initiated=\"2026-10-22T10:15:30Z\"/>\n" +
+            "<annie:data content-type=\"image/png\" size=\"70\"/>"
 
     @Test
     fun `should request encrypted reasoning from Responses API without storing it`() {
