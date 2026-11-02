@@ -17,12 +17,15 @@ import ast
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from itertools import combinations
 from pathlib import Path
@@ -36,6 +39,8 @@ RUNS_DIR = EVAL_DIR / "runs"
 AGENT = ROOT / "build" / "install" / "honest-annie" / "bin" / "honest-annie"
 # the set of the runs recorded before there were sets
 FIRST_SET = "32k"
+# the gold answers, read from the files of a set, or from the public datasets OOLONG-synth is made of
+LEAKS = re.compile(r"task\.json|labels\.json|huggingface|hf_hub|load_dataset|oolongbench", re.IGNORECASE)
 
 
 def contexts_dir(set_name):
@@ -554,7 +559,6 @@ def evaluate(result, run_dir, set_name):
         if not solved[1] or all(i in judged for i in considered(task["question"], rows)):
             implied = solve(task["question"], own)[0]
             consistent = bool(implied) and score(implied, task["answer_type"], output)[1] == 1.0
-    leaked = any(re.search(r"task\.json|labels\.json", p.read_text()) for p in recording.rglob("*-intent.kts"))
     return result | {
         "expected": f"{len(answers)} pairs" if pairs else " or ".join(map(str, answers)),
         "parsed": parsed,
@@ -565,8 +569,13 @@ def evaluate(result, run_dir, set_name):
         "items": len(rows),
         "agreement": agreement,
         "consistent": consistent,
-        "leaked": leaked,
+        "leaked": leaked(recording),
     }
+
+
+def leaked(recording):
+    """Whether an intent of the recorded cogitation, or of one it invoked, reached for the gold answers."""
+    return any(LEAKS.search(p.read_text()) for p in recording.rglob("*-intent.kts"))
 
 
 def inferences(recording_dir):
@@ -588,6 +597,15 @@ def enunciated(stdout):
     return ("\n".join(texts) if texts else None), ("; ".join(impediments) or None)
 
 
+@contextmanager
+def placed(context):
+    """A copy of the context, alone in a directory outside the repository, so that no path leads to the gold answers."""
+    with tempfile.TemporaryDirectory(prefix="context-") as directory:
+        copy = Path(directory) / "context.txt"
+        shutil.copyfile(context, copy)
+        yield copy
+
+
 def cogitate(task_dir, run_dir, repeat, timeout, token_budget):
     task = json.loads((task_dir / "task.json").read_text())
     name = f"{task_dir.name}-{repeat}"
@@ -596,22 +614,20 @@ def cogitate(task_dir, run_dir, repeat, timeout, token_budget):
     question = task["question"]
     if task["task"] == PAIRS:
         question = f"{PAIRS_PREFIX}{question}\n\n{PAIRS_INSTRUCTIONS}"
-    prompt = PROMPT.format(
-        context=task_dir.parents[1] / "contexts" / f"{task_dir.name}.txt",
-        tokens=task["context_len"] // 1024,
-        question=question
-    )
     started = time.monotonic()
-    try:
-        process = subprocess.run(
-            [str(AGENT), prompt],
-            env=os.environ | {"ANNIE_COGITATIONS_DIR": str(recording_dir)}
-                | ({"ANNIE_TOKEN_BUDGET": str(token_budget)} if token_budget else {}),
-            capture_output=True, text=True, timeout=timeout
-        )
-        stdout, failure = process.stdout, (None if process.returncode == 0 else f"exit {process.returncode}")
-    except subprocess.TimeoutExpired as e:
-        stdout, failure = (e.stdout or b"").decode(errors="replace"), f"timeout after {timeout}s"
+    with placed(task_dir.parents[1] / "contexts" / f"{task_dir.name}.txt") as context:
+        prompt = PROMPT.format(context=context, tokens=task["context_len"] // 1024, question=question)
+        try:
+            process = subprocess.run(
+                [str(AGENT), prompt],
+                cwd=context.parent,
+                env=os.environ | {"ANNIE_COGITATIONS_DIR": str(recording_dir)}
+                    | ({"ANNIE_TOKEN_BUDGET": str(token_budget)} if token_budget else {}),
+                capture_output=True, text=True, timeout=timeout
+            )
+            stdout, failure = process.stdout, (None if process.returncode == 0 else f"exit {process.returncode}")
+        except subprocess.TimeoutExpired as e:
+            stdout, failure = (e.stdout or b"").decode(errors="replace"), f"timeout after {timeout}s"
     (recording_dir / "stdout.log").write_text(stdout)
     output, impediment = enunciated(stdout)
     totals = inferences(recording_dir)

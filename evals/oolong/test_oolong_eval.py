@@ -149,5 +149,67 @@ class SolvePairsTest(unittest.TestCase):
         assert pairs == {(1, 2)}, pairs
 
 
+class LeakedTest(unittest.TestCase):
+
+    def test_tells_the_labels_of_a_set_read(self):
+        # given
+        root = recording("", "")
+        (next(root.iterdir()) / "022-2-self-intent.kts").write_text(
+            'val dir = "/evals/oolong/data/sets/512k/tasks/multinli-timeline-least_freq"\n'
+            'agency.execute(listOf("python3", "-c", py, "$dir/labels.json"))\n'
+        )
+
+        # when
+        leaked = oolong_eval.leaked(root)
+
+        # then
+        assert leaked
+
+    def test_tells_the_source_dataset_fetched(self):
+        # given
+        root = recording("", "")
+        (next(root.iterdir()) / "012-2-self-intent.kts").write_text(
+            'val url = "https://huggingface.co/datasets/nyu-mll/multi_nli/resolve/main/data/train.parquet"\n'
+        )
+
+        # when
+        leaked = oolong_eval.leaked(root)
+
+        # then
+        assert leaked
+
+    def test_does_not_tell_the_context_read(self):
+        # given
+        root = recording("", "")
+        (next(root.iterdir()) / "004-2-self-intent.kts").write_text(
+            'val lines = java.io.File("/tmp/context-x1y2/context.txt").readLines()\n'
+        )
+
+        # when
+        leaked = oolong_eval.leaked(root)
+
+        # then
+        assert not leaked
+
+
+class PlacedTest(unittest.TestCase):
+
+    def test_places_a_copy_of_the_context_where_no_path_leads_to_the_gold_answers(self):
+        # given
+        original = Path(tempfile.mkdtemp()) / "multinli-timeline-least_freq.txt"
+        original.write_text("Date: Oct 01, 2023 || User: 1 || Instance: a\n")
+
+        # when
+        with oolong_eval.placed(original) as copy:
+            text = copy.read_text()
+            placed = copy
+
+        # then
+        assert text == original.read_text()
+        assert oolong_eval.ROOT not in placed.parents
+        assert placed.name == "context.txt"
+        assert not placed.parent.exists()
+
+
 if __name__ == "__main__":
     unittest.main()
