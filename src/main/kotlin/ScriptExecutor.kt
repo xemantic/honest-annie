@@ -18,65 +18,86 @@
 
 package com.xemantic.ai.annie
 
-import com.xemantic.kotlin.script.ScriptDependencies
 import com.xemantic.kotlin.script.ScriptResult
-import com.xemantic.kotlin.script.execute
+import com.xemantic.kotlin.script.ScriptSession
 import java.util.concurrent.CopyOnWriteArrayList
-import com.xemantic.kotlin.script.ScriptExecutor as KotlinScriptExecutor
+import kotlin.time.Duration
 
-/** Executes intents, provided to a harness as `executor`, see [Cogitation]. */
+/**
+ * Executes the intents of a cogitation, provided to its harness as `executor`, see [Cogitation].
+ *
+ * The intents are executed one after another in a session of their own, which is stateful, like a Kotlin notebook:
+ * what an intent declares, e.g. a `val`, a function or a class, stays visible to the intents executed after it.
+ */
 interface ScriptExecutor {
     /**
-     * Executes the [script] of an intent, providing it with the [dependencies], given the [agency]
-     * collecting the invocations made through it, e.g.:
+     * Executes the [script] of an intent expressed in the [cogitation], given the [agency] of the current execution
+     * of the harness, provided to the script as `agency`, with this [cogitation] as its [Agency.cogitation],
+     * and collecting the invocations made through it, e.g. `executor.execute(intent.script, inferred, agency)`.
      *
-     * ```
-     * executor.execute(intent.script, agency) { collecting ->
-     *     "cogitation" provides cogitation
-     *     "agency" provides collecting
-     * }
-     * ```
-     *
-     * Only the invocations of the collecting agency form the result, not those of the [agency] itself.
+     * Only the invocations made through the script form the result, not those of the [agency] itself.
      * What the script enunciates is not part of its result, but its output, see [Agency.enunciated].
      *
-     * @return the invocations the script made through the collecting agency, in their order,
+     * @return the invocations the script made, in their order,
      * followed by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
      * unless it is `Unit`, `null`, an invocation, or a collection of nothing else,
-     * or [Phenomenon.Data] as is, e.g. an image the cognizer sees.
+     * or [Phenomenon.Data] as is, e.g. an image the cognizer sees,
+     * and by the versions resolved for the dependencies the script declared without a version, if any.
      * If the script failed, the [Phenomenon.Impediment] describing the failure follows the invocations instead.
      */
     suspend fun execute(
         script: String,
-        agency: Agency,
-        dependencies: ScriptDependencies.(collecting: Agency) -> Unit
+        cogitation: Cogitation,
+        agency: Agency
     ): List<Phenomenon>
 }
 
-/** The [ScriptExecutor] executing intents with the [executor] of Kotlin scripts. */
-fun ScriptExecutor(executor: KotlinScriptExecutor): ScriptExecutor = object : ScriptExecutor {
+/**
+ * The [ScriptExecutor] executing the intents of a single cogitation in a [ScriptSession],
+ * created on the first intent, and released when closed.
+ */
+class SessionScriptExecutor : ScriptExecutor, AutoCloseable {
+
+    private val agency = SwitchedAgency()
+
+    private val session = lazy {
+        ScriptSession { provide<Agency>("agency", agency) }
+    }
+
     override suspend fun execute(
         script: String,
-        agency: Agency,
-        dependencies: ScriptDependencies.(collecting: Agency) -> Unit
+        cogitation: Cogitation,
+        agency: Agency
     ): List<Phenomenon> {
-        val collecting = CollectingAgency(agency)
-        val result = executor.execute(script) {
-            dependencies(collecting)
-        }
-        return collecting.collected + listOfNotNull(
-            when (result) {
-                is ScriptResult.Error -> Phenomenon.Impediment(result.message.digest())
-                is ScriptResult.Value -> when (val value = result.value) {
+        val collecting = CollectingAgency(agency, cogitation)
+        this.agency.current = collecting
+        val result = session.value.execute(script)
+        return collecting.collected + when (result) {
+            is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest()))
+            is ScriptResult.Value -> listOfNotNull(
+                when (val value = result.value) {
                     null, Unit, is Phenomenon.Invocation -> null
                     is Phenomenon.Data -> value
                     // already in the result, e.g. `prompts.map { agency.invoke(it) }`
                     is Iterable<*> if value.any() && value.all { it is Phenomenon.Invocation } -> null
                     else -> Phenomenon.Text(value.toString(), Phenomenon.Text.PLAIN)
+                },
+                result.resolvedVersions.takeIf { it.isNotEmpty() }?.let { versions ->
+                    Phenomenon.Text(
+                        versions.entries.joinToString(prefix = "Resolved dependency versions: ") { (dependency, version) ->
+                            "$dependency:$version"
+                        },
+                        Phenomenon.Text.PLAIN
+                    )
                 }
-            }
-        )
+            )
+        }
     }
+
+    override fun close() {
+        if (session.isInitialized()) session.value.close()
+    }
+
 }
 
 /**
@@ -172,8 +193,11 @@ private fun String.withoutClosingTags(): String {
     }
 }
 
-/** The [agency] collecting the invocations made through it. */
-private class CollectingAgency(private val agency: Agency) : Agency by agency {
+/** The [agency] collecting the invocations made through it, within the [cogitation] of the intent. */
+private class CollectingAgency(
+    private val agency: Agency,
+    override val cogitation: Cogitation
+) : Agency by agency {
 
     val collected = CopyOnWriteArrayList<Phenomenon.Invocation>()
 
@@ -182,5 +206,51 @@ private class CollectingAgency(private val agency: Agency) : Agency by agency {
         constitution: String,
         harness: String
     ): Phenomenon.Invocation = agency.invoke(prompt, constitution, harness).also { collected += it }
+
+}
+
+/**
+ * The [Agency] provided to a [ScriptSession], whose properties are fixed when it is created,
+ * acting as the [current] agency, the one of the script being executed.
+ */
+internal class SwitchedAgency : Agency {
+
+    @Volatile
+    lateinit var current: Agency
+
+    override val cogitation: Cogitation get() = current.cogitation
+    override val constitution: String get() = current.constitution
+    override val harness: String get() = current.harness
+    override val parentCogitation: Cogitation? get() = current.parentCogitation
+    override val depth: Int get() = current.depth
+    override val invocations: List<Phenomenon.Invocation> get() = current.invocations
+    override val enunciated: List<Phenomenon> get() = current.enunciated
+    override val maxReinferences: Int get() = current.maxReinferences
+
+    override fun invoke(prompt: String, constitution: String, harness: String) =
+        current.invoke(prompt, constitution, harness)
+
+    override fun enunciate(text: String, contentType: String) = current.enunciate(text, contentType)
+
+    override fun enunciate(bytes: ByteArray, contentType: String?) = current.enunciate(bytes, contentType)
+
+    override fun impede(reason: String) = current.impede(reason)
+
+    override fun isMalformed(intent: Phenomenon.Intent) = current.isMalformed(intent)
+
+    override fun resolveDeclaration(name: String, page: Int, pageSize: Int) =
+        current.resolveDeclaration(name, page, pageSize)
+
+    override fun searchDeclarations(query: String, page: Int, pageSize: Int) =
+        current.searchDeclarations(query, page, pageSize)
+
+    override fun execute(
+        command: List<String>,
+        input: String?,
+        directory: String?,
+        environment: Map<String, String>,
+        timeout: Duration,
+        maxOutputLength: Int
+    ) = current.execute(command, input, directory, environment, timeout, maxOutputLength)
 
 }

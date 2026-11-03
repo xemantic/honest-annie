@@ -23,9 +23,16 @@ import kotlin.time.Duration.Companion.minutes
 
 /**
  * The agency within the current cogitation: how its harness, and the intents it executes, act within it,
- * provided to both as `agency`, see [Cogitation]. It cannot be used once the harness has evaluated.
+ * provided to both as `agency`, see [Cogitation], always acting within the current execution of the harness.
+ * None of its functions suspends: each one is called directly, e.g. `agency.enunciate(answer)`,
+ * the ones which wait, e.g. [execute], blocking the thread calling them.
  */
 interface Agency {
+    /**
+     * The current cogitation: the one the harness unfolds,
+     * or, within an intent, the one including the enunciation which expressed it, see [ScriptExecutor.execute].
+     */
+    val cogitation: Cogitation
     /**
      * The constitution of the current cogitation, its parts joined as the cognizer perceives them,
      * see [Cogitation.constitution]. It embeds the source of this [harness].
@@ -44,16 +51,6 @@ interface Agency {
      * to be enunciated by the harness in the cogitation it unfolds, see [Enunciation.isOutput].
      */
     val enunciated: List<Phenomenon>
-    /**
-     * Values kept by name across the intents of the current cogitation, e.g. parsed inputs, computed results,
-     * or helper functions as lambdas, so that a later intent continues from them, instead of computing,
-     * or copying them, again: `agency.variables["mols"] = mols`, then `agency.variables["mols"] as List<String>`.
-     * Never perceived, unless a script evaluates to them, and kept only in the memory of the host:
-     * not shared with invoked cogitations, and lost when the host restarts.
-     * Each intent compiles its own classes, so a value of a class declared by an intent cannot be used by another one:
-     * keep values of the Kotlin and Java libraries, e.g. strings, numbers, lists, maps and functions of them.
-     */
-    val variables: MutableMap<String, Any?>
     /**
      * Invokes a cogitation under the [constitution], by default this [Agency.constitution],
      * unfolded by the [harness] script, which can be a different one, e.g. a modification of this [Agency.harness].
@@ -75,11 +72,11 @@ interface Agency {
      * Enunciated by an intent, it is not part of the result of the intent, but precedes it in the cogitation:
      * what the intent needs to perceive in the response to it is the value of its last expression.
      */
-    suspend fun enunciate(text: String, contentType: String = Phenomenon.Text.MARKDOWN)
+    fun enunciate(text: String, contentType: String = Phenomenon.Text.MARKDOWN)
     /** Enunciates a [Phenomenon.Data] as the output of the current cogitation, like the text [enunciate]. */
-    suspend fun enunciate(bytes: ByteArray, contentType: String? = null)
+    fun enunciate(bytes: ByteArray, contentType: String? = null)
     /** Enunciates a [Phenomenon.Impediment] as the output of the current cogitation, like the text [enunciate]. */
-    suspend fun impede(reason: String)
+    fun impede(reason: String)
     /**
      * Whether the [intent] is not shaped as a Kotlin script, e.g. a tool call in the markup of a model's training,
      * often followed by a result the model made up itself, or nothing but such a result, see [Phenomenon.Intent.script],
@@ -111,14 +108,16 @@ interface Agency {
     /**
      * Executes the [command] as a process of the user's computer, e.g. `listOf("bash", "-c", script)`, see [bash],
      * writing the [input] to its standard input, in the [directory], with the [environment] added to the inherited one.
-     * The process is destroyed, together with its descendants, when the [timeout] elapses, or when the intent is cancelled.
+     * Blocks until the process exits, and its outputs are read.
+     * The process is destroyed, together with its descendants, when the [timeout] elapses,
+     * or when the thread executing it is interrupted, e.g. as the intent is cancelled.
      * Each of its outputs is truncated to [maxOutputLength] characters, the truncation being marked.
      *
      * What the process outputs is perceived only when the script makes it so:
      * by evaluating to it, so that you perceive it in the result of the intent,
      * or by [enunciate]-ing it as the output of the current cogitation.
      */
-    suspend fun execute(
+    fun execute(
         command: List<String>,
         input: String? = null,
         directory: String? = null,
@@ -142,7 +141,7 @@ data class Execution(
 }
 
 /** Executes the [script] with `bash`, see [Agency.execute]. */
-suspend fun Agency.bash(
+fun Agency.bash(
     script: String,
     timeout: Duration = 1.minutes
 ): Execution = execute(listOf("bash", "-c", script), timeout = timeout)

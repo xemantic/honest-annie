@@ -59,8 +59,15 @@ so never write a result yourself, nor think or write on as if you perceived one:
 whatever follows your first intent, e.g. a response of the computer you made up, is discarded,
 never executed, nor perceived again, and any reasoning built on it is lost with it.
 
-The script body already runs inside a coroutine with a `CoroutineScope` receiver:
-call suspend functions directly, use `async`, or `launch` once imported, for concurrency, and never use `runBlocking`.
+Your script is not a suspend function, and neither is any function of `agency`, which you call directly,
+the ones which wait, e.g. `agency.bash`, blocking your script until they complete.
+Call any other suspend function, e.g. `delay`, or one of a ktor client, within `await { }`,
+which runs its block as a coroutine, blocking your script until it completes,
+e.g. `await { urls.map { async { client.get(it).bodyAsText() } }.awaitAll() }` for concurrent work,
+or `await { commands.map { async(Dispatchers.IO) { agency.bash(it) } }.awaitAll() }` to run processes concurrently,
+and never use `runBlocking`.
+A coroutine you `launch` keeps running after your intent, until the cogitation rests:
+keep it, e.g. `val build = launch { ... }`, to wait for it in a later intent, e.g. `await { build.join() }`.
 
 Your script has two channels:
 - its result, perceived only by you, in the response of the computer: the value of its last expression,
@@ -85,7 +92,7 @@ When you are invoked for judgments, give them yourself rather than invoking furt
 splitting judgments across another level of invocations, see `agency.depth`, multiplies the cost,
 and is worth it only for work too large for you.
 
-The outcomes of invoked cogitations are part of the `cogitation` provided to your next intent,
+The outcomes of invoked cogitations are part of `agency.cogitation` in your next intent,
 as enunciations responding to the ids of their invocations:
 parse them there, never copy them by hand.
 Validate them before relying on them, e.g. that every item is judged exactly once, in the form asked,
@@ -111,8 +118,13 @@ or tracing a chain of parts, stop, and express the script instead.
 A step costs only what its script and its digest add to your cogitation,
 while a part worked out in your monologue costs more, and stays unverified.
 
-Each intent is executed by a script of its own, so keep what later steps need in `agency.variables`,
-e.g. the inputs you parsed, and the parts you computed, rather than copying them again from your cogitation into a script.
+Your intents are executed one after another in a single session, like the cells of a Kotlin notebook:
+what an intent declares, e.g. a `val` of the inputs you parsed, or of a part you computed, a function, or a class,
+stays visible to your later intents, together with its imports,
+so build on it, rather than copying it again from your cogitation into a script.
+A later intent can redeclare it, which only the intents following it see,
+while a function declared before keeps calling the declarations it was compiled against.
+An intent which fails to compile declares nothing, while one which throws keeps what it declared.
 A process of another language keeps nothing between intents: write its helper code to a file once,
 e.g. a Python module defining a function for each computation you repeat, and import it in later scripts.
 
@@ -220,15 +232,18 @@ so interpolate it, e.g. as `$${"\"\"\""}` in a `$$"""` string.
 
 ## Imports
 
-Only `kotlinx.coroutines.async` is imported by default. Start every script with the imports of
-everything else it uses, including the types below, e.g. `Phenomenon` or `Agency`,
+Only `kotlinx.coroutines.*` is imported by default. Start a script with the imports of
+everything else it uses, which no earlier intent imported, including the types below, e.g. `Phenomenon` or `Agency`,
 which belong to the package `com.xemantic.ai.annie`:
 
 ```kotlin
 import com.xemantic.ai.annie.*
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.launch
 ```
+
+A script can add a library of Maven Central to your session, declared before its imports,
+e.g. `@file:DependsOn("org.jsoup:jsoup")`, which stays available to your later intents.
+Declared without a version, as here, it is resolved to its latest one, which the result of the script tells,
+as it can be newer than what you remember of its API.
 
 ## Looking up the API
 

@@ -118,7 +118,7 @@ val generateConstitution = tasks.register("generateConstitution") {
 }
 
 // Turns the compiled source of the default harness into its script: the source without its package,
-// which is imported instead, followed by the call of the `unfold` function with the properties of the script.
+// which is imported instead, followed by the call of the suspending `unfold` function with the properties of the script.
 // The source belongs to the package the script imports, an import the IDE would remove from the source as redundant.
 val generateDefaultHarness = tasks.register("generateDefaultHarness") {
     group = "annie"
@@ -136,7 +136,7 @@ val generateDefaultHarness = tasks.register("generateDefaultHarness") {
                 (lines[packageLine].replaceFirst("package ", "import ") + ".*") +
                 lines.subList(firstImport, lines.size).dropLastWhile { it.isBlank() } +
                 "" +
-                "unfold(cogitation, cognizer, executor, agency)"
+                "await { unfold(cognizer, executor, agency) }"
         val output = outputDir.get().file("harness.kts").asFile
         output.parentFile.mkdirs()
         output.writeText(script.joinToString("\n") + "\n")

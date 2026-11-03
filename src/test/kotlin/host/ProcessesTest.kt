@@ -19,6 +19,7 @@
 package com.xemantic.ai.annie.host
 
 import com.xemantic.kotlin.test.assert
+import kotlin.concurrent.thread
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.exists
 import kotlin.io.path.readText
@@ -26,10 +27,8 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.future.await
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 
@@ -101,11 +100,16 @@ class ProcessesTest {
     }
 
     @Test
-    fun `should destroy process with its descendants when cancelled`() = runTest(timeout = 5.minutes) {
+    fun `should destroy process with its descendants when interrupted`() = runTest(timeout = 5.minutes) {
         // given
         val pidFile = createTempDirectory("annie-process").resolve("pid")
-        val job = launch {
-            executeProcess(listOf("bash", "-c", "sleep 600 & echo \$! > $pidFile.tmp && mv $pidFile.tmp $pidFile; wait"))
+        var interrupted = false
+        val executing = thread {
+            try {
+                executeProcess(listOf("bash", "-c", "sleep 600 & echo \$! > $pidFile.tmp && mv $pidFile.tmp $pidFile; wait"))
+            } catch (_: InterruptedException) {
+                interrupted = true
+            }
         }
         withContext(Dispatchers.Default) {
             while (!pidFile.exists()) delay(10.milliseconds)
@@ -113,9 +117,11 @@ class ProcessesTest {
         val pid = pidFile.readText().trim().toLong()
 
         // when
-        job.cancelAndJoin()
+        executing.interrupt()
+        executing.join()
 
         // then
+        assert(interrupted)
         // hangs until the test times out, unless the descendant is destroyed
         ProcessHandle.of(pid).orElse(null)?.onExit()?.await()
         assert(ProcessHandle.of(pid).map { it.isAlive }.orElse(false) == false)

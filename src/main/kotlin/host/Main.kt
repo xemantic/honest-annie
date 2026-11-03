@@ -30,7 +30,6 @@ import com.xemantic.ai.annie.cognizer.openai.OpenAIInference
 import com.xemantic.ai.annie.cognizer.openai.openAIClient
 import com.xemantic.ai.annie.cognizer.openai.openAIProvider
 import com.xemantic.ai.annie.constitution
-import com.xemantic.kotlin.script.ScriptExecutor
 import kotlin.io.path.Path
 import kotlin.io.path.readText
 import kotlinx.coroutines.runBlocking
@@ -78,10 +77,9 @@ fun main(args: Array<String>) {
         }
     }
     client.use {
-        val executor = ScriptExecutor()
         runBlocking {
             val output = HarnessHost(
-                executor, cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism,
+                cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism,
                 maxReinferences = maxReinferences
             ).cognize(Cogitation(
                 constitution = listOf(constitution(harness)),

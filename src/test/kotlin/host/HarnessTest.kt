@@ -26,7 +26,6 @@ import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.responseId
-import com.xemantic.kotlin.script.ScriptExecutor
 import com.xemantic.kotlin.test.assert
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
@@ -42,8 +41,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeoutOrNull
 
 class HarnessTest {
-
-    private val executor = ScriptExecutor()
 
     private val store = InMemoryCogitationStore()
 
@@ -74,7 +71,7 @@ class HarnessTest {
     private suspend fun cognize(
         cognizer: Cognizer,
         cogitation: Cogitation
-    ) = HarnessHost(executor, cognizer, store).cognize(cogitation)
+    ) = HarnessHost(cognizer, store).cognize(cogitation)
 
     private fun cogitation(harness: String) = Cogitation(
         constitution = emptyList(),
@@ -91,8 +88,8 @@ class HarnessTest {
     /** Harness of invoked cogitations, enunciating their prompt, without any inference. */
     private val echoHarness = """
         import com.xemantic.ai.annie.*
-        val prompt = (cogitation.enunciations.first().phenomena.first() as Phenomenon.Text).text
-        cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("echo: " + prompt)))
+        val prompt = (agency.cogitation.enunciations.first().phenomena.first() as Phenomenon.Text).text
+        agency.cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("echo: " + prompt)))
     """.trimIndent()
 
     /** This string as a Kotlin raw string literal. */
@@ -104,9 +101,9 @@ class HarnessTest {
     /** Intent enunciating the texts of all the responses to the invocations of the cogitation. */
     private val respondedIntent = """
         import com.xemantic.ai.annie.*
-        val invocations = cogitation.enunciations.flatMap { it.phenomena }
+        val invocations = agency.cogitation.enunciations.flatMap { it.phenomena }
             .filterIsInstance<Phenomenon.Invocation>().map { it.id }
-        cogitation.enunciations.filter { it.respondsTo in invocations }.forEach { response ->
+        agency.cogitation.enunciations.filter { it.respondsTo in invocations }.forEach { response ->
             agency.enunciate((response.phenomena.first() as Phenomenon.Text).text)
         }
     """.trimIndent()
@@ -329,7 +326,7 @@ class HarnessTest {
         )
 
         // when
-        val output = HarnessHost(executor, cognizer, store, maxReinferences = 3).cognize(cogitation(defaultHarness))
+        val output = HarnessHost(cognizer, store, maxReinferences = 3).cognize(cogitation(defaultHarness))
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("fetched")))
@@ -346,7 +343,7 @@ class HarnessTest {
         )
 
         // when
-        val output = HarnessHost(executor, cognizer, store, maxReinferences = 0).cognize(cogitation(defaultHarness))
+        val output = HarnessHost(cognizer, store, maxReinferences = 0).cognize(cogitation(defaultHarness))
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Impediment("cannot proceed")))
@@ -364,7 +361,7 @@ class HarnessTest {
 
         // when
         val output = HarnessHost(
-            executor, cognizer, store, isMalformed = { it.script == "6 * 7" }
+            cognizer, store, isMalformed = { it.script == "6 * 7" }
         ).cognize(cogitation(defaultHarness))
 
         // then
@@ -433,14 +430,14 @@ class HarnessTest {
         // given
         val stepHarness = """
             import com.xemantic.ai.annie.*
-            if (cogitation.enunciations.size < 3) {
-                cogitation + Enunciation(
+            if (agency.cogitation.enunciations.size < 3) {
+                agency.cogitation + Enunciation(
                     actant = Actant(type = Actant.Type.COMPUTER, name = "step"),
                     phenomena = listOf(Phenomenon.Text("step"))
                 )
             } else {
-                val after = "after ${'$'}{cogitation.enunciations.size}"
-                cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text(after)))
+                val after = "after ${'$'}{agency.cogitation.enunciations.size}"
+                agency.cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text(after)))
             }
         """.trimIndent()
 
@@ -449,25 +446,6 @@ class HarnessTest {
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("after 3")))
-    }
-
-    @Test
-    fun `should provide intent with dependencies altered by harness`() = runTest(timeout = 5.minutes) {
-        // given
-        val harness = defaultHarness.replace(
-            "\"cogitation\" provides inferred",
-            "\"cogitation\" provides inferred\n    \"answer\" provides 42"
-        )
-        val cognizer = ScriptedCognizer(
-            "agency.enunciate(\"answer is \" + answer + \" after \" + cogitation.enunciations.size)"
-        )
-
-        // when
-        val output = cognize(cognizer, cogitation(harness))
-
-        // then
-        assert(harness != defaultHarness)
-        assert(output.phenomena == listOf(Phenomenon.Text("answer is 42 after 2")))
     }
 
     @Test
@@ -533,9 +511,9 @@ class HarnessTest {
         // given
         val actantHarness = """
             import com.xemantic.ai.annie.*
-            val actant = cogitation.enunciations.single().actant
+            val actant = agency.cogitation.enunciations.single().actant
             val text = actant.type.name + " " + actant.name
-            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text(text)))
+            agency.cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text(text)))
         """.trimIndent()
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub\", harness = ${actantHarness.quoted()})",
@@ -595,7 +573,7 @@ class HarnessTest {
     @Test
     fun `should enunciate impediment of harness not unfolding cogitation`() = runTest(timeout = 5.minutes) {
         // when
-        val output = cognize(ScriptedCognizer(), cogitation("cogitation"))
+        val output = cognize(ScriptedCognizer(), cogitation("agency.cogitation"))
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Impediment("Harness did not unfold the cogitation")))
@@ -607,7 +585,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(executor, cognizer, store, tokenBudget = 1).cognize(cogitation(defaultHarness))
+        val output = HarnessHost(cognizer, store, tokenBudget = 1).cognize(cogitation(defaultHarness))
 
         // then
         assert(cognizer.perceived.size == 1)
@@ -622,7 +600,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("agency.invoke(\"sub\")", "6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(executor, cognizer, store, tokenBudget = 2).cognize(cogitation(defaultHarness))
+        val output = HarnessHost(cognizer, store, tokenBudget = 2).cognize(cogitation(defaultHarness))
 
         // then
         // the root and the invoked cogitation inferred once each, 1 token each, then both were impeded
@@ -656,7 +634,7 @@ class HarnessTest {
         }
 
         // when
-        HarnessHost(executor, cognizer, store, parallelism = 1).cognize(cogitation(defaultHarness))
+        HarnessHost(cognizer, store, parallelism = 1).cognize(cogitation(defaultHarness))
 
         // then
         assert(maxInFlight.get() == 1)
@@ -667,7 +645,7 @@ class HarnessTest {
         // given
         val depthHarness = """
             import com.xemantic.ai.annie.*
-            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("depth " + agency.depth)))
+            agency.cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("depth " + agency.depth)))
         """.trimIndent()
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub at depth ${'$'}{agency.depth}\", harness = ${depthHarness.quoted()})",
@@ -712,7 +690,7 @@ class HarnessTest {
         )
 
         // when
-        HarnessHost(executor, cognizer, store, recordingDir).cognize(cogitation(defaultHarness))
+        HarnessHost(cognizer, store, recordingDir).cognize(cogitation(defaultHarness))
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -738,7 +716,7 @@ class HarnessTest {
         )
 
         // when
-        HarnessHost(executor, cognizer, store, recordingDir).cognize(cogitation(defaultHarness))
+        HarnessHost(cognizer, store, recordingDir).cognize(cogitation(defaultHarness))
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -754,7 +732,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("agency.enunciate(\"answer is 42\")")
 
         // when
-        HarnessHost(executor, cognizer, store, recordingDir).cognize(cogitation(defaultHarness))
+        HarnessHost(cognizer, store, recordingDir).cognize(cogitation(defaultHarness))
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -803,19 +781,15 @@ class HarnessTest {
     }
 
     @Test
-    fun `should keep variables of agency across intents of cogitation`() = runTest(timeout = 5.minutes) {
+    fun `should keep declarations of intent visible to the next intents of cogitation`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
             """
-            agency.variables["answer"] = 6 * 7
-            agency.variables["describe"] = { n: Int -> "answer is ${'$'}n" }
-            "stored"
+            val answer = 6 * 7
+            fun describe(n: Int) = "answer is ${'$'}n"
+            "declared"
             """.trimIndent(),
-            """
-            @Suppress("UNCHECKED_CAST")
-            val describe = agency.variables["describe"] as (Int) -> String
-            agency.enunciate(describe(agency.variables["answer"] as Int))
-            """.trimIndent()
+            "agency.enunciate(describe(answer))"
         )
 
         // when
@@ -826,14 +800,16 @@ class HarnessTest {
     }
 
     @Test
-    fun `should not share variables of agency with invoked cogitation`() = runTest(timeout = 5.minutes) {
+    fun `should not share declarations of intent with invoked cogitation`() = runTest(timeout = 5.minutes) {
         // given
-        val variablesHarness = """
+        val declarationsHarness = """
             import com.xemantic.ai.annie.*
-            cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("variables " + agency.variables)))
+            val result = await { executor.execute("answer", agency.cogitation, agency) }
+            val text = if (result.single() is Phenomenon.Impediment) "not shared" else "shared"
+            agency.cogitation + Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text(text)))
         """.trimIndent()
         val cognizer = ScriptedCognizer(
-            "agency.variables[\"answer\"] = 42\nagency.invoke(\"sub\", harness = ${variablesHarness.quoted()})",
+            "val answer = 42\nagency.invoke(\"sub\", harness = ${declarationsHarness.quoted()})",
             respondedIntent
         )
 
@@ -841,7 +817,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation(defaultHarness))
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("variables {}")))
+        assert(output.phenomena == listOf(Phenomenon.Text("not shared")))
     }
 
 }

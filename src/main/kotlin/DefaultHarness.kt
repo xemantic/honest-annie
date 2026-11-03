@@ -21,10 +21,11 @@ package com.xemantic.ai.annie
 // The default harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
 // The host executes it again for the next inference, unless the cogitation rests, or awaits invocations.
 //
-// Each intent is executed as a Kotlin script, its body evaluated as a suspending block with a `CoroutineScope`
-// receiver, in the coroutine of the harness, and the value of its last expression is ignored. These properties are provided:
-// - `cogitation`: Cogitation including the enunciation carrying the intent,
-// - `agency`: Agency within the cogitation, invoking new ones, enunciating its output and resolving the Kotlin API.
+// Each intent is executed as a Kotlin script in the session of the intents of the cogitation, stateful like a Kotlin notebook,
+// so that its declarations stay visible to the next intents. Its body is not a suspending block: it calls suspend functions
+// within `await { }`, and the value of its last expression is its result. `agency` is provided: the Agency within the
+// cogitation, whose `cogitation` includes the enunciation carrying the intent, invoking new cogitations,
+// enunciating its output and resolving the Kotlin API.
 //
 // What an intent enunciates through `agency` is the output of the cogitation, enunciated by self after the intent,
 // perceived by its invoker, and by the cognizer too, if the cogitation is unfolded further.
@@ -44,16 +45,16 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 /**
- * Unfolds the [cogitation] by a single step, the parameters being the properties provided to a harness,
+ * Unfolds the cogitation of the [agency] by a single step, the parameters being the properties provided to a harness,
  * see [Cogitation]. The script of the default harness is this source, followed by the call of this function.
  */
 @Suppress("unused") // only called by the script
 private suspend fun unfold(
-    cogitation: Cogitation,
     cognizer: Cognizer,
     executor: ScriptExecutor,
     agency: Agency
 ): Cogitation {
+    val cogitation = agency.cogitation
     val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
     val nothingPerceived = Phenomenon.Text(
         "The intent evaluated to nothing, and enunciated nothing, so that nothing of it is perceived, " +
@@ -93,10 +94,7 @@ private suspend fun unfold(
         impeded("No intent expressed")
     } else {
         val initiated = Clock.System.now()
-        val result = executor.execute(intent.script, agency) { collecting ->
-            "cogitation" provides inferred
-            "agency" provides collecting
-        }
+        val result = executor.execute(intent.script, inferred, agency)
         val executed = Clock.System.now()
         val output = agency.enunciated
         val enunciated = if (output.isEmpty()) inferred else inferred + Enunciation(
