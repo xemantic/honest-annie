@@ -20,6 +20,8 @@ package com.xemantic.ai.annie.cognizer.openai
 
 import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
+import com.openai.core.http.ProxyAuthenticator
+import com.xemantic.ai.annie.cognizer.httpsProxy
 import com.openai.models.chat.completions.ChatCompletionCreateParams
 import java.net.URI
 
@@ -32,12 +34,21 @@ val openAIBaseUrl: String = System.getenv("OPENAI_BASE_URL") ?: "https://api.ope
 /** Who serves the [openAIBaseUrl] endpoint: `openai`, or the host of any other endpoint. */
 val openAIProvider: String = System.getenv("OPENAI_BASE_URL")?.let { URI(it).host } ?: "openai"
 
-/** A client of the [openAIBaseUrl] endpoint, the API key read from `OPENAI_API_KEY`. */
+/**
+ * A client of the [openAIBaseUrl] endpoint, the API key read from `OPENAI_API_KEY`,
+ * connecting through the proxy of `HTTPS_PROXY`, when set, see [httpsProxy].
+ */
 fun openAIClient(
     apiKey: String = System.getenv("OPENAI_API_KEY") ?: error("OPENAI_API_KEY is not set")
 ): OpenAIClient = OpenAIOkHttpClient.builder()
     .apiKey(apiKey)
     .baseUrl(openAIBaseUrl)
+    .apply {
+        httpsProxy(URI(openAIBaseUrl).host)?.let { proxy ->
+            proxy(proxy.proxy)
+            if (proxy.user != null) proxyAuthenticator(ProxyAuthenticator.basic(proxy.user, proxy.password.orEmpty()))
+        }
+    }
     .build()
 
 /**

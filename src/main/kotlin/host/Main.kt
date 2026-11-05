@@ -19,6 +19,9 @@
 package com.xemantic.ai.annie.host
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.core.http.ProxyAuthenticator
+import com.xemantic.ai.annie.cognizer.httpsProxy
+import java.net.URI
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
@@ -60,8 +63,17 @@ fun main(args: Array<String>) {
     val client: AutoCloseable
     val cognizer: Cognizer
     if (claudeModel != null) {
-        // the API key is read from ANTHROPIC_API_KEY
-        val claude = AnthropicOkHttpClient.fromEnv()
+        // the API key is read from ANTHROPIC_API_KEY, the proxy from HTTPS_PROXY, see httpsProxy
+        val claude = AnthropicOkHttpClient.builder()
+            .fromEnv()
+            .apply {
+                val baseUrl = System.getenv("ANTHROPIC_BASE_URL") ?: "https://api.anthropic.com"
+                httpsProxy(URI(baseUrl).host)?.let { proxy ->
+                    proxy(proxy.proxy)
+                    if (proxy.user != null) proxyAuthenticator(ProxyAuthenticator.basic(proxy.user, proxy.password.orEmpty()))
+                }
+            }
+            .build()
         client = AutoCloseable(claude::close)
         cognizer = if (maxTokens != null) {
             ClaudeInference(claude, claudeModel, maxTokens = maxTokens, effort = effort, visibility = Monologue.Visibility.SUMMARY)

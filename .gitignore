@@ -53,6 +53,9 @@ bin/
 # LongCoT eval tasks and runs, see evals/longcot/longcot_eval.py
 /evals/longcot/data/
 
+# FrontierHarness Eval workspace and runs, see evals/frontierharness/frontierharness.sh
+/evals/frontierharness/data/
+
 ### Python ###
 __pycache__/
 # the Python virtual environment of the tests, created by Gradle

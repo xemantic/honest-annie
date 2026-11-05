@@ -119,7 +119,8 @@ the recursive harness,
 Claude and OpenAI-compatible backends,
 recording of every cogitation,
 and the [OOLONG](evals/oolong/README.md) and [LongCoT](evals/longcot/README.md) evals,
-with reference runs for OOLONG in [evals/oolong/README.md](evals/oolong/README.md#reference-runs), none yet for LongCoT.
+with reference runs for OOLONG in [evals/oolong/README.md](evals/oolong/README.md#reference-runs), none yet for LongCoT,
+and a runner of [FrontierHarness Eval](evals/frontierharness/README.md), comparing coding-agent harnesses on the same model, not yet run.
 
 Planned:
 self-modification experiments,
