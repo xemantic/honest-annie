@@ -31,6 +31,14 @@ curl -fsSL "https://api.adoptium.net/v3/binary/latest/$JDK_FEATURE/ga/linux/$arc
 export JAVA_HOME=$jdk
 "$JAVA_HOME/bin/java" -version 2>&1 | head -1 >&2
 
+# The Runta egress terminates TLS with a CA of its own, which the system trusts, but not the cacerts of the JDK,
+# so Gradle could not download itself nor the dependencies. The task containers get it from the adapter instead.
+EGRESS_CA=${EGRESS_CA:-/usr/local/share/ca-certificates/runta-egress.crt}
+if [ -f "$EGRESS_CA" ]; then
+  "$JAVA_HOME/bin/keytool" -importcert -noprompt -cacerts -storepass changeit \
+    -alias runta-egress -file "$EGRESS_CA" >&2
+fi
+
 echo "building the runtime distribution" >&2
 export GRADLE_USER_HOME=${GRADLE_USER_HOME:-$(mktemp -d)}
 ./gradlew --no-daemon --quiet runtimeDistTar
