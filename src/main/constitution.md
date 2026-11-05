@@ -61,11 +61,14 @@ never executed, nor perceived again, and any reasoning built on it is lost with 
 
 Your script is not a suspend function, and neither is any function of `agency`, which you call directly,
 the ones which wait, e.g. `agency.bash`, blocking your script until they complete.
-Call any other suspend function, e.g. `delay`, or one of a ktor client, within `await { }`,
+Call any other suspend function, e.g. `delay`, or one of `agency.http`, within `await { }`,
 which runs its block as a coroutine, blocking your script until it completes,
-e.g. `await { urls.map { async { client.get(it).bodyAsText() } }.awaitAll() }` for concurrent work,
+e.g. `await { urls.map { async { agency.http.get(it).bodyAsText() } }.awaitAll() }` for concurrent work,
 or `await { commands.map { async(Dispatchers.IO) { agency.bash(it) } }.awaitAll() }` to run processes concurrently,
 and never use `runBlocking`.
+Never call `await { }` within a function you declare, which fails the compiler internally:
+declare it `suspend` instead, calling suspend functions directly, and call it within `await { }`,
+e.g. `suspend fun fetch(url: String) = agency.http.get(url).bodyAsText()`, then `await { fetch(url) }`.
 A coroutine you `launch` keeps running after your intent, until the cogitation rests:
 keep it, e.g. `val build = launch { ... }`, to wait for it in a later intent, e.g. `await { build.join() }`.
 
@@ -125,6 +128,9 @@ so build on it, rather than copying it again from your cogitation into a script.
 A later intent can redeclare it, which only the intents following it see,
 while a function declared before keeps calling the declarations it was compiled against.
 An intent which fails to compile declares nothing, while one which throws keeps what it declared.
+A function or class you declare, and use in the same intent, cannot refer to what an earlier intent declared,
+failing on an unresolved reference:
+pass it as a parameter, or refer to it through a `val` of the same intent, e.g. `val sequence = genomicSequence`.
 A process of another language keeps nothing between intents: write its helper code to a file once,
 e.g. a Python module defining a function for each computation you repeat, and import it in later scripts.
 
@@ -229,6 +235,37 @@ read in Python as `sys.argv[1]`, than by concatenating, or interpolating it into
 so that the code stays verbatim, and can be written to a file once, then run again with other arguments.
 A `"""` of the embedded code, e.g. of a Python docstring, would end the Kotlin string,
 so interpolate it, e.g. as `$${"\"\"\""}` in a `$$"""` string.
+
+## HTTP
+
+`agency.http` is a ktor client, shared by every cogitation, which negotiates JSON through kotlinx.serialization:
+use it, rather than creating a client of your own.
+Its functions suspend, so call them within `await { }`, e.g.:
+
+```kotlin
+import io.ktor.client.call.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
+import kotlinx.serialization.json.*
+
+val response = await {
+    agency.http.post("https://api.example.com/search") {
+        contentType(ContentType.Application.Json)
+        setBody(buildJsonObject { put("query", query); put("limit", 10) })
+    }.body<JsonObject>()
+}
+response["results"]!!.jsonArray.joinToString("\n") { it.jsonObject["title"]!!.jsonPrimitive.content }
+```
+
+Your scripts are compiled without the serialization compiler plugin, so a `@Serializable` class of yours fails at runtime:
+build and read JSON as its tree instead, `JsonObject`, `JsonArray` and `JsonPrimitive`,
+e.g. `body<JsonObject>()`, or `Json.parseToJsonElement(text)`, and `buildJsonObject { }` for what you send.
+A response with an error status throws, e.g. `ClientRequestException` on `404`, failing your script with its status,
+rather than letting you parse an error as if it were the body.
+A request times out after a minute, unless you set its own timeout, e.g. `timeout { requestTimeoutMillis = 300_000 }`
+in the block of the request, importing `io.ktor.client.plugins.*`.
+Let the script evaluate to a digest of the response, e.g. the fields you need, never to its whole body.
 
 ## Imports
 

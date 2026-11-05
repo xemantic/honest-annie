@@ -18,6 +18,7 @@
 
 package com.xemantic.ai.annie
 
+import io.ktor.client.HttpClient
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -125,6 +126,53 @@ interface Agency {
         timeout: Duration = 1.minutes,
         maxOutputLength: Int = 100_000
     ): Execution
+    /** The Python interpreter of the current cogitation, see [Python]. */
+    val python: Python
+    /**
+     * The HTTP client of every cogitation, whose functions suspend, so they are called within `await { }`,
+     * e.g. `await { agency.http.get(url).body<JsonObject>() }`, see the HTTP section of the constitution.
+     * It negotiates JSON with kotlinx.serialization, ignoring unknown keys, times out a request after a minute,
+     * and throws on a response with an error status, e.g. `ClientRequestException` on `404`.
+     */
+    val http: HttpClient
+}
+
+/**
+ * The CPython interpreter of the current cogitation, started when first used,
+ * stateful like your Kotlin session: the variables, functions, classes and imports of the Python code it executes
+ * stay visible to the Python code of your later intents.
+ *
+ * What the code prints, to `sys.stdout` or `sys.stderr`, is perceived in the result of the intent,
+ * truncated, before the value of the intent, also when the intent fails.
+ * An exception of Python fails the intent, perceived with its type and message.
+ */
+interface Python {
+    /**
+     * Executes the Python [code] like a cell of a Jupyter notebook,
+     * evaluating to the value of its last statement, when it is an expression, otherwise to `null`,
+     * e.g. `agency.python("import numpy as np\na = np.arange(10)")`, then `agency.python("int(a.sum())")`,
+     * or `agency.python("name")` to read a global variable.
+     *
+     * The value is converted: an `int` becomes a `Long`, a `float` a `Double`, a `str` a `String`,
+     * a `list` a `List`, a `dict` a `Map`, while a value which cannot be converted, e.g. a numpy array,
+     * evaluates to its Python `repr`, so convert it in Python, e.g. with `.tolist()`.
+     *
+     * The code can declare the packages of PyPI it needs, installed before it is executed when they are missing,
+     * with inline script metadata, see [PEP 723](https://peps.python.org/pep-0723/), e.g.:
+     * ```python
+     * # /// script
+     * # dependencies = ["rdkit"]
+     * # ///
+     * from rdkit import Chem
+     * ```
+     */
+    operator fun invoke(code: String): Any?
+    /**
+     * Sets the global Python variable of the [name] to the [value], e.g. `agency.python["items"] = items`,
+     * so that values pass from Kotlin to Python without being rendered into the code,
+     * converted like the values of [invoke] in reverse.
+     */
+    operator fun set(name: String, value: Any?)
 }
 
 /** The outcome of [Agency.execute]. */

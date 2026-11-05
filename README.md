@@ -172,6 +172,15 @@ mapped to the nearest level the model supports, its default when not set.
 `ANNIE_MAX_TOKENS` limits the tokens of a single inference, the reasoning included, 128000 by default,
 which, together with the prompt, must fit the context window of the model, e.g. `32000` for a 128K one.
 
+The Python of the intents is embedded through [Jep](https://github.com/ninia/jep),
+whose `jep` package must be installed in the Python environment, of the same version as the Java library.
+Run by Gradle, honest-annie uses the `.venv` of the build, which it prepares like for the tests.
+Otherwise, unless `VIRTUAL_ENV` points to a virtual environment with `jep` installed,
+honest-annie creates one, the first time an intent uses Python,
+in `~/.cache/honest-annie`, or at the `ANNIE_PYTHON_VENV` path,
+with `python3`, or the `ANNIE_PYTHON` executable, and installs `jep` into it,
+which, when no wheel matches the Python, is built from its source, needing a C compiler and a JDK found through `JAVA_HOME`.
+
 `./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 
 ### Running without a JDK

@@ -19,8 +19,12 @@
 package com.xemantic.ai.annie
 
 import com.xemantic.kotlin.script.ScriptResult
+import io.ktor.client.HttpClient
 import com.xemantic.kotlin.script.ScriptSession
+import com.xemantic.kotlin.script.python.Python as Interpreter
+import org.intellij.lang.annotations.Language
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.time.Duration
 
 /**
@@ -39,7 +43,8 @@ interface ScriptExecutor {
      * What the script enunciates is not part of its result, but its output, see [Agency.enunciated].
      *
      * @return the invocations the script made, in their order,
-     * followed by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
+     * followed by what the Python of the intents printed, see [Agency.python], if anything, as a [Phenomenon.Text],
+     * by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
      * unless it is `Unit`, `null`, an invocation, or a collection of nothing else,
      * or [Phenomenon.Data] as is, e.g. an image the cognizer sees,
      * and by the versions resolved for the dependencies the script declared without a version, if any.
@@ -54,9 +59,37 @@ interface ScriptExecutor {
 
 /**
  * The [ScriptExecutor] executing the intents of a single cogitation in a [ScriptSession],
- * created on the first intent, and released when closed.
+ * created on the first intent, and released when closed,
+ * together with the [python] of the intents, started after [preparePython] prepared its environment,
+ * e.g. installing Jep.
  */
-class SessionScriptExecutor : ScriptExecutor, AutoCloseable {
+class SessionScriptExecutor(
+    private val preparePython: () -> Unit = {}
+) : ScriptExecutor, AutoCloseable {
+
+    // started on first use, as starting the first one initializes the Python environment of the JVM
+    private val interpreter = lazy {
+        try {
+            preparePython()
+            capturingOutput(Interpreter())
+        } catch (e: Exception) {
+            throw IllegalStateException(
+                "agency.python is unavailable, as the Python environment of the harness cannot be prepared:\n" +
+                    "${e.message}\n" +
+                    "Meanwhile run Python as a process, e.g. agency.execute(listOf(\"python3\", file)), " +
+                    "which keeps nothing between intents, and whose result is only what it prints.",
+                e
+            )
+        }
+    }
+
+    /** The Python of the intents, see [Agency.python], forwarding to the [interpreter]. */
+    val python: Python = object : Python {
+        override fun invoke(code: String): Any? = interpreter.value(code)
+        override fun set(name: String, value: Any?) {
+            interpreter.value[name] = value
+        }
+    }
 
     private val agency = SwitchedAgency()
 
@@ -69,10 +102,11 @@ class SessionScriptExecutor : ScriptExecutor, AutoCloseable {
         cogitation: Cogitation,
         agency: Agency
     ): List<Phenomenon> {
-        val collecting = CollectingAgency(agency, cogitation)
+        val collecting = CollectingAgency(agency, cogitation, this)
         this.agency.current = collecting
         val result = session.value.execute(script)
-        return collecting.collected + when (result) {
+        val printed = if (interpreter.isInitialized()) interpreter.value.printed() else null
+        return collecting.collected + listOfNotNull(printed) + when (result) {
             is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest()))
             is ScriptResult.Value -> listOfNotNull(
                 when (val value = result.value) {
@@ -94,11 +128,88 @@ class SessionScriptExecutor : ScriptExecutor, AutoCloseable {
         }
     }
 
+    private val closed = AtomicBoolean(false)
+
+    /** Releases the session and the Python of the intents, calling it again having no effect. */
     override fun close() {
+        if (!closed.compareAndSet(false, true)) return
         if (session.isInitialized()) session.value.close()
+        if (interpreter.isInitialized()) interpreter.value.use {
+            it.exec("__import__('sys').annie_output.pop(__import__('threading').get_ident(), None)")
+        }
     }
 
 }
+
+/**
+ * Starts capturing what the [python] prints, to be perceived in the result of the intent, see [printed],
+ * as otherwise it would be printed to the standard output of the host.
+ *
+ * Every Python of the JVM shares the `sys` module, so its streams are replaced once,
+ * by ones keeping what each Python prints by the thread it runs on, see [CAPTURE_OUTPUT].
+ */
+private fun capturingOutput(python: Interpreter): Interpreter = try {
+    synchronized(CAPTURE_OUTPUT) {
+        python.exec(CAPTURE_OUTPUT)
+    }
+    python
+} catch (e: Exception) {
+    python.close()
+    throw e
+}
+
+/**
+ * Replaces `sys.stdout` and `sys.stderr`, once in the JVM, with streams keeping what each thread registered
+ * in `sys.annie_output` writes, while passing on what any other thread writes,
+ * and registers the thread of the Python executing it, without leaving any global variable.
+ */
+@Language("python")
+private const val CAPTURE_OUTPUT = """
+def _annie_capture_output():
+    import io, sys, threading
+
+    class CapturedOutput(io.TextIOBase):
+        def __init__(self, stream, buffers):
+            self.stream = stream
+            self.buffers = buffers
+        encoding = 'utf-8'
+        errors = 'strict'
+        def writable(self):
+            return True
+        def write(self, text):
+            buffer = self.buffers.get(threading.get_ident())
+            if buffer is None:
+                return self.stream.write(text)
+            buffer.append(text)
+            return len(text)
+        def flush(self):
+            if threading.get_ident() not in self.buffers:
+                self.stream.flush()
+
+    if not hasattr(sys, 'annie_output'):
+        sys.annie_output = {}
+        sys.stdout = CapturedOutput(sys.stdout, sys.annie_output)
+        sys.stderr = CapturedOutput(sys.stderr, sys.annie_output)
+    sys.annie_output[threading.get_ident()] = []
+
+_annie_capture_output()
+del _annie_capture_output
+"""
+
+/** Takes what this Python printed since the last call, as a [Phenomenon.Text], digested, or `null` if nothing. */
+private fun Interpreter.printed(): Phenomenon.Text? {
+    val printed = eval<String>(
+        "(lambda buffer: (''.join(buffer), buffer.clear())[0])" +
+            "(__import__('sys').annie_output[__import__('threading').get_ident()])"
+    ).trimEnd()
+    if (printed.isEmpty()) return null
+    val digest = if (printed.length <= MAX_PRINTED_LENGTH) printed else {
+        printed.take(MAX_PRINTED_LENGTH) + "\n… ${printed.length - MAX_PRINTED_LENGTH} more characters omitted"
+    }
+    return Phenomenon.Text("Printed by Python:\n$digest", Phenomenon.Text.PLAIN)
+}
+
+private const val MAX_PRINTED_LENGTH = 10_000
 
 /**
  * The first errors of this message of a failed script, at most [MAX_ERRORS_LENGTH] characters of them,
@@ -193,11 +304,17 @@ private fun String.withoutClosingTags(): String {
     }
 }
 
-/** The [agency] collecting the invocations made through it, within the [cogitation] of the intent. */
+/**
+ * The [agency] collecting the invocations made through it, within the [cogitation] of the intent,
+ * and providing the Python of the [executor].
+ */
 private class CollectingAgency(
     private val agency: Agency,
-    override val cogitation: Cogitation
+    override val cogitation: Cogitation,
+    private val executor: SessionScriptExecutor
 ) : Agency by agency {
+
+    override val python: Python get() = executor.python
 
     val collected = CopyOnWriteArrayList<Phenomenon.Invocation>()
 
@@ -226,6 +343,8 @@ internal class SwitchedAgency : Agency {
     override val invocations: List<Phenomenon.Invocation> get() = current.invocations
     override val enunciated: List<Phenomenon> get() = current.enunciated
     override val maxReinferences: Int get() = current.maxReinferences
+    override val python: Python get() = current.python
+    override val http: HttpClient get() = current.http
 
     override fun invoke(prompt: String, constitution: String, harness: String) =
         current.invoke(prompt, constitution, harness)

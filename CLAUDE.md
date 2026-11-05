@@ -55,6 +55,9 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 - The Gradle configuration cache is enabled (`gradle.properties`), so a task action (`doLast { … }`) must not call a function declared in the build script — the script object is not serializable.
   Inline the logic or move the helper into `buildSrc` / an included build, and register tasks with `tasks.register(...)` rather than the `by tasks.registering` delegate.
 
+- The REPL snippets of the Kotlin scripting compiler crash internally on a function calling `await { }`, and a function or class used in the snippet declaring it can't see what earlier snippets declared (it can when called from a later snippet).
+  These are compiler limits, so the constitution teaches the workarounds, pinned by tests in `ScriptExecutorTest`.
+
 ### Model APIs
 
 - Some OpenAI-compatible proxies apply `stop` sequences to reasoning content too, so a `<golem:stop/>` stop sequence kills generation inside the thinking block; detect the stop tag client-side instead.

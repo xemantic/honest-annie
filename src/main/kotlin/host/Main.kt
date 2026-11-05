@@ -45,6 +45,8 @@ import kotlinx.coroutines.runBlocking
  * in place of a malformed intent, or of none, see [HarnessHost].
  * The cognizer reasons with the `ANNIE_EFFORT`, e.g. `xhigh`, see [Monologue.Effort], the default of its model when not set,
  * inferring at most `ANNIE_MAX_TOKENS` tokens at a time, when set.
+ * The Python of the intents runs in the virtual environment of `VIRTUAL_ENV`, or of `ANNIE_PYTHON_VENV`,
+ * created with `ANNIE_PYTHON` when it does not exist, see [PythonVenv].
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")

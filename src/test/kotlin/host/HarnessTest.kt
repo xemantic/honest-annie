@@ -461,7 +461,7 @@ class HarnessTest {
         // then
         val text = (output.phenomena.single() as Phenomenon.Text).text
         assert("interface Agency" in text)
-        assert("fun invoke(" in text)
+        assert("val cogitation: Cogitation" in text)
     }
 
     @Test
