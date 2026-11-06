@@ -54,6 +54,8 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 - After upgrading the Gradle wrapper, `test` may fail with `NoSuchFileException: build/test-results/test/binary/in-progress-results-generic.bin`, because the results of the previous Gradle version are stale — delete `build/test-results` (or run `clean`) and retry.
 - The Gradle configuration cache is enabled (`gradle.properties`), so a task action (`doLast { … }`) must not call a function declared in the build script — the script object is not serializable.
   Inline the logic or move the helper into `buildSrc` / an included build, and register tasks with `tasks.register(...)` rather than the `by tasks.registering` delegate.
+- Calling `environment(...)` on an `Exec` / `JavaExec` task at configuration time snapshots the *whole* process environment into the configuration cache, so a reused entry runs with stale variables (e.g. a freshly exported `ANTHROPIC_MODEL` is missing).
+  Set it in `doFirst` instead, as the `run` task does.
 
 - The REPL snippets of the Kotlin scripting compiler crash internally on a function calling `await { }`, and a function or class used in the snippet declaring it can't see what earlier snippets declared (it can when called from a later snippet).
   These are compiler limits, so the constitution teaches the workarounds, pinned by tests in `ScriptExecutorTest`.

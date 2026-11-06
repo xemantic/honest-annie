@@ -136,7 +136,10 @@ tasks.test {
 tasks.named<JavaExec>("run") {
     args = (findProperty("input") as String?)?.let { listOf(it) } ?: emptyList()
     inputs.files(installPythonPackages)
-    environment("VIRTUAL_ENV", pythonVenv.asFile.absolutePath)
+    // set at execution: setting it at configuration snapshots the whole environment into the configuration cache,
+    // and a reused cache entry would then run the harness without the variables exported since, e.g. ANTHROPIC_MODEL
+    val virtualEnv = pythonVenv.asFile.absolutePath
+    doFirst { (this as JavaExec).environment("VIRTUAL_ENV", virtualEnv) }
 }
 
 // The version of the jep package matching the org.ninia:jep library, installed by PythonVenv at runtime.
