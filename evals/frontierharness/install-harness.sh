@@ -24,6 +24,12 @@ case "$(uname -m)" in
   *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
 esac
 
+# jlink strips the debug symbols of the native libraries with objcopy, of binutils.
+if ! command -v objcopy >/dev/null; then
+  echo "installing binutils" >&2
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq binutils >/dev/null
+fi
+
 echo "installing Temurin JDK $JDK_FEATURE ($arch)" >&2
 jdk=$(mktemp -d)
 curl -fsSL "https://api.adoptium.net/v3/binary/latest/$JDK_FEATURE/ga/linux/$arch/jdk/hotspot/normal/eclipse" \
@@ -32,16 +38,22 @@ export JAVA_HOME=$jdk
 "$JAVA_HOME/bin/java" -version 2>&1 | head -1 >&2
 
 # The Runta egress terminates TLS with a CA of its own, which the system trusts, but not the cacerts of the JDK,
-# so Gradle could not download itself nor the dependencies. The task containers get it from the adapter instead.
+# so Gradle could not download itself nor the dependencies. The CA goes into a trust store of the build only,
+# as jlink of a JDK without jmods (JEP 493) would copy a modified cacerts into the distribution.
+# The task containers get it from the adapter instead.
 EGRESS_CA=${EGRESS_CA:-/usr/local/share/ca-certificates/runta-egress.crt}
 if [ -f "$EGRESS_CA" ]; then
-  "$JAVA_HOME/bin/keytool" -importcert -noprompt -cacerts -storepass changeit \
+  truststore=$(mktemp -d)/cacerts
+  cp "$JAVA_HOME/lib/security/cacerts" "$truststore"
+  "$JAVA_HOME/bin/keytool" -importcert -noprompt -keystore "$truststore" -storepass changeit \
     -alias runta-egress -file "$EGRESS_CA" >&2
+  export JAVA_TOOL_OPTIONS="-Djavax.net.ssl.trustStore=$truststore -Djavax.net.ssl.trustStorePassword=changeit"
 fi
 
 echo "building the runtime distribution" >&2
 export GRADLE_USER_HOME=${GRADLE_USER_HOME:-$(mktemp -d)}
 ./gradlew --no-daemon --quiet runtimeDistTar
+unset JAVA_TOOL_OPTIONS
 dist=$(ls build/distributions/honest-annie-runtime-*-linux-*.tar.gz)
 
 rm -rf "$OUT"
@@ -74,6 +86,10 @@ check=$(mktemp -d)
 tar -xzf "$OUT/honest-annie-runtime.tar.gz" -C "$check" --strip-components=1
 "$check/runtime/bin/java" -version 2>&1 | head -1
 "$check/runtime/bin/keytool" -help > /dev/null 2>&1 || { echo "no keytool in the bundled Java runtime" >&2; exit 1; }
+# The CA of this tenant's egress belongs to the trust of the build only, never to the distribution.
+if "$check/runtime/bin/keytool" -list -cacerts -storepass changeit -alias runta-egress > /dev/null 2>&1; then
+  echo "the bundled Java runtime trusts the Runta egress CA of the build" >&2; exit 1
+fi
 
 # A small checkpoint: none of the build is needed by the trials.
 rm -rf "$check" "$jdk" "$GRADLE_USER_HOME" "$SOURCE/build" "$SOURCE/.gradle" "$SOURCE/.kotlin"

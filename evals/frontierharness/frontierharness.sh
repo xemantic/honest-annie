@@ -80,7 +80,11 @@ provision() {
   git -C "$REPO_ROOT" diff --quiet "$COMMIT" -- evals/frontierharness \
     || echo "warning: evals/frontierharness differs from $SHORT; the checkpoint uses the adapters of $SHORT" >&2
   local build_runtime="fh-build-$HARNESS-$SHORT"
-  (cd "$WORKSPACE" && bash "$FH/provision-golden-checkpoint.sh" \
+  # The eval sets the secret rule right after creating the runtime, retrying 3 times 2s apart,
+  # while a new runtime can take longer to be ready, failing with "runtime provisioning is not ready".
+  (cd "$WORKSPACE" \
+    && FH_TRANSPORT_ATTEMPTS=${FH_TRANSPORT_ATTEMPTS:-30} FH_RETRY_DELAY=${FH_RETRY_DELAY:-5} \
+    bash "$FH/provision-golden-checkpoint.sh" \
     --runtime "$build_runtime" \
     --checkpoint "$CHECKPOINT" \
     --harness "$HARNESS" \
@@ -95,8 +99,9 @@ provision() {
   # shellcheck disable=SC1091
   secret=${SECRET_NAME:-$(source "$FH/providers.sh" && resolve_provider "$PROVIDER" && echo "$PROVIDER_SECRET")}
   [ -n "$secret" ] || die "set SECRET_NAME to the --secret-name of the custom provider"
-  runta exec "$build_runtime" -- sh -lc "test \"\$$secret\" = runta-secret-stub" \
-    || die "$secret is not a stub in $build_runtime; inspect it before running any trial"
+  # Recent runtimes do not expose the stub at all, the adapter then sending one, see honest_annie_adapter.py.
+  runta exec "$build_runtime" -- sh -lc "test -z \"\$$secret\" || test \"\$$secret\" = runta-secret-stub" \
+    || die "$secret holds more than a stub in $build_runtime; inspect it before running any trial"
   runta exec "$build_runtime" -- sh -lc 'cat /work/honest-annie/version.txt'
   runta rm "$build_runtime"
   echo "checkpoint $CHECKPOINT ready" >&2

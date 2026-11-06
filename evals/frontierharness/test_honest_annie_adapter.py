@@ -193,11 +193,23 @@ class AgentTest(unittest.TestCase):
 
     def test_refuses_to_run_without_the_key_of_the_provider(self):
         # given
-        agent = Agent(Path(tempfile.mkdtemp()), {})
+        agent = Agent(Path(tempfile.mkdtemp()), {"ANNIE_EGRESS_CA": "/nonexistent/runta-egress.crt"})
 
         # when / then
         with self.assertRaises(RuntimeError):
             agent.process_env(FakeEnvironment())
+
+    def test_sends_the_stub_without_the_key_behind_the_runta_egress(self):
+        # given the egress CA of Runta, whose rule injects the key, while the runtime has no stub variable
+        ca = Path(tempfile.mkdtemp()) / "runta-egress.crt"
+        ca.write_text("CA")
+        agent = Agent(Path(tempfile.mkdtemp()), {"ANNIE_EGRESS_CA": str(ca)})
+
+        # when
+        env = agent.process_env(FakeEnvironment())
+
+        # then
+        self.assertEqual(env["OPENAI_API_KEY"], "runta-secret-stub")
 
     def test_install_trusts_the_egress_ca_in_the_bundled_java_runtime(self):
         # when
@@ -206,6 +218,15 @@ class AgentTest(unittest.TestCase):
         # then
         self.assertIn("--strip-components=1", command)
         self.assertIn("runtime/bin/keytool -importcert -noprompt -cacerts", command)
+
+    def test_install_replaces_the_egress_ca_the_java_runtime_already_trusts(self):
+        # when
+        command = adapter.install_command("/installed-agent/honest-annie.tar.gz", "/installed-agent/egress-ca.crt")
+
+        # then the import, failing on an existing alias, follows deleting it, whose failure is ignored
+        delete = command.index("keytool -delete -cacerts -storepass changeit -alias runta-egress")
+        self.assertLess(delete, command.index("keytool -importcert"))
+        self.assertIn("|| true", command[delete:command.index("keytool -importcert")])
 
 
 if __name__ == "__main__":

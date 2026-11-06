@@ -33,6 +33,7 @@ DEFAULT_DIST = "/work/honest-annie/honest-annie-runtime.tar.gz"
 DEFAULT_VERSION_FILE = "/work/honest-annie/version.txt"
 # The CA of the Runta egress, which terminates TLS, trusted by the host but not by the JVM in the container.
 DEFAULT_EGRESS_CA = "/usr/local/share/ca-certificates/runta-egress.crt"
+RUNTA_SECRET_STUB = "runta-secret-stub"
 
 INSTALL_DIR = "/installed-agent/honest-annie"
 AGENT_LOGS_DIR = "/logs/agent"
@@ -178,10 +179,13 @@ def install_command(archive: str, ca: str | None) -> str:
         f"rm -f {shlex.quote(archive)}",
     ]
     if ca:
-        steps.append(
-            f"{INSTALL_DIR}/runtime/bin/keytool -importcert -noprompt -cacerts -storepass changeit "
-            f"-alias runta-egress -file {shlex.quote(ca)} > /dev/null"
-        )
+        keytool = f"{INSTALL_DIR}/runtime/bin/keytool"
+        steps += [
+            # the runtime may trust it already, e.g. jlinked from a JDK trusting it, and the import fails on an existing alias
+            f"{{ {keytool} -delete -cacerts -storepass changeit -alias runta-egress > /dev/null 2>&1 || true; }}",
+            f"{keytool} -importcert -noprompt -cacerts -storepass changeit "
+            f"-alias runta-egress -file {shlex.quote(ca)} > /dev/null",
+        ]
     steps += [
         f"chmod -R a+rX {INSTALL_DIR}",
         f"chmod a+rwx {AGENT_LOGS_DIR}",
@@ -253,6 +257,10 @@ class HonestAnnieAgent:
         env = self._env()
         endpoint = self.endpoint()
         key = env.get(endpoint.key_env)
+        if not key and Path(env.get("ANNIE_EGRESS_CA", DEFAULT_EGRESS_CA)).is_file():
+            # Behind the Runta egress, whose rule puts the real key into the Authorization header,
+            # whatever is sent; recent runtimes do not expose the stub as a variable.
+            key = RUNTA_SECRET_STUB
         if not key:
             raise RuntimeError(f"{endpoint.key_env} is not set for the model {self.model_name}")
         process_env = {
