@@ -18,14 +18,22 @@
 
 package com.xemantic.ai.annie
 
+import io.ktor.client.HttpClient
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 /**
  * The agency within the current cogitation: how its harness, and the intents it executes, act within it,
- * provided to both as `agency`, see [Cogitation]. It cannot be used once the harness has evaluated.
+ * provided to both as `agency`, see [Cogitation], always acting within the current execution of the harness.
+ * None of its functions suspends: each one is called directly, e.g. `agency.enunciate(answer)`,
+ * the ones which wait, e.g. [execute], blocking the thread calling them.
  */
 interface Agency {
+    /**
+     * The current cogitation: the one the harness unfolds,
+     * or, within an intent, the one including the enunciation which expressed it, see [ScriptExecutor.execute].
+     */
+    val cogitation: Cogitation
     /**
      * The constitution of the current cogitation, its parts joined as the cognizer perceives them,
      * see [Cogitation.constitution]. It embeds the source of this [harness].
@@ -44,16 +52,6 @@ interface Agency {
      * to be enunciated by the harness in the cogitation it unfolds, see [Enunciation.isOutput].
      */
     val enunciated: List<Phenomenon>
-    /**
-     * Values kept by name across the intents of the current cogitation, e.g. parsed inputs, computed results,
-     * or helper functions as lambdas, so that a later intent continues from them, instead of computing,
-     * or copying them, again: `agency.variables["mols"] = mols`, then `agency.variables["mols"] as List<String>`.
-     * Never perceived, unless a script evaluates to them, and kept only in the memory of the host:
-     * not shared with invoked cogitations, and lost when the host restarts.
-     * Each intent compiles its own classes, so a value of a class declared by an intent cannot be used by another one:
-     * keep values of the Kotlin and Java libraries, e.g. strings, numbers, lists, maps and functions of them.
-     */
-    val variables: MutableMap<String, Any?>
     /**
      * Invokes a cogitation under the [constitution], by default this [Agency.constitution],
      * unfolded by the [harness] script, which can be a different one, e.g. a modification of this [Agency.harness].
@@ -75,11 +73,11 @@ interface Agency {
      * Enunciated by an intent, it is not part of the result of the intent, but precedes it in the cogitation:
      * what the intent needs to perceive in the response to it is the value of its last expression.
      */
-    suspend fun enunciate(text: String, contentType: String = Phenomenon.Text.MARKDOWN)
+    fun enunciate(text: String, contentType: String = Phenomenon.Text.MARKDOWN)
     /** Enunciates a [Phenomenon.Data] as the output of the current cogitation, like the text [enunciate]. */
-    suspend fun enunciate(bytes: ByteArray, contentType: String? = null)
+    fun enunciate(bytes: ByteArray, contentType: String? = null)
     /** Enunciates a [Phenomenon.Impediment] as the output of the current cogitation, like the text [enunciate]. */
-    suspend fun impede(reason: String)
+    fun impede(reason: String)
     /**
      * Whether the [intent] is not shaped as a Kotlin script, e.g. a tool call in the markup of a model's training,
      * often followed by a result the model made up itself, or nothing but such a result, see [Phenomenon.Intent.script],
@@ -111,14 +109,16 @@ interface Agency {
     /**
      * Executes the [command] as a process of the user's computer, e.g. `listOf("bash", "-c", script)`, see [bash],
      * writing the [input] to its standard input, in the [directory], with the [environment] added to the inherited one.
-     * The process is destroyed, together with its descendants, when the [timeout] elapses, or when the intent is cancelled.
+     * Blocks until the process exits, and its outputs are read.
+     * The process is destroyed, together with its descendants, when the [timeout] elapses,
+     * or when the thread executing it is interrupted, e.g. as the intent is cancelled.
      * Each of its outputs is truncated to [maxOutputLength] characters, the truncation being marked.
      *
      * What the process outputs is perceived only when the script makes it so:
      * by evaluating to it, so that you perceive it in the result of the intent,
      * or by [enunciate]-ing it as the output of the current cogitation.
      */
-    suspend fun execute(
+    fun execute(
         command: List<String>,
         input: String? = null,
         directory: String? = null,
@@ -126,6 +126,53 @@ interface Agency {
         timeout: Duration = 1.minutes,
         maxOutputLength: Int = 100_000
     ): Execution
+    /** The Python interpreter of the current cogitation, see [Python]. */
+    val python: Python
+    /**
+     * The HTTP client of every cogitation, whose functions suspend, so they are called within `await { }`,
+     * e.g. `await { agency.http.get(url).body<JsonObject>() }`, see the HTTP section of the constitution.
+     * It negotiates JSON with kotlinx.serialization, ignoring unknown keys, times out a request after a minute,
+     * and throws on a response with an error status, e.g. `ClientRequestException` on `404`.
+     */
+    val http: HttpClient
+}
+
+/**
+ * The CPython interpreter of the current cogitation, started when first used,
+ * stateful like your Kotlin session: the variables, functions, classes and imports of the Python code it executes
+ * stay visible to the Python code of your later intents.
+ *
+ * What the code prints, to `sys.stdout` or `sys.stderr`, is perceived in the result of the intent,
+ * truncated, before the value of the intent, also when the intent fails.
+ * An exception of Python fails the intent, perceived with its type and message.
+ */
+interface Python {
+    /**
+     * Executes the Python [code] like a cell of a Jupyter notebook,
+     * evaluating to the value of its last statement, when it is an expression, otherwise to `null`,
+     * e.g. `agency.python("import numpy as np\na = np.arange(10)")`, then `agency.python("int(a.sum())")`,
+     * or `agency.python("name")` to read a global variable.
+     *
+     * The value is converted: an `int` becomes a `Long`, a `float` a `Double`, a `str` a `String`,
+     * a `list` a `List`, a `dict` a `Map`, while a value which cannot be converted, e.g. a numpy array,
+     * evaluates to its Python `repr`, so convert it in Python, e.g. with `.tolist()`.
+     *
+     * The code can declare the packages of PyPI it needs, installed before it is executed when they are missing,
+     * with inline script metadata, see [PEP 723](https://peps.python.org/pep-0723/), e.g.:
+     * ```python
+     * # /// script
+     * # dependencies = ["rdkit"]
+     * # ///
+     * from rdkit import Chem
+     * ```
+     */
+    operator fun invoke(code: String): Any?
+    /**
+     * Sets the global Python variable of the [name] to the [value], e.g. `agency.python["items"] = items`,
+     * so that values pass from Kotlin to Python without being rendered into the code,
+     * converted like the values of [invoke] in reverse.
+     */
+    operator fun set(name: String, value: Any?)
 }
 
 /** The outcome of [Agency.execute]. */
@@ -142,7 +189,7 @@ data class Execution(
 }
 
 /** Executes the [script] with `bash`, see [Agency.execute]. */
-suspend fun Agency.bash(
+fun Agency.bash(
     script: String,
     timeout: Duration = 1.minutes
 ): Execution = execute(listOf("bash", "-c", script), timeout = timeout)

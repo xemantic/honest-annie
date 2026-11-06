@@ -4,12 +4,15 @@ kotlinTarget = "2.4"
 javaTarget = "17"
 kotlin = "2.4.21"
 kotlinxCoroutines = "1.11.0"
+ktor = "3.6.1"
 anthropic = "3.1.0"
 openai = "4.90.0"
 kotlinLogging = "8.0.4"
 logback = "1.6.5"
 xemanticKotlinIntrospection = "0.1.0"
-xemanticKotlinScript = "0.1.0"
+xemanticKotlinScript = "0.2.0"
+xemanticKotlinScriptPython = "0.1.0"
+jep = "4.3.2"
 xemanticKotlinTest = "1.18.0"
 xemanticAiFileMagic = "0.4.0"
 asm = "9.10.1"
@@ -19,12 +22,17 @@ xemanticConventionsPlugin = "0.7.1"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
+ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 anthropic-java = { module = "com.anthropic:anthropic-java", version.ref = "anthropic" }
 openai-java = { module = "com.openai:openai-java", version.ref = "openai" }
 kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlinLogging" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 xemantic-kotlin-introspection = { module = "com.xemantic.kotlin:xemantic-kotlin-introspection", version.ref = "xemanticKotlinIntrospection" }
 xemantic-kotlin-script = { module = "com.xemantic.kotlin:xemantic-kotlin-script", version.ref = "xemanticKotlinScript" }
+xemantic-kotlin-script-python = { module = "com.xemantic.kotlin:xemantic-kotlin-script-python", version.ref = "xemanticKotlinScriptPython" }
 xemantic-ai-file-magic = { module = "com.xemantic.ai:xemantic-ai-file-magic", version.ref = "xemanticAiFileMagic" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }

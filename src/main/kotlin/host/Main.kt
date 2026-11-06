@@ -19,6 +19,9 @@
 package com.xemantic.ai.annie.host
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.core.http.ProxyAuthenticator
+import com.xemantic.ai.annie.cognizer.httpsProxy
+import java.net.URI
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
@@ -30,7 +33,6 @@ import com.xemantic.ai.annie.cognizer.openai.OpenAIInference
 import com.xemantic.ai.annie.cognizer.openai.openAIClient
 import com.xemantic.ai.annie.cognizer.openai.openAIProvider
 import com.xemantic.ai.annie.constitution
-import com.xemantic.kotlin.script.ScriptExecutor
 import kotlin.io.path.Path
 import kotlin.io.path.readText
 import kotlinx.coroutines.runBlocking
@@ -46,6 +48,8 @@ import kotlinx.coroutines.runBlocking
  * in place of a malformed intent, or of none, see [HarnessHost].
  * The cognizer reasons with the `ANNIE_EFFORT`, e.g. `xhigh`, see [Monologue.Effort], the default of its model when not set,
  * inferring at most `ANNIE_MAX_TOKENS` tokens at a time, when set.
+ * The Python of the intents runs in the virtual environment of `VIRTUAL_ENV`, or of `ANNIE_PYTHON_VENV`,
+ * created with `ANNIE_PYTHON` when it does not exist, see [PythonVenv].
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")
@@ -59,8 +63,17 @@ fun main(args: Array<String>) {
     val client: AutoCloseable
     val cognizer: Cognizer
     if (claudeModel != null) {
-        // the API key is read from ANTHROPIC_API_KEY
-        val claude = AnthropicOkHttpClient.fromEnv()
+        // the API key is read from ANTHROPIC_API_KEY, the proxy from HTTPS_PROXY, see httpsProxy
+        val claude = AnthropicOkHttpClient.builder()
+            .fromEnv()
+            .apply {
+                val baseUrl = System.getenv("ANTHROPIC_BASE_URL") ?: "https://api.anthropic.com"
+                httpsProxy(URI(baseUrl).host)?.let { proxy ->
+                    proxy(proxy.proxy)
+                    if (proxy.user != null) proxyAuthenticator(ProxyAuthenticator.basic(proxy.user, proxy.password.orEmpty()))
+                }
+            }
+            .build()
         client = AutoCloseable(claude::close)
         cognizer = if (maxTokens != null) {
             ClaudeInference(claude, claudeModel, maxTokens = maxTokens, effort = effort, visibility = Monologue.Visibility.SUMMARY)
@@ -78,10 +91,9 @@ fun main(args: Array<String>) {
         }
     }
     client.use {
-        val executor = ScriptExecutor()
         runBlocking {
             val output = HarnessHost(
-                executor, cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism,
+                cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism,
                 maxReinferences = maxReinferences
             ).cognize(Cogitation(
                 constitution = listOf(constitution(harness)),

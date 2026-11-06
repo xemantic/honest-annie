@@ -202,24 +202,26 @@ data class Inference(
 }
 
 /**
- * A cogitation is unfolded by its [harness], a Kotlin script whose body is evaluated as a suspending block
- * with a `CoroutineScope` receiver, in the coroutine of the host, and the value of its last expression
- * must be the unfolded [Cogitation]. These properties are provided:
- * - `cogitation`: [Cogitation] to unfold, its [harness] being the source of this very script,
+ * A cogitation is unfolded by its [harness], a Kotlin script executed by the host at each step,
+ * in a session of its own, stateful like a Kotlin notebook, which lives as long as the cogitation,
+ * so that the declarations of the previous steps stay visible. Its body is not a suspending block:
+ * it calls suspend functions within `await { }`, blocking until they complete,
+ * and the value of its last expression must be the unfolded [Cogitation]. These properties are provided:
+ * - `agency`: [Agency] within this cogitation, its [Agency.cogitation] being the one to unfold,
+ *   whose [harness] is the source of this very script,
  * - `cognizer`: `Cognizer` of the package `com.xemantic.ai.annie.cognizer`, whose
  *   `suspend fun cognize(cogitation: Cogitation): Cognized` makes a single inference, returning
  *   `data class Cognized(val phenomena: List<Phenomenon>, val inference: Inference? = null)`:
  *   the phenomena to be enunciated by [Actant.SELF], and the [Inference] expressing them,
  *   to be carried by that enunciation; only inferences made this way are recorded,
  * - `executor`: `ScriptExecutor`, whose
- *   `suspend fun execute(script: String, agency: Agency, dependencies: ScriptDependencies.(collecting: Agency) -> Unit): List<Phenomenon>`
- *   executes an intent, providing it with the `dependencies`, e.g. `"cogitation" provides cogitation` and
- *   `"agency" provides collecting`, the agency collecting the invocations made through it,
+ *   `suspend fun execute(script: String, cogitation: Cogitation, agency: Agency): List<Phenomenon>`
+ *   executes an intent expressed in the `cogitation`, in the session of the intents of this cogitation,
+ *   providing it with the `agency`, whose [Agency.cogitation] is the given one, collecting the invocations made through it,
  *   and returns the result of the intent: these invocations, in their order, followed by the value
  *   of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`; when the intent fails,
  *   the [Phenomenon.Impediment] describing the failure follows the invocations instead.
- *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated],
- * - `agency`: [Agency] within this cogitation, to be passed on to intents.
+ *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated].
  *
  * The harness unfolds the cogitation by a single step, e.g. one inference, and is executed
  * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded:

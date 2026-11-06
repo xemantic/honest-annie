@@ -18,19 +18,32 @@
 
 package com.xemantic.ai.annie
 
+import com.sun.net.httpserver.HttpHandler
+import com.sun.net.httpserver.HttpServer
+import com.xemantic.ai.annie.host.annieHttpClient
 import com.xemantic.kotlin.test.assert
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.test.runTest
-import com.xemantic.kotlin.script.ScriptExecutor as KotlinScriptExecutor
 
 class ScriptExecutorTest {
 
-    private val executor = ScriptExecutor(KotlinScriptExecutor())
+    private val executor = SessionScriptExecutor()
+
+    private val cogitation = Cogitation(constitution = emptyList(), harness = "", enunciations = emptyList())
+
+    @AfterTest
+    fun closeExecutor() {
+        executor.close()
+    }
 
     /** [Agency] keeping everything enunciated, and invoking nothing for real. */
     private class TestAgency : Agency {
+        override val cogitation = Cogitation(constitution = emptyList(), harness = "", enunciations = emptyList())
         override val constitution = ""
         override val harness = ""
         override val parentCogitation: Cogitation? = null
@@ -43,21 +56,20 @@ class ScriptExecutorTest {
             constitution = constitution,
             harness = harness
         ).also { invocations += it }
-        override suspend fun enunciate(text: String, contentType: String) {
+        override fun enunciate(text: String, contentType: String) {
             enunciated += Phenomenon.Text(text, contentType)
         }
-        override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
+        override fun enunciate(bytes: ByteArray, contentType: String?) {
             enunciated += Phenomenon.Data(bytes, contentType)
         }
-        override suspend fun impede(reason: String) {
+        override fun impede(reason: String) {
             enunciated += Phenomenon.Impediment(reason)
         }
         override fun isMalformed(intent: Phenomenon.Intent) = false
         override val maxReinferences = 0
-        override val variables = mutableMapOf<String, Any?>()
         override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
         override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
-        override suspend fun execute(
+        override fun execute(
             command: List<String>,
             input: String?,
             directory: String?,
@@ -65,6 +77,9 @@ class ScriptExecutorTest {
             timeout: Duration,
             maxOutputLength: Int
         ): Execution = throw UnsupportedOperationException()
+        // the Python of the intents is the one of the executor
+        override val python: Python get() = throw UnsupportedOperationException()
+        override val http = annieHttpClient
     }
 
     @Test
@@ -75,17 +90,15 @@ class ScriptExecutorTest {
         // when
         val phenomena = executor.execute(
             """
-            import com.xemantic.ai.annie.*
             agency.enunciate("first")
             agency.invoke("sub")
             agency.enunciate(byteArrayOf(4, 2))
             agency.impede("stuck")
             42
             """.trimIndent(),
+            cogitation,
             agency
-        ) { collecting ->
-            "agency" provides collecting
-        }
+        )
 
         // then
         assert(phenomena == listOf(
@@ -102,12 +115,8 @@ class ScriptExecutorTest {
     @Test
     fun `should return value of intent as text`() = runTest(timeout = 5.minutes) {
         // when
-        val number = executor.execute("6 * 7", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
-        val string = executor.execute("\"*answer*\"", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
+        val number = executor.execute("6 * 7", cogitation, TestAgency())
+        val string = executor.execute("\"*answer*\"", cogitation, TestAgency())
 
         // then
         assert(number == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
@@ -120,9 +129,7 @@ class ScriptExecutorTest {
         val intent = "val n = 42\n\$\$\"\"\"for c in a b; do echo \"\$c \$\$n\"; done\"\"\""
 
         // when
-        val result = executor.execute(intent, TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
+        val result = executor.execute(intent, cogitation, TestAgency())
 
         // then
         assert(result == listOf(Phenomenon.Text("""for c in a b; do echo "${'$'}c 42"; done""", Phenomenon.Text.PLAIN)))
@@ -134,9 +141,7 @@ class ScriptExecutorTest {
         val intent = "\$\$\"\"\"\ndef f(\$x):\n    \$\${\"\\\"\\\"\\\"\"}Doc.\$\${\"\\\"\\\"\\\"\"}\n\"\"\".trimIndent()"
 
         // when
-        val result = executor.execute(intent, TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
+        val result = executor.execute(intent, cogitation, TestAgency())
 
         // then
         val python = "def f(\$x):\n    \"\"\"Doc.\"\"\""
@@ -151,10 +156,9 @@ class ScriptExecutorTest {
             import com.xemantic.ai.annie.*
             Phenomenon.Data(byteArrayOf(4, 2), "image/png")
             """.trimIndent(),
+            cogitation,
             TestAgency()
-        ) { collecting ->
-            "agency" provides collecting
-        }
+        )
 
         // then
         assert(result == listOf(Phenomenon.Data(byteArrayOf(4, 2), "image/png")))
@@ -163,12 +167,8 @@ class ScriptExecutorTest {
     @Test
     fun `should return nothing for intent evaluating to Unit or null`()= runTest(timeout = 5.minutes) {
         // when
-        val unit = executor.execute("agency.enunciate(\"output\")", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
-        val nothing = executor.execute("null", TestAgency()) { collecting ->
-            "agency" provides collecting
-        }
+        val unit = executor.execute("agency.enunciate(\"output\")", cogitation, TestAgency())
+        val nothing = executor.execute("null", cogitation, TestAgency())
 
         // then
         assert(unit.isEmpty())
@@ -181,9 +181,7 @@ class ScriptExecutorTest {
         val agency = TestAgency()
 
         // when
-        val phenomena = executor.execute("agency.invoke(\"sub\")", agency) { collecting ->
-            "agency" provides collecting
-        }
+        val phenomena = executor.execute("agency.invoke(\"sub\")", cogitation, agency)
 
         // then
         assert(phenomena == listOf(agency.invocations.single()))
@@ -197,61 +195,12 @@ class ScriptExecutorTest {
         // when
         val phenomena = executor.execute(
             "listOf(\"first\", \"second\").map { agency.invoke(it) }",
+            cogitation,
             agency
-        ) { collecting ->
-            "agency" provides collecting
-        }
+        )
 
         // then
         assert(phenomena == agency.invocations)
-    }
-
-    @Test
-    fun `should provide dependencies to intent along with agency`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute(
-            "agency.harness + greeting + \" \" + answer",
-            TestAgency()
-        ) { collecting ->
-            "agency" provides collecting
-            "greeting" provides "hello"
-            "answer" provides 42
-        }
-
-        // then
-        assert(phenomena == listOf(Phenomenon.Text("hello 42", Phenomenon.Text.PLAIN)))
-    }
-
-    @Test
-    fun `should collect invocations of agency provided under another name`() = runTest(timeout = 5.minutes) {
-        // given
-        val agency = TestAgency()
-
-        // when
-        val phenomena = executor.execute(
-            """
-            self.enunciate("renamed")
-            self.invoke("sub")
-            Unit
-            """.trimIndent(),
-            agency
-        ) { collecting ->
-            "self" provides collecting
-        }
-
-        // then
-        assert(phenomena == listOf(agency.invocations.single()))
-        assert(agency.enunciated == listOf(Phenomenon.Text("renamed")))
-    }
-
-    @Test
-    fun `should impede intent referring to agency not provided`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute("agency.enunciate(\"lost\")", TestAgency()) {}
-
-        // then
-        val impediment = phenomena.single() as Phenomenon.Impediment
-        assert(impediment.reason.contains("agency"))
     }
 
     @Test
@@ -260,12 +209,12 @@ class ScriptExecutorTest {
         val python = (1..500).joinToString("\n") { "for i,o in enumerate(opts$it): print(i)" }
 
         // when
-        val phenomena = executor.execute(python, TestAgency()) {}
+        val phenomena = executor.execute(python, cogitation, TestAgency())
 
         // then
         val reason = (phenomena.single() as Phenomenon.Impediment).reason
         assert(reason.length <= 5000)
-        assert(reason.startsWith("script.kts:1:"))
+        assert(reason.startsWith("snippet1.kts:1:"))
         assert(reason.contains(Regex("\\d+ more errors omitted")))
     }
 
@@ -281,10 +230,9 @@ class ScriptExecutorTest {
             agency.invoke("sub")
             error("boom")
             """.trimIndent(),
+            cogitation,
             agency
-        ) { collecting ->
-            "agency" provides collecting
-        }
+        )
 
         // then
         assert(phenomena.size == 2)
@@ -292,6 +240,314 @@ class ScriptExecutorTest {
         assert((phenomena.last() as Phenomenon.Impediment).reason.contains("boom"))
         // the failure impedes the intent, not the cogitation
         assert(agency.enunciated == listOf(Phenomenon.Text("before")))
+    }
+
+    @Test
+    fun `should keep declarations of intent visible to the next intents`() = runTest(timeout = 5.minutes) {
+        // given
+        val agency = TestAgency()
+        executor.execute(
+            $$"""
+            import com.xemantic.ai.annie.*
+            val answer = 6 * 7
+            fun describe(n: Int) = "answer is $n"
+            """.trimIndent(),
+            cogitation,
+            agency
+        )
+
+        // when
+        val phenomena = executor.execute("Phenomenon.Text(describe(answer))", cogitation, agency)
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("Text(text=answer is 42, contentType=text/markdown)", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should provide cogitation of intent and agency of current execution through agency`() = runTest(timeout = 5.minutes) {
+        // given
+        val first = TestAgency()
+        val second = TestAgency()
+        val expressed = cogitation.copy(harness = "expressed")
+        executor.execute("agency.enunciate(\"first\")", cogitation, first)
+
+        // when
+        val phenomena = executor.execute(
+            "agency.enunciate(\"second\")\nagency.cogitation.harness",
+            expressed,
+            second
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("expressed", Phenomenon.Text.PLAIN)))
+        assert(first.enunciated == listOf(Phenomenon.Text("first")))
+        assert(second.enunciated == listOf(Phenomenon.Text("second")))
+    }
+
+    @Test
+    fun `should await suspend function and launch coroutine outliving intent`() = runTest(timeout = 5.minutes) {
+        // given
+        executor.execute(
+            """
+            val started = CompletableDeferred<String>()
+            val job = launch { started.complete("launched") }
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // when
+        val phenomena = executor.execute("await { job.join(); started.await() }", cogitation, TestAgency())
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("launched", Phenomenon.Text.PLAIN)))
+    }
+
+    // The constitution tells to declare a suspend function rather than calling `await` within a function,
+    // which fails the compiler internally.
+    @Test
+    fun `should await suspend function declared in intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            """
+            suspend fun answer(): Int = coroutineScope { async { delay(1); 42 }.await() }
+            await { answer() }
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+    }
+
+    // The constitution tells to refer to what an earlier intent declared through a val of the same intent,
+    // because a function or class used in the intent declaring it cannot refer to it directly.
+    @Test
+    fun `should use function and class referring to declaration of earlier intent through val of same intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val agency = TestAgency()
+        executor.execute("val sequence = \"gattaca\"", cogitation, agency)
+
+        // when
+        val phenomena = executor.execute(
+            """
+            val bases = sequence
+            fun prefix(length: Int) = bases.take(length)
+            class Suffix(val length: Int) { val text = bases.takeLast(length) }
+            prefix(3) + "-" + Suffix(3).text
+            """.trimIndent(),
+            cogitation,
+            agency
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("gat-aca", Phenomenon.Text.PLAIN)))
+    }
+
+    /** Serves the [handler] on a free port of the loopback address, until stopped. */
+    private fun serve(path: String, handler: HttpHandler): HttpServer =
+        HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0).apply {
+            createContext(path, handler)
+            start()
+        }
+
+    @Test
+    fun `should post and receive JSON with http client of agency`() = runTest(timeout = 5.minutes) {
+        // given
+        // responds with the method and the question posted, and the answer, with a field to ignore
+        val server = serve("/answer") { exchange ->
+            val question = exchange.requestBody.readBytes().decodeToString().substringAfter("\"question\":\"").substringBefore('"')
+            val body = """{"question": "${exchange.requestMethod} $question", "answer": 42, "unknown": true}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        val url = "http://localhost:${server.address.port}/answer"
+
+        // when
+        val phenomena = try {
+            executor.execute(
+                $$"""
+                import io.ktor.client.call.*
+                import io.ktor.client.plugins.*
+                import io.ktor.client.request.*
+                import io.ktor.http.*
+                import kotlinx.serialization.json.*
+
+                val json = await {
+                    agency.http.post("$$url") {
+                        timeout { requestTimeoutMillis = 300_000 }
+                        contentType(ContentType.Application.Json)
+                        setBody(buildJsonObject { put("question", "ultimate") })
+                    }.body<JsonObject>()
+                }
+                "${json["question"]!!.jsonPrimitive.content}: ${json["answer"]!!.jsonPrimitive.int}"
+                """.trimIndent(),
+                cogitation,
+                TestAgency()
+            )
+        } finally {
+            server.stop(0)
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("POST ultimate: 42", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should fail intent on error status received by http client of agency`() = runTest(timeout = 5.minutes) {
+        // given
+        val server = serve("/missing") { exchange ->
+            exchange.sendResponseHeaders(404, -1)
+            exchange.close()
+        }
+        val url = "http://localhost:${server.address.port}/missing"
+
+        // when
+        val phenomena = try {
+            executor.execute(
+                $$"""
+                import io.ktor.client.request.*
+                import io.ktor.client.statement.*
+
+                await { agency.http.get("$$url").bodyAsText() }
+                """.trimIndent(),
+                cogitation,
+                TestAgency()
+            )
+        } finally {
+            server.stop(0)
+        }
+
+        // then
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert("404" in reason)
+    }
+
+    @Test
+    fun `should impede intent using Python which cannot be prepared, telling to run Python as a process`() = runTest(timeout = 5.minutes) {
+        // given
+        val unprepared = SessionScriptExecutor(preparePython = { error("No jep in the Python of the host") })
+
+        // when
+        val phenomena = unprepared.use {
+            it.execute("agency.python(\"6 * 7\")", cogitation, TestAgency())
+        }
+
+        // then
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert("agency.python is unavailable" in reason)
+        assert("No jep in the Python of the host" in reason)
+        assert("agency.execute(listOf(\"python3\"" in reason)
+    }
+
+    @Test
+    fun `should close executor again after Python was used`() = runTest(timeout = 5.minutes) {
+        // given
+        val used = SessionScriptExecutor()
+        used.execute("agency.python(\"6 * 7\")", cogitation, TestAgency())
+        used.close()
+
+        // when
+        val closedAgain = runCatching { used.close() }
+
+        // then
+        assert(closedAgain.isSuccess)
+    }
+
+    @Test
+    fun `should keep Python state across intents`() = runTest(timeout = 5.minutes) {
+        // given
+        executor.execute("agency.python(\"import math\\nfactor = 6\")", cogitation, TestAgency())
+
+        // when
+        val phenomena = executor.execute("agency.python(\"math.prod([factor, 7])\")", cogitation, TestAgency())
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should exchange values between Kotlin and Python`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            """
+            agency.python["numbers"] = listOf(1, 2, 3)
+            agency.python("squares = [n * n for n in numbers]")
+            (agency.python("squares") as List<*>).joinToString()
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("1, 4, 9", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should perceive what Python printed before the value of intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            "agency.python(\"print('hello')\\nimport sys\\nprint('warning', file=sys.stderr)\\n6 * 7\")",
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(
+            Phenomenon.Text("Printed by Python:\nhello\nwarning", Phenomenon.Text.PLAIN),
+            Phenomenon.Text("42", Phenomenon.Text.PLAIN)
+        ))
+    }
+
+    @Test
+    fun `should perceive what Python printed before failing`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            "agency.python(\"print('before')\\nraise ValueError('boom')\")",
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena.size == 2)
+        assert(phenomena.first() == Phenomenon.Text("Printed by Python:\nbefore", Phenomenon.Text.PLAIN))
+        assert((phenomena.last() as Phenomenon.Impediment).reason.contains("ValueError"))
+        assert((phenomena.last() as Phenomenon.Impediment).reason.contains("boom"))
+    }
+
+    @Test
+    fun `should not perceive what Python of another executor printed`() = runTest(timeout = 5.minutes) {
+        // given
+        SessionScriptExecutor().use { other ->
+            other.execute("agency.python(\"x = 1\")", cogitation, TestAgency())
+            executor.execute("agency.python(\"x = 2\")", cogitation, TestAgency())
+
+            // when
+            val printed = other.execute("agency.python(\"print(x)\")", cogitation, TestAgency())
+            val nothing = executor.execute("agency.python(\"x\")", cogitation, TestAgency())
+
+            // then
+            assert(printed == listOf(Phenomenon.Text("Printed by Python:\n1", Phenomenon.Text.PLAIN)))
+            assert(nothing == listOf(Phenomenon.Text("2", Phenomenon.Text.PLAIN)))
+        }
+    }
+
+    @Test
+    fun `should digest what Python printed`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            "agency.python(\"for i in range(100000): print(i)\")",
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        val printed = (phenomena.single() as Phenomenon.Text).text
+        assert(printed.length < 11_000)
+        assert(printed.startsWith("Printed by Python:\n0\n1\n"))
+        assert(printed.contains(Regex("\\d+ more characters omitted")))
     }
 
 }

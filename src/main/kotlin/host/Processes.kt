@@ -22,28 +22,29 @@ import com.xemantic.ai.annie.Execution
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit.NANOSECONDS
 import kotlin.concurrent.thread
 import kotlin.time.Duration
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.future.await
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
- * Executes the [command] as a process, see [com.xemantic.ai.annie.Agency.execute].
+ * Executes the [command] as a process, see [com.xemantic.ai.annie.Agency.execute],
+ * blocking the current thread until it exits, and its outputs are read, or the [timeout] elapses,
+ * or the thread is interrupted, e.g. as the intent executing it is cancelled, which throws [InterruptedException].
+ * In every case the process is destroyed, together with its descendants, once this function returns.
  *
  * The streams of the process are read and written by threads of their own, not awaited once the process is destroyed:
  * a descendant which escaped destruction, e.g. one orphaned by its exited parent, can hold them open indefinitely.
  */
-suspend fun executeProcess(
+fun executeProcess(
     command: List<String>,
     input: String? = null,
     directory: String? = null,
     environment: Map<String, String> = emptyMap(),
     timeout: Duration = Duration.INFINITE,
     maxOutputLength: Int = Int.MAX_VALUE
-): Execution = withContext(Dispatchers.IO) { // real time, also under a test dispatcher
+): Execution {
+    val deadline = if (timeout.isInfinite()) null else System.nanoTime() + timeout.inWholeNanoseconds
     val process = ProcessBuilder(command)
         .apply {
             directory?.let { directory(File(it)) }
@@ -60,12 +61,10 @@ suspend fun executeProcess(
                 // the process exited, or closed its input, without reading all of it
             }
         }
-        val exited = withTimeoutOrNull(timeout) {
-            process.onExit().await()
-            output.read.await()
-            error.read.await()
-        } != null
-        Execution(
+        val exited = waitUntil(deadline) { process.waitFor(it, NANOSECONDS) }
+                && waitUntil(deadline) { output.read.await(it, NANOSECONDS) }
+                && waitUntil(deadline) { error.read.await(it, NANOSECONDS) }
+        return Execution(
             exitCode = if (exited) process.exitValue() else null,
             output = output.text,
             error = error.text
@@ -77,6 +76,10 @@ suspend fun executeProcess(
     }
 }
 
+/** Waits, for the nanoseconds left until the [deadline], or indefinitely without one, whether the [wait] succeeded. */
+private inline fun waitUntil(deadline: Long?, wait: (nanos: Long) -> Boolean): Boolean =
+    wait(if (deadline == null) Long.MAX_VALUE else (deadline - System.nanoTime()).coerceAtLeast(0))
+
 /** The text read from the [stream] by a thread of its own, truncated to [maxLength] characters. */
 private class Capture(stream: InputStream, private val maxLength: Int) {
 
@@ -84,8 +87,8 @@ private class Capture(stream: InputStream, private val maxLength: Int) {
 
     private var truncated = 0L
 
-    /** Completed once the [stream] is read to its end. */
-    val read = CompletableDeferred<Unit>()
+    /** Counted down once the [stream] is read to its end. */
+    val read = CountDownLatch(1)
 
     val text: String get() = synchronized(this) {
         if (truncated == 0L) captured.toString() else "$captured\n[$truncated more characters truncated]"
@@ -109,7 +112,7 @@ private class Capture(stream: InputStream, private val maxLength: Int) {
             } catch (_: IOException) {
                 // the stream is closed as the process is destroyed
             } finally {
-                read.complete(Unit)
+                read.countDown()
             }
         }
     }

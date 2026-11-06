@@ -47,14 +47,14 @@ val compilerJvmArgs = if (JavaVersion.current().isCompatibleWith(JavaVersion.VER
     listOf("--sun-misc-unsafe-memory-access=allow")
 } else emptyList()
 
+// Jep, embedding CPython for agency.python, loads its native library with System.load, restricted since JDK 24
+val runtimeJvmArgs = compilerJvmArgs + "--enable-native-access=ALL-UNNAMED"
+
 application {
     mainClass = "com.xemantic.ai.annie.host.MainKt"
-    applicationDefaultJvmArgs = compilerJvmArgs
+    applicationDefaultJvmArgs = runtimeJvmArgs
 }
 
-tasks.named<JavaExec>("run") {
-    args = (findProperty("input") as String?)?.let { listOf(it) } ?: emptyList()
-}
 
 repositories {
     mavenCentral()
@@ -64,6 +64,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.xemantic.kotlin.introspection)
     implementation(libs.xemantic.kotlin.script)
+    implementation(libs.xemantic.kotlin.script.python)
+    // not used by the harness itself, but by the scripts of cognizers, see the constitution
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.anthropic.java)
     implementation(libs.openai.java)
     implementation(libs.xemantic.ai.file.magic)
@@ -84,9 +90,68 @@ configurations.all {
     }
 }
 
+// The Python virtual environment of the tests, with only the jep package matching the org.ninia:jep library,
+// like a clean environment of a user, the tests declaring the Python packages they use as dependencies.
+val pythonVenv = layout.projectDirectory.dir(".venv")
+val venvPython = pythonVenv.file("bin/python")
+
+val createPythonVenv = tasks.register<Exec>("createPythonVenv") {
+    description = "Creates the Python virtual environment of the tests"
+    // a local value, as the configuration cache cannot serialize a reference to the build script
+    val python = venvPython.asFile
+    outputs.file(python)
+    onlyIf { !python.exists() }
+    commandLine("python3", "-m", "venv", pythonVenv.asFile.absolutePath)
+}
+
+val installPythonPackages = tasks.register<Exec>("installPythonPackages") {
+    description = "Installs jep into the virtual environment of the tests"
+    dependsOn(createPythonVenv)
+    val packages = listOf("jep==${libs.versions.jep.get()}")
+    inputs.property("packages", packages)
+    // in the virtual environment, so that the packages are installed again when it is recreated
+    val marker = pythonVenv.file("installed-packages.txt")
+    outputs.file(marker)
+    commandLine(listOf(venvPython.asFile.absolutePath, "-m", "pip", "install", "--quiet", "--disable-pip-version-check") + packages)
+    doLast {
+        marker.asFile.writeText(packages.joinToString("\n"))
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
-    jvmArgs(compilerJvmArgs)
+    jvmArgs(runtimeJvmArgs)
+    inputs.files(installPythonPackages)
+    environment("VIRTUAL_ENV", pythonVenv.asFile.absolutePath)
+    // the dependencies declared by the tests are installed from scratch on every run, not into the user cache
+    val dependencyDirectory = layout.buildDirectory.dir("python-dependencies").get().asFile
+    systemProperty("xemantic.kotlin.script.python.dependencyDirectory", dependencyDirectory.absolutePath)
+    doFirst {
+        dependencyDirectory.deleteRecursively()
+    }
+}
+
+// Run from the build, the harness uses the virtual environment of the tests,
+// rather than preparing one of its own in the user cache, see PythonVenv.
+tasks.named<JavaExec>("run") {
+    args = (findProperty("input") as String?)?.let { listOf(it) } ?: emptyList()
+    inputs.files(installPythonPackages)
+    environment("VIRTUAL_ENV", pythonVenv.asFile.absolutePath)
+}
+
+// The version of the jep package matching the org.ninia:jep library, installed by PythonVenv at runtime.
+val generatePythonProperties = tasks.register("generatePythonProperties") {
+    group = "annie"
+    description = "Generates the python.properties resource with the version of jep"
+    val jepVersion = libs.versions.jep.get()
+    val outputDir = layout.buildDirectory.dir("generated/python/resources")
+    inputs.property("jepVersion", jepVersion)
+    outputs.dir(outputDir)
+    doLast {
+        val output = outputDir.get().file("python.properties").asFile
+        output.parentFile.mkdirs()
+        output.writeText("jep.version=$jepVersion\n")
+    }
 }
 
 // Fills the constitution template with the API and cognition sources, as the constitution.md resource,
@@ -118,7 +183,7 @@ val generateConstitution = tasks.register("generateConstitution") {
 }
 
 // Turns the compiled source of the default harness into its script: the source without its package,
-// which is imported instead, followed by the call of the `unfold` function with the properties of the script.
+// which is imported instead, followed by the call of the suspending `unfold` function with the properties of the script.
 // The source belongs to the package the script imports, an import the IDE would remove from the source as redundant.
 val generateDefaultHarness = tasks.register("generateDefaultHarness") {
     group = "annie"
@@ -136,7 +201,7 @@ val generateDefaultHarness = tasks.register("generateDefaultHarness") {
                 (lines[packageLine].replaceFirst("package ", "import ") + ".*") +
                 lines.subList(firstImport, lines.size).dropLastWhile { it.isBlank() } +
                 "" +
-                "unfold(cogitation, cognizer, executor, agency)"
+                "await { unfold(cognizer, executor, agency) }"
         val output = outputDir.get().file("harness.kts").asFile
         output.parentFile.mkdirs()
         output.writeText(script.joinToString("\n") + "\n")
@@ -146,6 +211,7 @@ val generateDefaultHarness = tasks.register("generateDefaultHarness") {
 sourceSets.main {
     resources.srcDir(generateConstitution)
     resources.srcDir(generateDefaultHarness)
+    resources.srcDir(generatePythonProperties)
 }
 
 // The Java runtime of the JDK running the build, linked with the modules the scripts of cognizers can use:
@@ -237,8 +303,8 @@ versionCatalogUpdate {
     // preserve the manual, logically-grouped ordering of libs.versions.toml
     sortByKey = false
     keep {
-        // kotlinTarget / javaTarget are plain version constants with no version.ref
-        versions = setOf("kotlinTarget", "javaTarget", "asm")
+        // kotlinTarget / javaTarget are plain version constants with no version.ref, jep the one of the Python package
+        versions = setOf("kotlinTarget", "javaTarget", "asm", "jep")
         keepUnusedVersions = false
     }
 }

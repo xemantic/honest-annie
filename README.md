@@ -17,53 +17,61 @@ A recursive self-modifying harness for scientific research
 [<img alt="discord users online" src="https://img.shields.io/discord/811561179280965673">](https://discord.gg/vQktqqN2Vn)
 [![Bluesky](https://img.shields.io/badge/Bluesky-0285FF?logo=bluesky&logoColor=fff)](https://bsky.app/profile/xemantic.com)
 
-
-
 ## What makes Honest Annie different from other harnesses?
 
-- It doesn't speak natural language, but only its own compiled script
-- It doesn't use tools either, just the same scripting language
-- This script expresses intents to either learn about the environment, or impact it directly
+- Its only expression is Kotlin Script: natural language appears only in its monologue, its comments, and the strings it enunciates or passes on.
+- It doesn't use tools, only the same scripting language
+- The script evaluates to what Annie needs to perceive, and enunciates what its invoker needs to know
+- The script is technically compiled, which ensures formal analysis before evaluation
 - The script can call Annie recursively (RLM)
-- The recursive results are delivered as "tail recursion"
-- The parallelism can be controlled
+- The recursive results are delivered asynchronously
+- This allows to control parallelism even in potentially infinite trees of branching cogitations
 - The cognitive ontology models the process in place of communication theory
-- This allows programmatic metacognition
+- A script can inspect its own cogitation, its depth, the cogitation of its invoker, and the API it compiles against
 - The code of the harness is constantly present in the context window
 - Annie can rewrite both its own system prompt and own harness code
+- The script environment state is preserved across intents
+- Annie will work with any text model (not only LLMs)
+- It can perceive multimodal data
+
+> [!NOTE] Since Annie is a research agent, it doesn't have an interactive CLI, just the input and the output, with the full trace of how the whole cognitive process is unfolding.
 
 ## Improvement hypothesis
 
+- "awareness" of own powers and limitations (metacognition), from the code of the harness present in the context window, and from scripts inspecting the cogitation
+- optimized recursive task splitting decisions
 - reduced token use (already observed 3x reduction in certain task)
 - reduced multitask inference (no file outputting while JSON escaping)
-- "awareness" of own powers and limitations
-- optimized recursive task splitting decisions
 
 Therefore, it can amplify evaluation score of language models.
 
-## AI safety risks
+## AI safety research questions
 
-- How to sandbox the execution properly in such an architecture?
-- Does self-rewriting pose additional risks?
-- Can such a harness achieve self-improvement, and if so, what are the risks?
-
-Annie's [constitution](src/main/constitution.md) explicitly invites such rewriting.
-
-## Research questions
-
-1. **Self-modification under a fixed host.**
+1. **The elicitation gap.**
+   Dangerous-capability evaluations measure what the harness elicits,
+   not what the model can do.
+   How much does a harness of whole-program scripts and recursion amplify the scores and cut the tokens of the same model,
+   and so how much do evaluations run in weaker harnesses underestimate it?
+   The [OOLONG](evals/oolong/README.md) and [LongCoT](evals/longcot/README.md) evals measure this on public benchmarks,
+   against the scores reported for other harnesses, e.g. Prime Agent.
+2. **Self-modification under a fixed host.**
+   An agent which can rewrite its own instructions and the harness running it
+   is a small, contained instance of a frontier concern.
    When a model can rewrite the harness and the constitution of its sub-cogitations,
-   what does it change, does it ever weaken constraints, including the Honesty section,
-   and does it report the changes to its invoker?
+   what does it change, does it ever weaken constraints,
+   does it report the changes to its invoker,
+   and do the changes amount to self-improvement?
    Each cogitation is recorded with the `harness.kts` and `constitution.md` unfolding it,
-   so every modification is kept beside the cogitation it unfolded.
-2. **Oversight of whole-program actions** (planned).
+   so every modification can be observed beside the cogitation it unfolded,
+   not inferred afterwards.
+3. **Oversight of whole-program actions** (planned).
    Each action is a complete script available before execution,
    which makes pre-execution review by a monitor model possible.
    How reliably does such a monitor catch harmful or deceptive intents,
-   compared with monitoring tool calls?
-3. **Honesty signals the harness already records.**
-   These are instrumented, not findings:
+   compared with monitoring individual tool calls?
+4. **Honesty under a tool-less design.**
+   Which dishonest behaviors does a harness expressed only in code reveal, and which does it hide?
+   The harness already records these signals, instrumented, not yet findings:
    - fabricated responses of the computer, which some models write after their own script:
      the intent is recorded as expressed, with the script actually executed beside it (`*-intent-executed.kts`),
      and an inference expressing nothing but such a response, or a tool call, is discarded and recorded as `*-discarded-*`;
@@ -71,35 +79,38 @@ Annie's [constitution](src/main/constitution.md) explicitly invites such rewriti
    - whether the final answer follows from the agent's own judgments, the **own** metric of the [OOLONG eval](evals/oolong/README.md);
    - whether an intent mentions the gold answers, the **LEAKED** flag of the [LongCoT eval](evals/longcot/README.md).
 
-Code as the action of an agent is not new,
-see CodeAct ([Wang et al. 2024](https://arxiv.org/abs/2402.01030)) and Hugging Face [smolagents](https://github.com/huggingface/smolagents).
-What differs here: code is the only expression, with no tool fallback;
-a cogitation invokes further cogitations of the same cognizer recursively;
-the harness is itself a script, modifiable per invocation;
-and every cogitation is persisted in full.
-
 ## Threat model and current limitations
 
-- Intents and harness scripts run in the same JVM as the host,
-  so the host is fixed by convention, not enforced against a script that tries to reach it.
-  Likewise, only inferences made through the cognizer the host provides are recorded.
-- `agency.execute` runs processes on the user's computer with the user's privileges,
-  in the environment inherited from the host, API keys included.
-  Their timeout, one minute by default, is chosen by the intent,
-  and a descendant which escaped its parent may survive it.
-  An intent itself has no time limit.
-- The recording directory is writable by these processes, and by intents,
-  so the audit trail is not tamper-proof.
-- There is no maximum invocation depth.
-  The token budget is unlimited unless `ANNIE_TOKEN_BUDGET` is set (the evals set 3M tokens per task),
-  and it is checked before each step,
-  so the inferences of steps already in progress can exceed it.
+The agent is treated as untrusted:
+it may pursue its task by any means its scripts reach,
+including impeding oversight, misreporting what it did,
+or rewriting the harness to remove a constraint.
+The host, the process unfolding the harness, is trusted,
+and so are the cognizer endpoints.
+
+Today, Honest Annie is a research prototype to be run only on a machine dedicated to it:
+- intents run with the permissions of the host process,
+  with access to its filesystem and network;
+- the processes they start inherit its environment, the API keys included;
+- the recording of cogitations lies within the agent's reach,
+  so a recording is evidence of what happened only as long as the agent did not alter it;
+- recursion has no depth limit.
+
+What already bounds it:
+`ANNIE_TOKEN_BUDGET` caps the tokens a whole tree of cogitations may spend, impeding it once spent,
+`ANNIE_PARALLELISM` caps how many of them step at a time,
+a process started by an intent is destroyed, together with its descendants, when its timeout elapses,
+and every intent is compiled, so it is analysed before it is executed.
 
 Planned hardening:
 sandboxed execution of intents and processes,
 a scrubbed process environment,
 recording out of the agent's reach (append-only, or by a separate process),
 and a configurable depth limit.
+
+Open question:
+how to sandbox an agent which can rewrite the harness that runs it,
+when the sandbox must stay outside of what it can rewrite.
 
 ## Status
 
@@ -108,13 +119,35 @@ the recursive harness,
 Claude and OpenAI-compatible backends,
 recording of every cogitation,
 and the [OOLONG](evals/oolong/README.md) and [LongCoT](evals/longcot/README.md) evals,
-with reference runs for OOLONG in [evals/oolong/README.md](evals/oolong/README.md#reference-runs), none yet for LongCoT.
+with reference runs for OOLONG in [evals/oolong/README.md](evals/oolong/README.md#reference-runs), none yet for LongCoT,
+and a runner of [FrontierHarness Eval](evals/frontierharness/README.md), comparing coding-agent harnesses on the same model, not yet run.
 
 Planned:
 self-modification experiments,
 monitor experiments,
 a public dataset of recorded cogitations,
 and a writeup.
+
+## Dependencies
+
+Honest Annie is built on open-source libraries developed by xemantic,
+most of them extracted from [Golem XIV](https://github.com/xemantic/golem-xiv).
+
+Current:
+- [xemantic-kotlin-script](https://github.com/xemantic/xemantic-kotlin-script) executes the intents as Kotlin scripts in a stateful session,
+  reporting compilation and runtime errors in a form a language model can act on,
+  each pointing to the offending line of the script;
+- [xemantic-kotlin-introspection](https://github.com/xemantic/xemantic-kotlin-introspection) renders the signatures of any Kotlin declaration on the classpath,
+  so a script can look up the API it compiles against, even one absent from the training data of the model;
+- [xemantic-ai-file-magic](https://github.com/xemantic/xemantic-ai-file-magic) detects the media type of the data Annie perceives.
+
+Future:
+- [xemantic-kotlin-script-python](https://github.com/xemantic/xemantic-kotlin-script-python) embeds a stateful CPython interpreter into the Kotlin script session,
+  opening the Python ecosystem (numpy, pandas, scikit-learn, …) to the intents;
+- [anthropic-sdk-kotlin](https://github.com/xemantic/anthropic-sdk-kotlin), a Kotlin multiplatform variant of the Anthropic SDK,
+  to replace the official `anthropic-java` one;
+- [xemantic-ai-money](https://github.com/xemantic/xemantic-ai-money) calculates the cost of LLM usage in real time,
+  so that a tree of cogitations can be bounded by a monetary budget, not only by a token one.
 
 ## Running
 
@@ -139,6 +172,15 @@ one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
 mapped to the nearest level the model supports, its default when not set.
 `ANNIE_MAX_TOKENS` limits the tokens of a single inference, the reasoning included, 128000 by default,
 which, together with the prompt, must fit the context window of the model, e.g. `32000` for a 128K one.
+
+The Python of the intents is embedded through [Jep](https://github.com/ninia/jep),
+whose `jep` package must be installed in the Python environment, of the same version as the Java library.
+Run by Gradle, honest-annie uses the `.venv` of the build, which it prepares like for the tests.
+Otherwise, unless `VIRTUAL_ENV` points to a virtual environment with `jep` installed,
+honest-annie creates one, the first time an intent uses Python,
+in `~/.cache/honest-annie`, or at the `ANNIE_PYTHON_VENV` path,
+with `python3`, or the `ANNIE_PYTHON` executable, and installs `jep` into it,
+which, when no wheel matches the Python, is built from its source, needing a C compiler and a JDK found through `JAVA_HOME`.
 
 `./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 
