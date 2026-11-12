@@ -35,10 +35,17 @@ fun interface Cognizer {
 }
 
 /**
- * @property phenomena of a single inference, e.g. a [Phenomenon.Monologue] followed by a [Phenomenon.Intent].
+ * @property phenomena of a single inference, in the order they were expressed,
+ * e.g. a [Phenomenon.Monologue], followed by a [Phenomenon.Text], and a [Phenomenon.Intent].
  * @property inference expressing the [phenomena], `null` when nothing was inferred, e.g. by a scripted cognizer.
  */
 data class Cognized(
     val phenomena: List<Phenomenon>,
     val inference: Inference? = null
 )
+
+/** How much effort a cognizer puts into its monologue and its response, mapped to what its model offers. */
+enum class Effort { NONE, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX }
+
+/** How much of its monologue a cognizer reveals, see [Phenomenon.Monologue]. */
+enum class MonologueVisibility { HIDDEN, UPDATES, SUMMARY }

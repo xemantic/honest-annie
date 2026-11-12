@@ -59,6 +59,8 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 
 - The REPL snippets of the Kotlin scripting compiler crash internally on a function calling `await { }`, and a function or class used in the snippet declaring it can't see what earlier snippets declared (it can when called from a later snippet).
   These are compiler limits, so the constitution teaches the workarounds, pinned by tests in `ScriptExecutorTest`.
+- `ScriptSession` of xemantic-kotlin-script offers no default imports beyond `kotlinx.coroutines.*`, so `SessionScriptExecutor` imports annie's API in a snippet of its own before the first intent:
+  the snippets of the intents are numbered from `snippet2`, which compilation errors name, so never assert on `snippet1`.
 
 ### Model APIs
 

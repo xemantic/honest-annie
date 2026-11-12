@@ -29,12 +29,44 @@ class ConstitutionTest {
         val template = constitutionTemplate
 
         // then
-        assert(template.startsWith("# The constitution of honest-annie\n\n## Honesty\n\n"))
+        assert(template.startsWith("# The constitution of honest-annie\n\n## Identity\n\n"))
         assert("interface Agency" in template)
         assert("class Cogitation(" in template)
         assert("{{api}}" !in template && "{{cognition}}" !in template)
-        assert("agency.resolveDeclaration(" in template)
         assert("````kotlin\n{{harness}}\n````\n\n## Your answer\n\n" in template)
+    }
+
+    @Test
+    fun `should load the constitution of its own for a model having one`() {
+        // when
+        val template = constitutionTemplate(model = "deepseek-v4_1-flash")
+
+        // then
+        assert(template != constitutionTemplate)
+        assert(template.startsWith("# The constitution of honest-annie\n\n## Identity\n\n"))
+        assert("\n## Judgment and computation\n" in template)
+        assert("interface Agency" in template)
+        assert("class Cogitation(" in template)
+        assert("{{api}}" !in template && "{{cognition}}" !in template)
+        assert("````kotlin\n{{harness}}\n````\n\n## Your answer\n\n" in template)
+    }
+
+    @Test
+    fun `should load the constitution of the closest family of a model`() {
+        // when
+        val template = constitutionTemplate(model = "accounts/provider/models/deepseek-v9")
+
+        // then
+        assert(template == constitutionTemplate(model = "deepseek-v4_1-flash"))
+    }
+
+    @Test
+    fun `should load the default constitution for a model without one of its own`() {
+        // when
+        val template = constitutionTemplate(model = "claude-fable-5-2")
+
+        // then
+        assert(template == constitutionTemplate)
     }
 
     @Test

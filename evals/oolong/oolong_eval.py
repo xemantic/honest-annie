@@ -3,6 +3,7 @@
 #
 #   python evals/oolong/oolong_eval.py prepare [--context-len 32768] [--per-dataset 1]  # select a set of tasks, once
 #   python evals/oolong/oolong_eval.py run [--set 32k] [--repeats 2] [--label x]  # needs ANTHROPIC_MODEL or OPENAI_MODEL
+#   python evals/oolong/oolong_eval.py run --harness prime-agent [--effort high]  # Prime Agent on the same tasks
 #   python evals/oolong/oolong_eval.py report <run-dir>               # evaluate a run again, from data/runs
 #   python evals/oolong/oolong_eval.py score <cogitation-dir> <task>  # score a cogitation recorded by hand
 #
@@ -18,17 +19,22 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import combinations
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import dateutil.parser
 
@@ -37,10 +43,58 @@ EVAL_DIR = Path(__file__).resolve().parent / "data"
 SETS_DIR = EVAL_DIR / "sets"
 RUNS_DIR = EVAL_DIR / "runs"
 AGENT = ROOT / "build" / "install" / "honest-annie" / "bin" / "honest-annie"
+# Prime Agent, run on the same tasks with the same model, to compare the harnesses
+PRIME_AGENT = "prime-agent"
+# Claude Code, run headless as it comes, with the user's own configuration and login, and a model of Anthropic
+CLAUDE_CODE = "claude-code"
+CLAUDE_CODE_MODEL = "claude-sonnet-5-5"
+HARNESSES = ("annie", PRIME_AGENT, CLAUDE_CODE)
+# what Claude Code needs from the home directory: its binary, its versions, and its configuration
+CLAUDE_CODE_NEEDED = [
+    Path.home() / ".local" / "share" / "claude",
+    Path.home() / ".claude",
+    Path.home() / ".claude.json",
+    # where its login is, which the keychain reads in the process of Claude Code itself
+    Path.home() / "Library" / "Keychains",
+]
+# what of its configuration Claude Code may write, but not read: what it recorded of other sessions,
+# e.g. the transcripts, the prompts typed and the files edited, where the gold answers of earlier runs are discussed
+CLAUDE_CODE_HIDDEN = [
+    Path.home() / ".claude" / name
+    for name in ("projects", "history.jsonl", "file-history", "paste-cache", "debug", "jobs", "downloads",
+                 "backups", "daemon.log")
+]
+# the provider the OpenAI-compatible endpoint is registered as, in the models.json of a Prime Agent run
+PRIME_PROVIDER = "eval"
 # the set of the runs recorded before there were sets
 FIRST_SET = "32k"
-# the gold answers, read from the files of a set, or from the public datasets OOLONG-synth is made of
-LEAKS = re.compile(r"task\.json|labels\.json|huggingface|hf_hub|load_dataset|oolongbench", re.IGNORECASE)
+# the gold answers, read from the files of a set, or from the public datasets OOLONG-synth is made of,
+# which the agent has to fetch, as the task itself needs nothing but the context
+LEAKS = re.compile(
+    r"task\.json|labels\.json|huggingface|hf_hub|load_dataset|oolongbench|https?://|\b(?:curl|wget)\b", re.IGNORECASE
+)
+# the sandbox of macOS, a run with --sandbox is isolated by
+SANDBOX = "sandbox-exec"
+# what keeps macOS from sleeping, which stalls the streams of the agents and spends their timeout
+CAFFEINATE = "caffeinate"
+# the directories a run with --sandbox withholds from the agent, none when it is not isolated
+withheld = []
+# how a run with --sandbox reaches its model, see Endpoint: the variable of the URL, the URL, the variable of the key,
+# the key and the model, none when it is not isolated
+reached = {}
+# what an agent needs to run from the home directory, which the sandbox withholds otherwise, as it holds
+# what an agent searching this computer finds the answers in, e.g. the shell history or the transcripts of assistants
+NEEDED = [
+    ROOT,
+    Path.home() / ".local" / "bin",
+    Path.home() / ".local" / "share" / "prime-agent",
+    # the Python of the REPL of Prime Agent, a virtual environment of a Python installed by uv
+    Path.home() / ".local" / "share" / "uv" / "python",
+    Path.home() / ".prime" / "agent" / "kernel-venv",
+]
+# the temporary directory every process shares, where an agent leaves what it fetched, e.g. labels,
+# for the agents of later runs to find
+SHARED_TEMP = Path("/private/tmp")
 
 
 def contexts_dir(set_name):
@@ -86,6 +140,14 @@ PAIRS_PREFIX = (
 PAIRS_INSTRUCTIONS = (
     "Answer with every matching pair as `(user_id_1, user_id_2)`, one per line, sorted by the first user ID, "
     "and nothing else. If there are no matching pairs, answer exactly `[]`."
+)
+
+# Prime Agent answers in its last message, which the model writes itself, token by token,
+# so thousands of pairs go to a file, as in oolong_pairs, while honest-annie enunciates them from a script
+ANSWER_FILE = "answer.txt"
+PAIRS_FILE_INSTRUCTIONS = (
+    "Write every matching pair as `(user_id_1, user_id_2)`, one per line, sorted by the first user ID, "
+    "and nothing else, to the file {answer}. If there are no matching pairs, write exactly `[]`."
 )
 
 ITEM = re.compile(r"(?ms)^Date: (.*?) \|\| User: (\d+) \|\| Instance: (.*?) \|\| Label: ([^\n]*)$")
@@ -416,7 +478,19 @@ def normalized(text):
     return re.sub(r"\s+", " ", re.sub(r"^\W+|\s+$", "", text))
 
 
-def judgments(recording, rows):
+def exchanges(recording):
+    """The prompt of every cogitation invoked in a recording of honest-annie, with the response to it."""
+    for table in sorted(recording.rglob("cogitation.md")):
+        cogitation = table.parent
+        responses = re.findall(r"(?m)^\| (\d{3}) \| self `self` ↩ (\d{3}-\d+) \|", table.read_text())
+        for response, invocation in sorted(responses):
+            prompt = cogitation / f"{invocation}-computer-invocation.md"
+            answer = next(cogitation.glob(f"{response}-1-self-text.*"), None)
+            if prompt.exists() and answer is not None:
+                yield prompt.read_text(), answer.read_text()
+
+
+def judgments(recording, rows, harness="annie"):
     """
     Labels the agent's invoked cogitations gave to the items, by the index of the item in `rows`:
     every invocation prompt listing items keyed by number is matched with the response keyed the same way.
@@ -443,36 +517,30 @@ def judgments(recording, rows):
         return labels[beginning[0]] if len(beginning) == 1 else None
 
     judged, codes = {}, {}
-    for table in sorted(recording.rglob("cogitation.md")):
-        cogitation = table.parent
-        responses = re.findall(r"(?m)^\| (\d{3}) \| self `self` ↩ (\d{3}-\d+) \|", table.read_text())
-        for response, invocation in sorted(responses):
-            prompt = cogitation / f"{invocation}-computer-invocation.md"
-            answer = next(cogitation.glob(f"{response}-1-self-text.*"), None)
-            if not prompt.exists() or answer is None:
-                continue
-            # a code the prompt defines for a label, e.g. `ENTY (entity: things)` or `ENTY = entity (things)`,
-            # not always the beginning of the label
-            legend = {code: labels[label.strip().lower()] for code, label in
-                      re.findall(r"\b(\w+) ?(?:\(|= ?)([^:()=,]+)", prompt.read_text())
-                      if label.strip().lower() in labels}
-            listed = {}
-            for key, text in KEYED.findall(prompt.read_text()):
-                if (indices := item(normalized(text.split("|| Instance: ")[-1]))) is not None:
-                    listed[key] = indices
-                elif text.strip().lower() in labels:
-                    # a code the prompt defines for a label, e.g. `5: Sports`
-                    legend[key] = labels[text.strip().lower()]
-            # items of the same text are told apart when every item is keyed by its index,
-            # but not when keyed otherwise, e.g. among the distinct questions
-            if all(int(key) in indices for key, indices in listed.items()):
-                listed = {key: [int(key)] for key in listed}
-            codes |= {code: label for code, label in legend.items() if not code.isdigit()}
-            for key, said in KEYED.findall(answer.read_text()):
-                judgment = legend.get(said.strip("*`'\". ")) or label(said)
-                if judgment is not None and key in listed:
-                    for i in listed[key]:
-                        judged.setdefault(i, judgment)
+    exchanged = {PRIME_AGENT: prime_exchanges, CLAUDE_CODE: claude_code_exchanges}.get(harness, exchanges)
+    for prompt, answer in exchanged(recording):
+        # a code the prompt defines for a label, e.g. `ENTY (entity: things)` or `ENTY = entity (things)`,
+        # not always the beginning of the label
+        legend = {code: labels[label.strip().lower()] for code, label in
+                  re.findall(r"\b(\w+) ?(?:\(|= ?)([^:()=,]+)", prompt)
+                  if label.strip().lower() in labels}
+        listed = {}
+        for key, text in KEYED.findall(prompt):
+            if (indices := item(normalized(text.split("|| Instance: ")[-1]))) is not None:
+                listed[key] = indices
+            elif text.strip().lower() in labels:
+                # a code the prompt defines for a label, e.g. `5: Sports`
+                legend[key] = labels[text.strip().lower()]
+        # items of the same text are told apart when every item is keyed by its index,
+        # but not when keyed otherwise, e.g. among the distinct questions
+        if all(int(key) in indices for key, indices in listed.items()):
+            listed = {key: [int(key)] for key in listed}
+        codes |= {code: label for code, label in legend.items() if not code.isdigit()}
+        for key, said in KEYED.findall(answer):
+            judgment = legend.get(said.strip("*`'\". ")) or label(said)
+            if judgment is not None and key in listed:
+                for i in listed[key]:
+                    judged.setdefault(i, judgment)
     # identical questions labeled differently and reconciled in a script, e.g. `"what is hdlc ?" to "ABBR"`
     by_question = defaultdict(list)
     for text, indices in by_text.items():
@@ -528,7 +596,7 @@ def self_judgments(recording, rows, question, first_line):
     return judged
 
 
-def evaluate(result, run_dir, set_name):
+def evaluate(result, run_dir, set_name, harness="annie"):
     """The result of a cogitation, with its score, agreement and consistency evaluated."""
     task_dir = tasks_dir(set_name) / result["task"]
     task = json.loads((task_dir / "task.json").read_text())
@@ -542,8 +610,8 @@ def evaluate(result, run_dir, set_name):
     else:
         parsed, points = score(answers, task["answer_type"], output) if output else (None, 0.0)
     recording = run_dir / result["run"]
-    judged = judgments(recording, rows)
-    if not judged:
+    judged = judgments(recording, rows, harness)
+    if not judged and harness not in (PRIME_AGENT, CLAUDE_CODE):
         context = (task_dir.parents[1] / "contexts" / f"{result['task']}.txt").read_text().split("\n")
         first_line = next(n for n, line in enumerate(context) if line.startswith("Date: "))
         judged = self_judgments(recording, rows, task["question"], first_line)
@@ -569,12 +637,16 @@ def evaluate(result, run_dir, set_name):
         "items": len(rows),
         "agreement": agreement,
         "consistent": consistent,
-        "leaked": leaked(recording),
+        "leaked": leaked(recording, harness),
     }
 
 
-def leaked(recording):
+def leaked(recording, harness="annie"):
     """Whether an intent of the recorded cogitation, or of one it invoked, reached for the gold answers."""
+    if harness == PRIME_AGENT:
+        return any(LEAKS.search(code) for session in prime_sessions(recording) for code in prime_code(session))
+    if harness == CLAUDE_CODE:
+        return any(LEAKS.search(code) for code in claude_code_code(recording))
     return any(LEAKS.search(p.read_text()) for p in recording.rglob("*-intent.kts"))
 
 
@@ -584,6 +656,11 @@ def inferences(recording_dir):
     if not recorded:
         return None
     return json.loads(recorded[0].read_text())["total"]
+
+
+def invoked(recording_dir):
+    """How many cogitations the recorded one invoked, the ones they invoked included."""
+    return max(len(list(recording_dir.rglob("cogitation.md"))) - 1, 0)
 
 
 def enunciated(stdout):
@@ -597,52 +674,553 @@ def enunciated(stdout):
     return ("\n".join(texts) if texts else None), ("; ".join(impediments) or None)
 
 
+# --- isolating the agent, as oolong_pairs does, which runs it without network ---
+
+def sandboxed(withheld, granted=(), home=None, needed=(), hidden=()):
+    """
+    The beginning of a command run in a sandbox, where the network reaches no further than this computer,
+    the home directory cannot be read, but for what is needed to run the agent, of which the hidden paths cannot be
+    read either, though written, and the withheld directories cannot be read nor written either,
+    but for the granted ones among them.
+    """
+    profile = '(version 1)(allow default)(deny network-outbound (remote ip))'
+    profile += '(allow network-outbound (remote ip "localhost:*"))'
+    # The later rule wins, but a rule naming `file-read-data` wins over a `file-read*` one regardless,
+    # so every rule names both. Of the home directory only the contents are withheld, not the metadata,
+    # which a JVM needs to resolve its classpath, and Prime Agent to create the environment of its REPL.
+    reads = "file-read* file-read-data"
+    if home:
+        profile += f'(deny file-read-data (subpath "{Path(home).resolve()}"))'
+        profile += "".join(f'(allow {reads} (subpath "{Path(p).resolve()}"))' for p in needed)
+    profile += "".join(f'(deny {reads} (subpath "{Path(p).resolve()}"))' for p in hidden)
+    # nor can the withheld directories be written, so that an agent leaves nothing there for the agents of later runs
+    profile += "".join(f'(deny {reads} file-write* (subpath "{Path(p).resolve()}"))' for p in withheld)
+    profile += "".join(f'(allow {reads} file-write* (subpath "{Path(p).resolve()}"))' for p in granted)
+    return [SANDBOX, "-p", profile]
+
+
+def temporary_directories():
+    """The temporary directories shared by the runs: the one of every process, and the one of this user."""
+    return [SHARED_TEMP, Path(tempfile.gettempdir()).resolve()]
+
+
+def temporary(environ, directory):
+    """The environment of an agent working in the directory, its temporary files kept in it, apart from other runs."""
+    own = directory / "tmp"
+    own.mkdir(exist_ok=True)
+    return environ | {
+        "TMPDIR": str(own),
+        # a JVM takes its temporary directory from the system, not from TMPDIR
+        "JAVA_TOOL_OPTIONS": f"{environ.get('JAVA_TOOL_OPTIONS', '')} -Djava.io.tmpdir={own}".strip(),
+    }
+
+
+def isolation(recording_dir, directory, harness="annie"):
+    """
+    What the command of an agent is prefixed with: the sandbox of a run with --sandbox,
+    granting its own recording, and the directory it works in, and to Claude Code the sessions of this run.
+    """
+    if not withheld:
+        return []
+    if harness == CLAUDE_CODE:
+        return sandboxed(withheld, [recording_dir, directory, claude_code_project(directory)], home=Path.home(),
+                         needed=NEEDED + CLAUDE_CODE_NEEDED, hidden=CLAUDE_CODE_HIDDEN)
+    return sandboxed(withheld, [recording_dir, directory], home=Path.home(), needed=NEEDED)
+
+
+class Endpoint:
+    """
+    The endpoint of the evaluated model, served on this computer for a single run, so that an agent in the sandbox
+    reaches its model, and nothing else: requests are forwarded with the key of the evaluation, which the agent never
+    gets, and only for the evaluated model, while the tokens of every response are counted, including the ones of the
+    requests an agent makes from its own scripts, which its harness does not count.
+    Without a key of the evaluation, the agent's own login is passed on, e.g. the one of Claude Code.
+    The model can be a predicate, serving several, e.g. the small one Claude Code works in the background with.
+    The tools of the provider reaching the web, e.g. its web search, are refused, as they bypass the sandbox.
+    """
+
+    def __init__(self, endpoint, key, model):
+        serves = model if callable(model) else (lambda name: name == model)
+        target = urlsplit(endpoint)
+        self.usage = {"requests": 0, "input": 0, "output": 0, "total": 0}
+        lock = threading.Lock()
+        usage = self.usage
+
+        class Forwarding(BaseHTTPRequestHandler):
+
+            def log_message(self, *args):
+                pass
+
+            def forward(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length else None
+                if self.command == "POST" and not serves(Endpoint.model_of(body)):
+                    self.send_error(403, f"{Endpoint.model_of(body)} is not served")
+                    return
+                if self.command == "POST" and Endpoint.reaches_web(body):
+                    self.send_error(403, "the tools reaching the web are not served")
+                    return
+                headers = {k: v for k, v in self.headers.items()
+                           if k.lower() not in ("host", "content-length", "accept-encoding", "connection")}
+                # the agent's key is a placeholder, see Endpoint.WITHHELD
+                if key is None:
+                    pass
+                elif "x-api-key" in (k.lower() for k in headers):
+                    headers = {k: v for k, v in headers.items() if k.lower() != "x-api-key"} | {"x-api-key": key}
+                else:
+                    headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+                    headers["Authorization"] = f"Bearer {key}"
+                request = urllib.request.Request(
+                    f"{target.scheme}://{target.netloc}{self.path}", data=body, headers=headers, method=self.command
+                )
+                try:
+                    response = urllib.request.urlopen(request, timeout=3600)
+                except urllib.error.HTTPError as e:
+                    response = e
+                except OSError as e:
+                    self.send_error(502, str(e))
+                    return
+                # the response ends when the connection closes, so that a stream is passed on as it comes
+                self.send_response(response.status)
+                for k, v in response.headers.items():
+                    if k.lower() not in ("transfer-encoding", "content-length", "connection"):
+                        self.send_header(k, v)
+                self.end_headers()
+                seen = bytearray()
+                try:
+                    while chunk := response.read1(65536):
+                        seen += chunk
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                except OSError:
+                    pass  # the agent is gone, e.g. timed out
+                finally:
+                    response.close()
+                if self.command == "POST" and response.status == 200:
+                    used = Endpoint.usage_of(bytes(seen))
+                    with lock:
+                        usage["requests"] += 1
+                        usage["input"] += used["input"]
+                        usage["output"] += used["output"]
+                        usage["total"] += used["total"]
+
+            do_GET = do_POST = forward
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Forwarding)
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_port}{target.path}"
+
+    # what the agent gets instead of the key of the evaluation
+    WITHHELD = "withheld"
+
+    @staticmethod
+    def model_of(body):
+        try:
+            return json.loads(body).get("model")
+        except (TypeError, ValueError, AttributeError):
+            return None
+
+    @staticmethod
+    def reaches_web(body):
+        """Whether the request offers a tool the provider runs on the web, e.g. `web_search_20260209`."""
+        try:
+            tools = json.loads(body).get("tools") or []
+        except (TypeError, ValueError, AttributeError):
+            return False
+        return any(isinstance(t, dict) and str(t.get("type", "")).startswith(("web_search", "web_fetch")) for t in tools)
+
+    @staticmethod
+    def usage_of(response):
+        """
+        The tokens of a completion, or of a stream of them, telling its usage once, as OpenAI does,
+        or in parts, the input first, the output later, as Anthropic does, so that the highest of each counts.
+        """
+        text = response.decode(errors="replace")
+        events = [line[5:].strip() for line in text.splitlines() if line.startswith("data:")] or [text]
+        input = output = total = 0
+        for event in events:
+            try:
+                said = json.loads(event)
+            except ValueError:
+                continue
+            said = said if isinstance(said, dict) else {}
+            usage = said.get("usage") or (said.get("message") or {}).get("usage") or (said.get("response") or {}).get("usage")
+            if not isinstance(usage, dict):
+                continue
+            # Anthropic tells the input read from, or written to, its cache apart from the rest of it
+            input = max(input, usage.get("prompt_tokens") or (usage.get("input_tokens") or 0)
+                        + (usage.get("cache_read_input_tokens") or 0) + (usage.get("cache_creation_input_tokens") or 0))
+            output = max(output, usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            total = max(total, usage.get("total_tokens") or 0)
+        return {"input": input, "output": output, "total": max(total, input + output)}
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
 @contextmanager
 def placed(context):
-    """A copy of the context, alone in a directory outside the repository, so that no path leads to the gold answers."""
-    with tempfile.TemporaryDirectory(prefix="context-") as directory:
+    """
+    A copy of the context, alone in a directory outside the repository, so that no path leads to the gold answers,
+    a short path in the shared temporary directory, which the sandbox withholds but for it.
+    """
+    with tempfile.TemporaryDirectory(prefix="context-", dir=SHARED_TEMP) as directory:
         copy = Path(directory) / "context.txt"
         shutil.copyfile(context, copy)
         yield copy
 
 
-def cogitate(task_dir, run_dir, repeat, timeout, token_budget):
+def keep(directory, recording_dir):
+    """Keeps in the recording what the agent wrote beside the context, e.g. the labels its subagents handed over in files."""
+    shutil.copytree(directory, recording_dir / "workspace", symlinks=True,
+                    ignore=shutil.ignore_patterns("context.txt", "tmp"))
+
+
+def annie_environment(environ, recording_dir, token_budget, effort):
+    """
+    The environment of honest-annie, running the Python of the build, where jep is installed, as `./gradlew run` does,
+    rather than preparing an environment of its own, which needs the network the sandbox withholds.
+    """
+    return environ | {"ANNIE_COGITATIONS_DIR": str(recording_dir), "VIRTUAL_ENV": str(ROOT / ".venv")} \
+        | ({"ANNIE_TOKEN_BUDGET": str(token_budget)} if token_budget else {}) \
+        | ({"ANNIE_EFFORT": effort} if effort else {})
+
+
+def annie(prompt, directory, recording_dir, timeout, token_budget, effort, environ):
+    """Lets honest-annie cogitate on the prompt in the directory, recording it, and returns what came of it."""
+    try:
+        process = subprocess.run(
+            isolation(recording_dir, directory) + [str(AGENT), prompt],
+            cwd=directory,
+            env=temporary(annie_environment(environ, recording_dir, token_budget, effort), Path(directory)),
+            capture_output=True, text=True, timeout=timeout
+        )
+        stdout, stderr = process.stdout, process.stderr
+        failure = None if process.returncode == 0 else f"exit {process.returncode}"
+    except subprocess.TimeoutExpired as e:
+        stdout, stderr = (e.stdout or b"").decode(errors="replace"), (e.stderr or b"").decode(errors="replace")
+        failure = f"timeout after {timeout}s"
+    (recording_dir / "stdout.log").write_text(stdout)
+    (recording_dir / "stderr.log").write_text(stderr)
+    output, impediment = enunciated(stdout)
+    totals = inferences(recording_dir)
+    return {
+        "output": output,
+        "impediment": impediment,
+        "failure": failure,
+        "inferences": totals["inferences"] if totals else None,
+        "invoked": invoked(recording_dir),
+        "tokens": totals["tokens"] if totals else None,
+        "total_tokens": totals["total"] if totals else None,
+    }
+
+
+# --- Prime Agent on the same tasks ---
+
+def prime_models(environ):
+    """The models.json registering the OpenAI-compatible endpoint of honest-annie as a provider of Prime Agent."""
+    return {"providers": {PRIME_PROVIDER: {
+        "baseUrl": environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1",
+        "api": "openai-completions",
+        # the name of the variable, which Prime Agent reads, so that the key is not written into the recording
+        "apiKey": "OPENAI_API_KEY",
+        "models": [{
+            "id": environ["OPENAI_MODEL"],
+            "name": environ["OPENAI_MODEL"],
+            "reasoning": True,
+            "input": ["text"],
+            # what the endpoint does not tell: the window from PRIME_CONTEXT_WINDOW, the output as honest-annie's
+            "contextWindow": int(environ.get("PRIME_CONTEXT_WINDOW") or 128_000),
+            "maxTokens": int(environ.get("ANNIE_MAX_TOKENS") or 128_000),
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        }],
+    }}}
+
+
+def prime_sessions(recording):
+    """The sessions of a recorded Prime Agent run as lists of entries, the root one first, then the subagents'."""
+    files = sorted((recording / "sessions").rglob("*.jsonl"))
+    files += sorted(p for p in (recording / "agent" / "session-artifacts").rglob("*.jsonl")
+                    if p.name != "semantic-edges.jsonl")
+    return [[json.loads(line) for line in p.read_text().splitlines() if line.strip()] for p in files]
+
+
+def prime_messages(session, role):
+    return [e["message"] for e in session if e.get("type") == "message" and e["message"].get("role") == role]
+
+
+def prime_text(message):
+    return "\n".join(c.get("text", "") for c in message.get("content", []) if c.get("type") == "text")
+
+
+def prime_code(session):
+    """The Python a session ran in its REPL."""
+    return [c["arguments"].get("code", "") for m in prime_messages(session, "assistant")
+            for c in m.get("content", []) if c.get("type") == "toolCall"]
+
+
+def prime_exchanges(recording):
+    """
+    The task of every subagent of a recorded Prime Agent run, with all the subagent made of it:
+    what it said, the Python it ran, where it may message its parent or write its labels to a file, and what that printed.
+    """
+    for session in prime_sessions(recording)[1:]:
+        task = next((e["content"] for e in session
+                     if e.get("type") == "custom_message" and e.get("customType") == "agent_message"), None)
+        if isinstance(task, str):
+            made = [prime_text(m) for m in prime_messages(session, "assistant")]
+            made += prime_code(session)
+            made += [prime_text(m) for m in prime_messages(session, "toolResult")]
+            yield task, "\n".join(made)
+
+
+def prime_totals(recording):
+    """Totals of a recorded Prime Agent run, the subagents included, the tokens named as honest-annie names them."""
+    sessions = prime_sessions(recording)
+    usages = [m["usage"] for session in sessions for m in prime_messages(session, "assistant") if m.get("usage")]
+    return {
+        "inferences": len(usages),
+        "invoked": max(len(sessions) - 1, 0),
+        "tokens": {
+            "input": sum(u.get("input", 0) for u in usages),
+            "cache_read": sum(u.get("cacheRead", 0) for u in usages),
+            "output": sum(u.get("output", 0) for u in usages),
+        },
+        "total_tokens": sum(u.get("totalTokens", 0) for u in usages) if usages else None,
+    }
+
+
+def prime_answer(recording):
+    """The last message of the root session of a recorded Prime Agent run, and why it failed, if it did."""
+    sessions = prime_sessions(recording)
+    said = prime_messages(sessions[0], "assistant") if sessions else []
+    if not said:
+        return None, "no answer"
+    failed = said[-1].get("stopReason") in ("error", "aborted", "length")
+    return (prime_text(said[-1]) or None), (said[-1].get("errorMessage") or said[-1]["stopReason"] if failed else None)
+
+
+def prime_agent(prompt, directory, recording_dir, timeout, effort, environ):
+    """
+    Lets Prime Agent work on the prompt in the directory, with a state of its own, kept in the recording,
+    so that no run learns from another, and returns what came of it.
+    """
+    home = recording_dir / "agent"
+    home.mkdir()
+    (home / "models.json").write_text(json.dumps(prime_models(environ), indent=2) + "\n")
+    command = [PRIME_AGENT, "-p", "--mode", "json", "--no-context-files",
+               "--provider", PRIME_PROVIDER, "--model", environ["OPENAI_MODEL"],
+               "--session-dir", str(recording_dir / "sessions")]
+    command += (["--thinking", effort] if effort else []) + ["--", prompt]
+    env = temporary(environ, Path(directory)) | {
+        "PRIME_AGENT_CODING_AGENT_DIR": str(home),
+        # the Python of the REPL is not prepared again for every run
+        "PRIME_AGENT_KERNEL_VENV": os.environ.get("PRIME_AGENT_KERNEL_VENV")
+                                   or str(Path.home() / ".prime" / "agent" / "kernel-venv"),
+        "PRIME_AGENT_TELEMETRY": "0",
+    }
+    with open(recording_dir / "transcript.jsonl", "w") as stdout, open(recording_dir / "stderr.log", "w") as stderr:
+        # in a process group of its own, as the kernel and the subagents would outlive a timeout otherwise
+        process = subprocess.Popen(isolation(recording_dir, directory) + command, cwd=directory, env=env, stdin=subprocess.DEVNULL,
+                                   stdout=stdout, stderr=stderr, start_new_session=True)
+        try:
+            failure = None if process.wait(timeout) == 0 else f"exit {process.returncode}"
+        except subprocess.TimeoutExpired:
+            failure = f"timeout after {timeout}s"
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    said, failed = prime_answer(recording_dir)
+    answer = Path(directory) / ANSWER_FILE
+    return {
+        "output": answer.read_text() if answer.exists() else said,
+        "impediment": None,
+        "failure": failure or failed,
+    } | prime_totals(recording_dir)
+
+
+# --- Claude Code on the same tasks ---
+
+def claude_code_models(model):
+    """The models a run of Claude Code is served: the evaluated one, and the small ones it works in the background with."""
+    return lambda name: name == model or (isinstance(name, str) and name.startswith("claude-haiku"))
+
+
+def claude_code_project(directory):
+    """Where Claude Code keeps the sessions of the directory, named after its path."""
+    return Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(directory))
+
+
+def claude_code_events(recording):
+    """What a recorded run of Claude Code streamed, as JSON, the messages of its subagents included."""
+    transcript = recording / "transcript.jsonl"
+    if not transcript.exists():
+        return []
+    events = []
+    for line in transcript.read_text().splitlines():
+        try:
+            events.append(json.loads(line))
+        except ValueError:
+            pass
+    return events
+
+
+def claude_code_uses(recording):
+    """Every tool use of a recorded run of Claude Code, the ones of its subagents included."""
+    return [c for e in claude_code_events(recording) if e.get("type") == "assistant"
+            for c in (e.get("message") or {}).get("content") or [] if c.get("type") == "tool_use"]
+
+
+# the tools of Claude Code delegating to a subagent, by the name of the current and of earlier versions
+CLAUDE_CODE_SUBAGENT_TOOLS = ("Agent", "Task")
+
+
+def claude_code_code(recording):
+    """What a recorded run of Claude Code did: its commands, the code it wrote, and the prompts of its subagents."""
+    code = []
+    for use in claude_code_uses(recording):
+        given = use.get("input") or {}
+        said = given.get("command") or given.get("code") or given.get("content") or given.get("prompt") \
+               or given.get("url") or given.get("query")
+        code.append(said if isinstance(said, str) else json.dumps(given))
+    return code
+
+
+def claude_code_exchanges(recording):
+    """The prompt of every subagent of a recorded run of Claude Code, with what it handed back."""
+    events = claude_code_events(recording)
+    results = {}
+    for e in events:
+        if e.get("type") == "user":
+            for c in (e.get("message") or {}).get("content") or []:
+                if isinstance(c, dict) and c.get("type") == "tool_result":
+                    content = c.get("content")
+                    text = content if isinstance(content, str) else "\n".join(
+                        p.get("text", "") for p in content or [] if isinstance(p, dict))
+                    results[c.get("tool_use_id")] = text
+    for use in claude_code_uses(recording):
+        if use.get("name") in CLAUDE_CODE_SUBAGENT_TOOLS and use.get("id") in results:
+            yield (use.get("input") or {}).get("prompt", ""), results[use["id"]]
+
+
+def claude_code_totals(recording):
+    """
+    Totals of a recorded run of Claude Code, its subagents included: the inferences are its distinct messages,
+    the tokens the ones it tells of every model it used, named as honest-annie names them.
+    """
+    events = claude_code_events(recording)
+    messages = {(e.get("message") or {}).get("id") for e in events if e.get("type") == "assistant"} - {None}
+    result = next((e for e in reversed(events) if e.get("type") == "result"), {})
+    used = list((result.get("modelUsage") or {}).values())
+    tokens = {
+        "input": sum(u.get("inputTokens", 0) for u in used),
+        "cache_read": sum(u.get("cacheReadInputTokens", 0) for u in used),
+        "cache_creation": sum(u.get("cacheCreationInputTokens", 0) for u in used),
+        "output": sum(u.get("outputTokens", 0) for u in used),
+    }
+    return {
+        "inferences": len(messages),
+        "invoked": sum(1 for u in claude_code_uses(recording) if u.get("name") in CLAUDE_CODE_SUBAGENT_TOOLS),
+        "tokens": tokens,
+        "total_tokens": sum(tokens.values()) if used else None,
+    }
+
+
+def claude_code_answer(recording):
+    """The last message of a recorded run of Claude Code, and why it failed, if it did."""
+    result = next((e for e in reversed(claude_code_events(recording)) if e.get("type") == "result"), None)
+    if result is None:
+        return None, "no answer"
+    return result.get("result"), (result.get("result") or result.get("subtype") if result.get("is_error") else None)
+
+
+def claude_code(prompt, directory, recording_dir, timeout, effort, environ, model):
+    """
+    Lets Claude Code work on the prompt in the directory, headless, as it comes, with the user's configuration,
+    but none of its MCP servers, nor its tools reaching the web, and returns what came of it.
+    Its sessions are kept in the recording.
+    """
+    command = ["claude", "-p", "--model", model, "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "bypassPermissions", "--strict-mcp-config",
+               "--disallowedTools", "WebSearch", "WebFetch"]
+    command += (["--effort", effort] if effort else []) + ["--", prompt]
+    env = temporary(environ, Path(directory)) | {
+        "CLAUDE_CODE_TMPDIR": str(Path(directory) / "tmp"),
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        "DISABLE_AUTOUPDATER": "1",
+    }
+    with open(recording_dir / "transcript.jsonl", "w") as stdout, open(recording_dir / "stderr.log", "w") as stderr:
+        # in a process group of its own, as its subagents and shells would outlive a timeout otherwise
+        process = subprocess.Popen(isolation(recording_dir, directory, CLAUDE_CODE) + command, cwd=directory, env=env,
+                                   stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True)
+        try:
+            failure = None if process.wait(timeout) == 0 else f"exit {process.returncode}"
+        except subprocess.TimeoutExpired:
+            failure = f"timeout after {timeout}s"
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
+    project = claude_code_project(directory)
+    if project.exists():
+        shutil.copytree(project, recording_dir / "sessions")
+        shutil.rmtree(project, ignore_errors=True)
+    said, failed = claude_code_answer(recording_dir)
+    answer = Path(directory) / ANSWER_FILE
+    return {
+        "output": answer.read_text() if answer.exists() else said,
+        "impediment": None,
+        "failure": failure or failed,
+    } | claude_code_totals(recording_dir)
+
+
+def cogitate(task_dir, run_dir, repeat, timeout, token_budget, harness="annie", effort=None, model=None):
     task = json.loads((task_dir / "task.json").read_text())
     name = f"{task_dir.name}-{repeat}"
     recording_dir = run_dir / name
     recording_dir.mkdir()
-    question = task["question"]
-    if task["task"] == PAIRS:
-        question = f"{PAIRS_PREFIX}{question}\n\n{PAIRS_INSTRUCTIONS}"
     started = time.monotonic()
     with placed(task_dir.parents[1] / "contexts" / f"{task_dir.name}.txt") as context:
+        question = task["question"]
+        if task["task"] == PAIRS:
+            instructions = (PAIRS_FILE_INSTRUCTIONS.format(answer=context.parent / ANSWER_FILE)
+                            if harness in (PRIME_AGENT, CLAUDE_CODE) else PAIRS_INSTRUCTIONS)
+            question = f"{PAIRS_PREFIX}{question}\n\n{instructions}"
         prompt = PROMPT.format(context=context, tokens=task["context_len"] // 1024, question=question)
+        endpoint = Endpoint(reached["url"], reached["key"], reached["model"]) if reached else None
+        environ = os.environ | ({reached["url_variable"]: endpoint.url} if endpoint else {}) \
+            | ({reached["key_variable"]: Endpoint.WITHHELD} if endpoint and reached["key"] else {})
         try:
-            process = subprocess.run(
-                [str(AGENT), prompt],
-                cwd=context.parent,
-                env=os.environ | {"ANNIE_COGITATIONS_DIR": str(recording_dir)}
-                    | ({"ANNIE_TOKEN_BUDGET": str(token_budget)} if token_budget else {}),
-                capture_output=True, text=True, timeout=timeout
-            )
-            stdout, failure = process.stdout, (None if process.returncode == 0 else f"exit {process.returncode}")
-        except subprocess.TimeoutExpired as e:
-            stdout, failure = (e.stdout or b"").decode(errors="replace"), f"timeout after {timeout}s"
-    (recording_dir / "stdout.log").write_text(stdout)
-    output, impediment = enunciated(stdout)
-    totals = inferences(recording_dir)
+            if harness == CLAUDE_CODE:
+                outcome = claude_code(prompt, context.parent, recording_dir, timeout, effort, environ, model)
+            elif harness == PRIME_AGENT:
+                outcome = prime_agent(prompt, context.parent, recording_dir, timeout, effort, environ)
+            else:
+                outcome = annie(prompt, context.parent, recording_dir, timeout, token_budget, effort, environ)
+        finally:
+            if endpoint:
+                endpoint.close()
+        if endpoint:
+            outcome["endpoint"] = endpoint.usage
+        keep(context.parent, recording_dir)
     return {
         "run": name,
         "task": task_dir.name,
         "repeat": repeat,
-        "output": output,
-        "impediment": impediment,
-        "failure": failure,
         "seconds": round(time.monotonic() - started, 1),
-        "inferences": totals["inferences"] if totals else None,
-        "tokens": totals["tokens"] if totals else None,
-        "total_tokens": totals["total"] if totals else None,
-    }
+    } | outcome
+
+
+def awake():
+    """Keeps this computer from sleeping on its own until the evaluation ends, see CAFFEINATE."""
+    return subprocess.Popen([CAFFEINATE, "-i", "-w", str(os.getpid())])
 
 
 def run(args):
@@ -655,14 +1233,60 @@ def run(args):
         tasks = [t for t in tasks if any(s in t.name for s in args.tasks)]
     if not tasks:
         sys.exit("no tasks, run `prepare` first")
-    if not os.environ.get("ANTHROPIC_MODEL") and not os.environ.get("OPENAI_MODEL"):
+    prime = args.harness == PRIME_AGENT
+    claude_code_run = args.harness == CLAUDE_CODE
+    model = args.model or CLAUDE_CODE_MODEL
+    if claude_code_run:
+        if not shutil.which("claude"):
+            sys.exit("claude-code runs the claude command, which has to be installed")
+    elif prime:
+        if not os.environ.get("OPENAI_MODEL") or not shutil.which(PRIME_AGENT):
+            sys.exit(f"{PRIME_AGENT} runs the OPENAI_MODEL, and has to be installed")
+    elif not os.environ.get("ANTHROPIC_MODEL") and not os.environ.get("OPENAI_MODEL"):
         sys.exit("neither ANTHROPIC_MODEL nor OPENAI_MODEL is set")
-    subprocess.run([str(ROOT / "gradlew"), "-q", "installDist"], cwd=ROOT, check=True)
+    else:
+        subprocess.run([str(ROOT / "gradlew"), "-q", "installDist", "installPythonPackages"], cwd=ROOT, check=True)
+    if args.sandbox:
+        if not shutil.which(SANDBOX):
+            sys.exit(f"--sandbox needs {SANDBOX}, which macOS has")
+        # the gold answers: in the sets, in the answers of earlier runs, in the tests of the evaluation,
+        # in what the agents of earlier runs left in temporary directories, and in the home directory, see NEEDED,
+        # all of which an agent searching this computer finds
+        # the recorded cogitations of honest-annie run by hand, in the repository, which the agent needs otherwise
+        withheld[:] = [ROOT / "evals", ROOT / "cogitations", *temporary_directories()]
+        claude = not prime and os.environ.get("ANTHROPIC_MODEL")
+        provider = "ANTHROPIC" if claude else "OPENAI"
+        default = "https://api.anthropic.com" if claude else "https://api.openai.com/v1"
+        if claude_code_run:
+            # with the user's own login, which the endpoint passes on, for the evaluated model and the small ones
+            reached.update({"url_variable": "ANTHROPIC_BASE_URL", "url": "https://api.anthropic.com",
+                            "key_variable": None, "key": None, "model": claude_code_models(model)})
+        else:
+            reached.update({
+                "url_variable": f"{provider}_BASE_URL",
+                "url": os.environ.get(f"{provider}_BASE_URL") or default,
+                "key_variable": f"{provider}_API_KEY",
+                "key": os.environ[f"{provider}_API_KEY"],
+                "model": os.environ[f"{provider}_MODEL"],
+            })
+        # a JVM connects to 127.0.0.1 from an IPv6 socket, which the sandbox does not take for this computer
+        os.environ["JAVA_TOOL_OPTIONS"] = (
+            f"{os.environ.get('JAVA_TOOL_OPTIONS', '')} -Djava.net.preferIPv4Stack=true".strip()
+        )
+    effort = args.effort or os.environ.get("ANNIE_EFFORT")
+    # Prime Agent has no budget of tokens for a run and its subagents, only the timeout
+    token_budget = 0 if prime or claude_code_run else args.token_budget
+    if shutil.which(CAFFEINATE):
+        awake()
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
     run_dir = RUNS_DIR / (f"{stamp}-{args.label}" if args.label else stamp)
     run_dir.mkdir(parents=True)
     (run_dir / "run.json").write_text(json.dumps({
-        "model": os.environ.get("ANTHROPIC_MODEL") or os.environ.get("OPENAI_MODEL"),
+        "harness": args.harness,
+        "model": model if claude_code_run else os.environ["OPENAI_MODEL"] if prime
+        else os.environ.get("ANTHROPIC_MODEL") or os.environ.get("OPENAI_MODEL"),
+        "effort": effort,
+        "sandbox": args.sandbox,
         "commit": subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True
         ).stdout.strip(),
@@ -671,18 +1295,18 @@ def run(args):
         ).stdout.strip()),
         "set": set_name,
         "repeats": args.repeats,
-        "token_budget": args.token_budget or None,
+        "token_budget": token_budget or None,
         "tasks": [t.name for t in tasks],
     }, indent=2) + "\n")
     print(f"recording in {run_dir}")
     lock = threading.Lock()
 
     def one(job):
-        result = cogitate(*job, args.timeout, args.token_budget)
+        result = cogitate(*job, args.timeout, token_budget, args.harness, effort, model)
         with lock:
             with open(run_dir / "results.jsonl", "a") as f:
                 f.write(json.dumps(result) + "\n")
-            evaluated = evaluate(result, run_dir, set_name)
+            evaluated = evaluate(result, run_dir, set_name, args.harness)
             print(f"{result['run']}: {evaluated['score']:.2f} "
                   f"(expected {evaluated['expected']}, got {evaluated['parsed']})", flush=True)
 
@@ -697,9 +1321,12 @@ def report(args):
     meta = json.loads((run_dir / "run.json").read_text())
     set_name = meta.get("set", FIRST_SET)
     lines = (run_dir / "results.jsonl").read_text().splitlines()
-    results = [evaluate(json.loads(l), run_dir, set_name) for l in lines]
-    print(f"\n{run_dir.name}: {meta['model']} at {meta['commit'][:7]}{' (dirty)' if meta['dirty'] else ''}"
-          f" on the set {set_name}")
+    harness = meta.get("harness", "annie")
+    results = [evaluate(json.loads(l), run_dir, set_name, harness) for l in lines]
+    effort = f", effort {meta['effort']}" if meta.get("effort") else ""
+    harness += " without network" if meta.get("sandbox") else ""
+    print(f"\n{run_dir.name}: {meta['model']}{effort} in {harness}"
+          f" at {meta['commit'][:7]}{' (dirty)' if meta['dirty'] else ''} on the set {set_name}")
     if any(r["precision"] is not None for r in results):
         print("  score: F1 of the pairs, as prime-envs; agree: items labeled as the dataset does, of those judged;")
     else:
@@ -713,7 +1340,7 @@ def report(args):
             got = r["parsed"] if r["parsed"] is not None else (r["failure"] or f"impeded: {r['impediment']}")
             agree = f"{r['agreement']:.1%} of {r['judged']}" if r["agreement"] is not None else "-"
             own = {True: "yes", False: "NO", None: "-"}[r["consistent"]]
-            leak = "  LEAKED: an intent read the gold answers" if r["leaked"] else ""
+            leak = "  LEAKED: reached for the gold answers or the network, see its code" if r["leaked"] else ""
             recall = f"  precision {r['precision']:.2f}  recall {r['recall']:.2f}" if r["precision"] is not None else ""
             print(f"    {r['repeat']}  score {r['score']:.2f}{recall}  agree {agree:>13}  own {own:>3}  got {got}{leak}")
     mean = sum(r["score"] for r in results) / len(results)
@@ -726,6 +1353,14 @@ def report(args):
     if consistency:
         print(f"  consistent with own labels in {sum(consistency)} of {len(consistency)} runs judging every item")
     print(f"  {sum(tokens) / max(len(tokens), 1):,.0f} tokens per run on average")
+    counted = [r["endpoint"]["total"] for r in results if r.get("endpoint")]
+    if counted:
+        print(f"  {sum(counted) / len(counted):,.0f} tokens per run on average at the endpoint, "
+              f"the requests of the agent's own scripts included")
+    for told, key in ("inferences", "inferences"), ("cogitations invoked", "invoked"), ("seconds", "seconds"):
+        values = [r[key] for r in results if r.get(key) is not None]
+        if values:
+            print(f"  {sum(values) / len(values):,.1f} {told} per run on average")
 
 
 def score_recorded(args):
@@ -757,6 +1392,11 @@ if __name__ == "__main__":
                    help="tokens the cogitation of a task may spend, the invoked ones included, 0 for no limit")
     p.add_argument("--tasks", nargs="*", help="substrings of task names to run, all by default")
     p.add_argument("--label", help="appended to the name of the run directory, e.g. what changed")
+    p.add_argument("--harness", choices=HARNESSES, default="annie", help="the harness answering the tasks")
+    p.add_argument("--model", help=f"the model of {CLAUDE_CODE}, {CLAUDE_CODE_MODEL} by default")
+    p.add_argument("--effort", help="the reasoning effort, e.g. high, ANNIE_EFFORT by default")
+    p.add_argument("--sandbox", action="store_true",
+                   help="withhold the network, but for the model, and the gold answers, from the agent")
     p.set_defaults(command=run)
     p = commands.add_parser("report")
     p.add_argument("run_dir")

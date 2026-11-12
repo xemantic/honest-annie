@@ -29,7 +29,11 @@ import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
-import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
+import com.xemantic.ai.annie.cognizer.Effort
+import com.xemantic.ai.annie.cognizer.InMemoryMonologueStore
+import com.xemantic.ai.annie.cognizer.IntentTool
+import com.xemantic.ai.annie.cognizer.MonologueTrace
+import com.xemantic.ai.annie.cognizer.MonologueVisibility
 import com.xemantic.ai.annie.cognizer.minimalPdf
 import com.xemantic.ai.annie.cognizer.redPixelPng
 import com.xemantic.ai.annie.cognizer.redPixelPngBase64
@@ -74,14 +78,14 @@ class ClaudeInferenceTest {
         json(jsonMapper().writeValueAsString(request(cogitation)._body()))
 
     @Test
-    fun `should request adaptive thinking with effort, cached constitution and no tool choice`() {
+    fun `should request adaptive thinking with effort, cached constitution and the tool executing intents`() {
         // given
         val inference = ClaudeInference(
             client = client,
             model = "claude-opus-5-5",
             maxTokens = 32000,
-            effort = Monologue.Effort.MAX,
-            visibility = Monologue.Visibility.SUMMARY
+            effort = Effort.MAX,
+            visibility = MonologueVisibility.SUMMARY
         )
 
         // when
@@ -92,7 +96,15 @@ class ClaudeInferenceTest {
         assert(body["max_tokens"].asLong() == 32000L)
         assert(body["thinking"] == json("""{"type": "adaptive", "display": "summarized"}"""))
         assert(body["output_config"] == json("""{"effort": "max"}"""))
-        assert(body["tool_choice"] == json("""{"type": "none"}"""))
+        assert(body["tool_choice"] == json("""{"type": "auto", "disable_parallel_tool_use": true}"""))
+        // a call cannot be forced on the latest models, but its arguments always fit the schema
+        assert(body["tools"] == json("""
+            [{"name": "kotlin_script", "description": ${jsonMapper().writeValueAsString(IntentTool.DESCRIPTION)},
+              "input_schema": {"type": "object", "properties": {"script": {"type": "string",
+                "description": ${jsonMapper().writeValueAsString(IntentTool.SCRIPT_DESCRIPTION)}}},
+                "required": ["script"], "additionalProperties": false},
+              "strict": true}]
+        """))
         assert(body["system"] == json("""
             [{"type": "text", "text": "constitution", "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
         """))
@@ -178,7 +190,7 @@ class ClaudeInferenceTest {
         val inference = ClaudeInference(
             client = client,
             model = "claude-opus-5-5",
-            visibility = Monologue.Visibility.UPDATES
+            visibility = MonologueVisibility.UPDATES
         )
 
         // when
@@ -190,27 +202,27 @@ class ClaudeInferenceTest {
     }
 
     @Test
-    fun `should replay monologue only to the model which produced it`() {
+    fun `should replay monologue only to the model which produced it, in the exact form kept in the store`() {
         // given
+        val monologues = InMemoryMonologueStore()
         val inference = ClaudeInference(
             client = client,
             model = "anthropic.claude-opus-5-5",
-            modelId = "claude-opus-5-5"
+            modelId = "claude-opus-5-5",
+            monologues = monologues
         )
+        monologues["other"] = MonologueTrace.ClaudeThinking(producedBy = "claude-opus-5", thinking = "other thought", signature = "other")
+        monologues["thought"] = MonologueTrace.ClaudeThinking(producedBy = "claude-opus-5-5", thinking = "thought", signature = "sig")
+        monologues["redacted"] = MonologueTrace.ClaudeRedacted(producedBy = "claude-opus-5-5", data = "redacted")
         val cogitation = cogitation(Enunciation(
             actant = Actant(type = Actant.Type.SELF, name = "claude"),
             initiated = initiated,
             phenomena = listOf(
-                Monologue(
-                    summary = listOf("other thought"),
-                    continuation = Continuation.ClaudeSignature(producedBy = "claude-opus-5", signature = "other")
-                ),
-                Monologue(
-                    summary = listOf("thought"),
-                    continuation = Continuation.ClaudeSignature(producedBy = "claude-opus-5-5", signature = "sig")
-                ),
-                Monologue(continuation = Continuation.ClaudeRedacted(producedBy = "claude-opus-5-5", data = "redacted")),
-                Phenomenon.Intent("6 * 7")
+                Monologue("other thought", id = "other"),
+                Monologue("thought", id = "thought"),
+                Monologue("", id = "redacted"),
+                Monologue("thought of another cognizer", id = "unknown"),
+                Phenomenon.Intent("6 * 7", id = "toolu_1")
             )
         ))
 
@@ -222,36 +234,100 @@ class ClaudeInferenceTest {
             {"role": "assistant", "content": [
                 {"type": "thinking", "thinking": "thought", "signature": "sig"},
                 {"type": "redacted_thinking", "data": "redacted"},
-                {"type": "text", "text": "6 * 7"}
+                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}}
             ]}
         """))
     }
 
     @Test
-    fun `should replay only the executed script of intent`() {
+    fun `should replay the monologue it perceived`() {
         // given
-        val inference = ClaudeInference(
-            client = client,
-            model = "anthropic.claude-opus-5-5",
-            modelId = "claude-opus-5-5"
-        )
-        val cogitation = cogitation(Enunciation(
-            actant = Actant(type = Actant.Type.SELF, name = "claude"),
-            initiated = initiated,
-            phenomena = listOf(Phenomenon.Intent("Checking first:\n```kotlin\n6 * 7\n```\nThis should evaluate to 42."))
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val message = jsonMapper().readValue("""
+            {
+              "id": "msg_1",
+              "type": "message",
+              "role": "assistant",
+              "model": "claude-opus-5-5",
+              "content": [
+                {"type": "thinking", "thinking": "thought", "signature": "sig"},
+                {"type": "text", "text": "42"}
+              ],
+              "stop_reason": "end_turn",
+              "stop_sequence": null,
+              "usage": {"input_tokens": 1, "output_tokens": 1}
+            }
+        """, Message::class.java)
+        val phenomena = inference.phenomena(message)
+
+        // when
+        val body = inference.body(cogitation(
+            Enunciation(
+                actant = Actant.SELF,
+                initiated = initiated,
+                phenomena = phenomena,
+                inference = Inference(model = "claude-opus-5-5", provider = "anthropic")
+            ),
+            Enunciation(
+                actant = Actant(type = Actant.Type.HUMAN, name = "user"),
+                initiated = initiated,
+                phenomena = listOf(Phenomenon.Text("and twice that?"))
+            )
         ))
+
+        // then
+        assert(body["messages"][1] == json("""
+            {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "thought", "signature": "sig"},
+                {"type": "text", "text": "42"}
+            ]}
+        """))
+        assert(body["messages"][2] == json("""
+            {"role": "user", "content": "<annie:actant type=\"human\" name=\"user\" initiated=\"2026-10-22T10:15:30Z\"/>\nand twice that?"}
+        """))
+    }
+
+    @Test
+    fun `should replay text before tool call, and execution of intent as its result`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val cogitation = cogitation(
+            Enunciation(
+                actant = Actant.SELF,
+                initiated = initiated,
+                phenomena = listOf(
+                    Phenomenon.Text("Computing it."),
+                    Phenomenon.Intent("6 * 7", id = "toolu_1")
+                )
+            ),
+            Enunciation(
+                actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
+                initiated = initiated,
+                respondsTo = "toolu_1",
+                phenomena = listOf(Phenomenon.Text("42"), Phenomenon.Data(redPixelPng, "image/png"))
+            )
+        )
 
         // when
         val body = inference.body(cogitation)
 
         // then
         assert(body["messages"][1] == json("""
-            {"role": "assistant", "content": [{"type": "text", "text": "6 * 7"}]}
+            {"role": "assistant", "content": [
+                {"type": "text", "text": "Computing it."},
+                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}}
+            ]}
+        """))
+        assert(body["messages"][2] == json("""
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+              {"type": "text", "text": "<annie:actant type=\"computer\" name=\"user's computer\" initiated=\"2026-10-22T10:15:30Z\"/>\n42\n\n<annie:data content-type=\"image/png\" size=\"70\"/>"},
+              {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "$redPixelPngBase64"}}
+            ]}]}
         """))
     }
 
     @Test
-    fun `should perceive thinking redacted thinking and text of response`() {
+    fun `should perceive thinking and redacted thinking as monologues, text, and tool call as intent`() {
         // given
         val inference = ClaudeInference(
             client = client,
@@ -267,8 +343,8 @@ class ClaudeInferenceTest {
               "content": [
                 {"type": "thinking", "thinking": "", "signature": "sig"},
                 {"type": "redacted_thinking", "data": "redacted"},
-                {"type": "text", "text": "6 *"},
-                {"type": "text", "text": "7"}
+                {"type": "text", "text": "Computing it."},
+                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}}
               ],
               "stop_reason": "end_turn",
               "stop_sequence": null,
@@ -280,17 +356,51 @@ class ClaudeInferenceTest {
         val phenomena = inference.phenomena(message)
 
         // then
-        assert(phenomena.dropLast(1) == listOf(
-            Monologue(
-                role = Monologue.Role.REASONING,
-                continuation = Continuation.ClaudeSignature(producedBy = "claude-opus-5-5", signature = "sig")
-            ),
-            Monologue(
-                role = Monologue.Role.REASONING,
-                continuation = Continuation.ClaudeRedacted(producedBy = "claude-opus-5-5", data = "redacted")
-            )
+        val (thinking, redacted) = phenomena.filterIsInstance<Monologue>()
+        val intent = phenomena.last() as Phenomenon.Intent
+        assert(phenomena == listOf(
+            Monologue("", id = thinking.id),
+            Monologue("", id = redacted.id),
+            Phenomenon.Text("Computing it."),
+            Phenomenon.Intent("6 * 7", id = intent.id)
         ))
-        assert((phenomena.last() as Phenomenon.Intent).script == "6 *\n7")
+        assert(thinking.id != redacted.id)
+    }
+
+    @Test
+    fun `should perceive response without tool call as text`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+
+        // when
+        val phenomena = inference.phenomena(message("""{"input_tokens": 1, "output_tokens": 1}"""))
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("6 * 7")))
+    }
+
+    @Test
+    fun `should perceive call of another tool as expressing no intent`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val message = jsonMapper().readValue("""
+            {
+              "id": "msg_1",
+              "type": "message",
+              "role": "assistant",
+              "model": "claude-opus-5-5",
+              "content": [{"type": "tool_use", "id": "toolu_1", "name": "bash", "input": {"command": "ls"}}],
+              "stop_reason": "tool_use",
+              "stop_sequence": null,
+              "usage": {"input_tokens": 1, "output_tokens": 1}
+            }
+        """, Message::class.java)
+
+        // when
+        val phenomena = inference.phenomena(message)
+
+        // then
+        assert(phenomena.isEmpty())
     }
 
     @Test
@@ -305,8 +415,7 @@ class ClaudeInferenceTest {
               "model": "claude-opus-5-5",
               "content": [
                 {"type": "thinking", "thinking": "first", "signature": "sig1"},
-                {"type": "text", "text": "6 *"},
-                {"type": "text", "text": "7"},
+                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}},
                 {"type": "thinking", "thinking": "as if the result was perceived", "signature": "sig2"},
                 {"type": "text", "text": "42"}
               ],
@@ -321,12 +430,11 @@ class ClaudeInferenceTest {
 
         // then
         assert(phenomena.size == 2)
-        assert(phenomena.first() == Monologue(
-            summary = listOf("first"),
-            role = Monologue.Role.REASONING,
-            continuation = Continuation.ClaudeSignature(producedBy = "claude-opus-5-5", signature = "sig1")
-        ))
-        assert((phenomena.last() as Phenomenon.Intent).script == "6 *\n7")
+        assert((phenomena.first() as Monologue).text == "first")
+        val intent = phenomena.last() as Phenomenon.Intent
+        assert(intent.script == "6 * 7")
+        // the id of the provider, foreign to the cogitation, is replaced by one of its own
+        assert(intent.id != "toolu_1")
     }
 
     @Test
@@ -396,12 +504,14 @@ class ClaudeInferenceTest {
         val usage = """{"input_tokens": 3, "output_tokens": 1}"""
 
         // when
-        val stops = listOf("end_turn", "max_tokens", "model_context_window_exceeded", "refusal", "pause_turn")
+        val stops = listOf("end_turn", "tool_use", "max_tokens", "model_context_window_exceeded", "refusal", "pause_turn")
             .map { inference.inference(message(usage, stopReason = it)).stop }
 
         // then
         assert(stops == listOf(
             Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn"),
+            // calling the tool of intents completes an inference expressing one
+            Inference.Stop(Inference.Stop.Kind.COMPLETED, "tool_use"),
             Inference.Stop(Inference.Stop.Kind.TRUNCATED, "max_tokens"),
             Inference.Stop(Inference.Stop.Kind.TRUNCATED, "model_context_window_exceeded"),
             Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal"),

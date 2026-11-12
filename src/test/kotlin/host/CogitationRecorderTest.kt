@@ -56,7 +56,7 @@ class CogitationRecorderTest {
                 ),
                 Enunciation(
                     actant = Actant.SELF,
-                    phenomena = listOf(Phenomenon.Monologue(listOf("thinking")), Phenomenon.Intent("1"))
+                    phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent("1"))
                 ),
                 Enunciation(
                     actant = computer,
@@ -91,53 +91,6 @@ class CogitationRecorderTest {
             "003-2-computer-invocation.md",
             "003-3-computer-text.md"
         ))
-    }
-
-    @Test
-    fun `should record executed script of intent beside its expression, when they differ`() = runTest {
-        // given
-        val recordingDir = createTempDirectory("cogitations")
-        val expression = "Checking first:\n```kotlin\n6 * 7\n```"
-        val cogitation = Cogitation(
-            constitution = emptyList(),
-            harness = "",
-            enunciations = listOf(Enunciation(
-                actant = Actant.SELF,
-                phenomena = listOf(Phenomenon.Intent(expression), Phenomenon.Intent("1"))
-            ))
-        )
-
-        // when
-        CogitationRecorder(recordingDir).record(cogitation)
-
-        // then
-        val root = recordingDir.listDirectoryEntries().single()
-        assert(root.resolve("001-1-self-intent.kts").readText() == expression)
-        assert(root.resolve("001-1-self-intent-executed.kts").readText() == "6 * 7")
-        assert(!root.resolve("001-2-self-intent-executed.kts").toFile().exists())
-        val index = root.resolve("cogitation.md").readText()
-        assert(index.contains("[intent](001-1-self-intent.kts) [executed](001-1-self-intent-executed.kts) [intent-2](001-2-self-intent.kts)"))
-    }
-
-    @Test
-    fun `should not record executed script of intent differing from its expression only by surrounding whitespace`() = runTest {
-        // given
-        val recordingDir = createTempDirectory("cogitations")
-        val cogitation = Cogitation(
-            constitution = emptyList(),
-            harness = "",
-            enunciations = listOf(Enunciation(
-                actant = Actant.SELF,
-                phenomena = listOf(Phenomenon.Intent("\n\nval answer = 6 * 7\nanswer\n"))
-            ))
-        )
-
-        // when
-        CogitationRecorder(recordingDir).record(cogitation)
-
-        // then
-        val root = recordingDir.listDirectoryEntries().single()
-        assert(!root.resolve("001-1-self-intent-executed.kts").toFile().exists())
     }
 
     @Test
@@ -314,7 +267,7 @@ class CogitationRecorderTest {
         )
         recorder.record(Cogitation(constitution = emptyList(), harness = "", enunciations = listOf(question)))
         val discarded = inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L))
-            .copy(phenomena = listOf(Phenomenon.Monologue(listOf("thinking")), Phenomenon.Intent("<invoke name=\"fetch\">")))
+            .copy(phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent("<invoke name=\"fetch\">")))
 
         // when
         recorder.record(

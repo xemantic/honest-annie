@@ -97,6 +97,9 @@ class SessionScriptExecutor(
         ScriptSession { provide<Agency>("agency", agency) }
     }
 
+    // whether the API of annie is imported into the session, see DEFAULT_IMPORTS
+    private var imported = false
+
     override suspend fun execute(
         script: String,
         cogitation: Cogitation,
@@ -104,27 +107,37 @@ class SessionScriptExecutor(
     ): List<Phenomenon> {
         val collecting = CollectingAgency(agency, cogitation, this)
         this.agency.current = collecting
+        if (!imported) {
+            val imports = session.value.execute(DEFAULT_IMPORTS)
+            check(imports !is ScriptResult.Error) { "Cannot import the API of annie: ${(imports as ScriptResult.Error).message}" }
+            imported = true
+        }
         val result = session.value.execute(script)
         val printed = if (interpreter.isInitialized()) interpreter.value.printed() else null
-        return collecting.collected + listOfNotNull(printed) + when (result) {
-            is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest()))
-            is ScriptResult.Value -> listOfNotNull(
-                when (val value = result.value) {
-                    null, Unit, is Phenomenon.Invocation -> null
-                    is Phenomenon.Data -> value
-                    // already in the result, e.g. `prompts.map { agency.invoke(it) }`
-                    is Iterable<*> if value.any() && value.all { it is Phenomenon.Invocation } -> null
-                    else -> Phenomenon.Text(value.toString(), Phenomenon.Text.PLAIN)
-                },
-                result.resolvedVersions.takeIf { it.isNotEmpty() }?.let { versions ->
-                    Phenomenon.Text(
-                        versions.entries.joinToString(prefix = "Resolved dependency versions: ") { (dependency, version) ->
-                            "$dependency:$version"
+        return buildList {
+            addAll(collecting.collected)
+            addAll(listOfNotNull(printed))
+            addAll(
+                when (result) {
+                    is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest()))
+                    is ScriptResult.Value -> listOfNotNull(
+                        when (val value = result.value) {
+                            null, Unit, is Phenomenon.Invocation -> null
+                            is Phenomenon.Data -> value
+                            // already in the result, e.g. `prompts.map { agency.invoke(it) }`
+                            is Iterable<*> if value.any() && value.all { it is Phenomenon.Invocation } -> null
+                            else -> Phenomenon.Text(value.toString().digest(VALUE_OMISSION), Phenomenon.Text.PLAIN)
                         },
-                        Phenomenon.Text.PLAIN
+                        result.resolvedVersions.takeIf { it.isNotEmpty() }?.let { versions ->
+                            Phenomenon.Text(
+                                versions.entries.joinToString(prefix = "Resolved dependency versions: ") { (dependency, version) ->
+                                    "$dependency:$version"
+                                },
+                                Phenomenon.Text.PLAIN
+                            )
+                        }
                     )
-                }
-            )
+                })
         }
     }
 
@@ -203,13 +216,29 @@ private fun Interpreter.printed(): Phenomenon.Text? {
             "(__import__('sys').annie_output[__import__('threading').get_ident()])"
     ).trimEnd()
     if (printed.isEmpty()) return null
-    val digest = if (printed.length <= MAX_PRINTED_LENGTH) printed else {
-        printed.take(MAX_PRINTED_LENGTH) + "\n… ${printed.length - MAX_PRINTED_LENGTH} more characters omitted"
-    }
-    return Phenomenon.Text("Printed by Python:\n$digest", Phenomenon.Text.PLAIN)
+    return Phenomenon.Text("Printed by Python:\n${printed.digest("")}", Phenomenon.Text.PLAIN)
 }
 
-private const val MAX_PRINTED_LENGTH = 10_000
+/**
+ * The first [MAX_RESULT_LENGTH] characters of this text perceived in the result of an intent,
+ * telling how many more are omitted, followed by the [advice], so that a single result does not flood the cogitation,
+ * where it would be perceived again at every later step.
+ */
+private fun String.digest(advice: String): String =
+    if (length <= MAX_RESULT_LENGTH) this
+    else take(MAX_RESULT_LENGTH) + "\n… ${length - MAX_RESULT_LENGTH} more characters omitted$advice"
+
+private const val MAX_RESULT_LENGTH = 10_000
+
+/**
+ * What the session of the intents imports before the first one, so that a script uses the API of annie,
+ * e.g. `Phenomenon`, without importing it: one forgetting to was the most frequent failure of an intent,
+ * costing a whole step to fix, whatever the model. An import of a snippet stays visible to the later ones.
+ */
+private const val DEFAULT_IMPORTS = "import com.xemantic.ai.annie.*"
+
+private const val VALUE_OMISSION = ": keep the whole value in a `val`, " +
+        "and let the script evaluate to a digest of what you need to know of it"
 
 /**
  * The first errors of this message of a failed script, at most [MAX_ERRORS_LENGTH] characters of them,
@@ -226,83 +255,6 @@ private fun String.digest(): String {
 }
 
 private const val MAX_ERRORS_LENGTH = 4000
-
-/**
- * The script of an intent expressed as this text, see [Phenomenon.Intent.script]:
- * what precedes the made up markup, within the first fence, without the closing tags ending it.
- */
-internal fun String.executable(): String = beforeMarkup().unfenced().withoutClosingTags().trim()
-
-/**
- * The text before its first line of markup, which no line of Kotlin starts with, except within a multiline string:
- * either perceived markup, e.g. an `annie:actant` tag heading a response of the computer,
- * which some cognizers, e.g. DeepSeek, write after their script, going on as if they perceived its result,
- * often with further scripts, all built on made up results,
- * or a line of closing tags, e.g. `</script>`, after which some cognizers keep repeating their script.
- * Only the latter is kept within a multiline string, e.g. of HTML, while perceived markup is cut even there,
- * as the quotes of a script built on made up results may not be balanced, executing them otherwise.
- */
-private fun String.beforeMarkup(): String {
-    val lines = lines()
-    var quotes = 0
-    val markup = lines.indexOfFirst { line ->
-        val trimmed = line.trim()
-        (trimmed.startsWith("<annie:") || quotes % 2 == 0 && trimmed.matches(CLOSING_TAGS)).also {
-            quotes += RAW_QUOTES.findAll(line).count()
-        }
-    }
-    return if (markup < 0) this else lines.take(markup).joinToString("\n")
-}
-
-private val CLOSING_TAGS = Regex("(</[^<>]+>)+")
-
-private val RAW_QUOTES = Regex("\"\"\"")
-
-/**
- * The script within the first Markdown code fence, e.g. ` ```kotlin `, which some cognizers keep writing
- * around their intents, often with text before and after it, which is discarded, failing to compile otherwise.
- * Fences nested within it, e.g. in a multiline string of Markdown, are counted, so that only the fence
- * closing the first one ends the script: a fence with an info string opens, and a bare one closes.
- * A script without a fence is kept as is, and so is one with nothing within its first fence,
- * while one whose fence is never closed extends to its end.
- */
-private fun String.unfenced(): String {
-    val lines = lines()
-    val opening = lines.indexOfFirst { it.trim().matches(FENCE) }
-    if (opening < 0) return this
-    var depth = 0
-    val closing = (opening + 1 until lines.size).firstOrNull { index ->
-        val line = lines[index].trim()
-        when {
-            line == "```" -> depth-- == 0
-            line.matches(FENCE) -> { depth++; false }
-            else -> false
-        }
-    } ?: lines.size
-    val script = lines.subList(opening + 1, closing).joinToString("\n")
-    // a lone fence ending the text, e.g. of prose, closes rather than opens, executing the text as is
-    return script.ifBlank { this }
-}
-
-private val FENCE = Regex("```[\\w+-]*")
-
-/**
- * The script without the closing tags ending it, e.g. `</parameter>` or DeepSeek's `</｜DSML｜ invoke>`,
- * which some cognizers write after a script expressed as the parameter of a tool call,
- * the opening tags being taken apart by the endpoint, failing to compile otherwise.
- * No Kotlin script ends with a closing tag, a string literal containing one ending with its quote.
- */
-private fun String.withoutClosingTags(): String {
-    var script = this
-    while (true) {
-        val trimmed = script.trimEnd()
-        val opening = trimmed.lastIndexOf("</")
-        if (!trimmed.endsWith(">") || opening < 0) return script
-        val name = trimmed.substring(opening + 2, trimmed.length - 1)
-        if (name.isEmpty() || name.any { it == '<' || it == '>' || it == '\n' }) return script
-        script = trimmed.substring(0, opening)
-    }
-}
 
 /**
  * The [agency] collecting the invocations made through it, within the [cogitation] of the intent,
@@ -342,7 +294,6 @@ internal class SwitchedAgency : Agency {
     override val depth: Int get() = current.depth
     override val invocations: List<Phenomenon.Invocation> get() = current.invocations
     override val enunciated: List<Phenomenon> get() = current.enunciated
-    override val maxReinferences: Int get() = current.maxReinferences
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http
 
@@ -355,7 +306,6 @@ internal class SwitchedAgency : Agency {
 
     override fun impede(reason: String) = current.impede(reason)
 
-    override fun isMalformed(intent: Phenomenon.Intent) = current.isMalformed(intent)
 
     override fun resolveDeclaration(name: String, page: Int, pageSize: Int) =
         current.resolveDeclaration(name, page, pageSize)

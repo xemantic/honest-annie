@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 
@@ -157,31 +158,38 @@ val generatePythonProperties = tasks.register("generatePythonProperties") {
     }
 }
 
-// Fills the constitution template with the API and cognition sources, as the constitution.md resource,
+// Fills the constitution templates with the API and cognition sources, as resources:
+// constitution.md, the default one, and constitutions/<family>.md, the ones of model families, see Constitution.kt,
 // leaving the {{harness}} placeholder to the runtime, since the harness can differ in each invocation.
 val generateConstitution = tasks.register("generateConstitution") {
     group = "annie"
-    description = "Generates the constitution.md resource from its template and the API and cognition sources"
-    val template = layout.projectDirectory.file("src/main/constitution.md")
+    description = "Generates the constitution resources from their templates and the API and cognition sources"
+    val default = layout.projectDirectory.file("src/main/constitution.md")
+    val families = layout.projectDirectory.dir("src/main/constitutions")
     val sourceDir = layout.projectDirectory.dir("src/main/kotlin")
     val sources = mapOf(
         "api" to sourceDir.file("Api.kt"),
         "cognition" to sourceDir.file("Cognition.kt")
     )
     val outputDir = layout.buildDirectory.dir("generated/constitution/resources")
-    inputs.file(template)
+    inputs.file(default)
+    inputs.dir(families)
     inputs.files(sources.values)
     outputs.dir(outputDir)
     doLast {
         val licenseHeader = Regex("""\A\s*/\*.*?\*/\s*""", RegexOption.DOT_MATCHES_ALL)
-        val constitution = sources.entries.fold(template.asFile.readText()) { text, (name, file) ->
-            val placeholder = "{{$name}}"
-            check(placeholder in text) { "No $placeholder in $template" }
-            text.replace(placeholder, file.asFile.readText().replaceFirst(licenseHeader, "").trimEnd())
+        val output = outputDir.get().asFile
+        output.deleteRecursively()
+        val templates = mapOf("constitution.md" to default.asFile) +
+                families.asFile.listFiles { file -> file.extension == "md" }!!.associateBy { "constitutions/${it.name}" }
+        templates.forEach { (path, template) ->
+            val constitution = sources.entries.fold(template.readText()) { text, (name, file) ->
+                val placeholder = "{{$name}}"
+                check(placeholder in text) { "No $placeholder in $template" }
+                text.replace(placeholder, file.asFile.readText().replaceFirst(licenseHeader, "").trimEnd())
+            }
+            output.resolve(path).apply { parentFile.mkdirs() }.writeText(constitution)
         }
-        val output = outputDir.get().file("constitution.md").asFile
-        output.parentFile.mkdirs()
-        output.writeText(constitution)
     }
 }
 
@@ -200,11 +208,13 @@ val generateDefaultHarness = tasks.register("generateDefaultHarness") {
         val packageLine = lines.indexOfFirst { it.startsWith("package ") }
         val firstImport = lines.indexOfFirst { it.startsWith("import ") }
         check(packageLine != -1 && firstImport > packageLine) { "No package followed by imports in $source" }
-        val script = lines.subList(packageLine + 1, firstImport).dropWhile { it.isBlank() } +
-                (lines[packageLine].replaceFirst("package ", "import ") + ".*") +
-                lines.subList(firstImport, lines.size).dropLastWhile { it.isBlank() } +
-                "" +
-                "await { unfold(cognizer, executor, agency) }"
+        val script = buildList {
+            addAll(lines.subList(packageLine + 1, firstImport).dropWhile { it.isBlank() })
+            add(lines[packageLine].replaceFirst("package ", "import ") + ".*")
+            addAll(lines.subList(firstImport, lines.size).dropLastWhile { it.isBlank() })
+            add("")
+            add("await { unfold(cognizer, executor, agency) }")
+        }
         val output = outputDir.get().file("harness.kts").asFile
         output.parentFile.mkdirs()
         output.writeText(script.joinToString("\n") + "\n")
@@ -295,6 +305,7 @@ tasks.register<JavaExec>("listModels") {
     args = (findProperty("prompt") as String?)?.let { listOf(it) } ?: emptyList()
 }
 
+@OptIn(ExperimentalKotlinGradlePluginApi::class)
 powerAssert {
     functions = listOf(
         "com.xemantic.kotlin.test.assert",

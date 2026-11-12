@@ -85,6 +85,56 @@ Every answer follows from the agent's own labels,
 so what is lost is lost in labeling,
 most on the questions asking for exact counts, where one label flips a user.
 
+## Prime Agent on the same tasks
+
+```shell
+export PRIME_CONTEXT_WINDOW=524288   # of the OPENAI_MODEL, which the endpoint does not tell, 128000 by default
+python3 evals/oolong/oolong_eval.py run --set pairs-32k --harness prime-agent --effort high --sandbox --label prime-agent
+python3 evals/oolong/oolong_eval.py run --set pairs-32k --effort high --sandbox --label annie
+```
+
+`--harness prime-agent` gives the same prompt, in the same placed directory, to an installed `prime-agent`,
+running the `OPENAI_MODEL` of the `OPENAI_BASE_URL` endpoint, which it does not read itself,
+so the run registers the endpoint as a provider of its own.
+`--effort` is the reasoning effort of both harnesses, `ANNIE_EFFORT` when not given.
+Every run starts with a Prime Agent state of its own, kept in the recording,
+so that no run learns from the harness refinements of another.
+
+Compare the harnesses only with `--sandbox`, see [Without network](#without-network):
+given the network, `deepseek-v4_1-flash` recognized the TREC questions in both harnesses,
+and Prime Agent scored 1.00 in half a minute, on labels it downloaded.
+
+What differs, and cannot be made the same:
+
+- Prime Agent answers in its last message, which the model writes token by token,
+  so the pairs, thousands of them, go to a file, as in `oolong_pairs`.
+- Prime Agent has no token budget for a run and its subagents, only `--timeout`.
+- `ANNIE_PARALLELISM` does not bound the subagents of Prime Agent, so the seconds do not compare.
+- **agree** and **own** are read from the tasks given to subagents, and from all a subagent said, ran and printed.
+
+## Without network
+
+`oolong_pairs` runs the agent in a sandbox without network, while the cogitations run on this computer,
+where the datasets the contexts are made of, labels included, are one download away,
+and a model may recognize them.
+`run --sandbox` withholds them, with the `sandbox-exec` of macOS:
+
+- the network reaches no further than this computer,
+  where the evaluation forwards the requests of the agent to the endpoint of its model, and nothing else,
+  adding the API key the agent never gets, and refusing any other model,
+  e.g. one an agent calls from its own scripts to label items for it,
+- the home directory cannot be read, e.g. the shell history or the transcripts of assistants telling earlier results,
+  but for what the agent needs to run,
+- the `evals` directory, where the sets and the answers of earlier runs are, cannot be read, but for the recording of the run itself,
+  nor the shared temporary directories, where the agents of earlier runs leave what they fetched,
+  and none of them can be written.
+
+The endpoint counts the tokens of every request, reported as the tokens **at the endpoint**,
+which include the requests an agent makes from its own scripts, uncounted by its harness.
+
+An intent can therefore neither install a package nor fetch a Maven dependency.
+The report still marks as **LEAKED** a run reaching for the gold answers, or for any URL, whether it got them or not.
+
 ```shell
 python3 -m unittest discover evals/oolong                               # tests of the evaluation itself
 ```

@@ -81,7 +81,7 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  *
  * Recording is done here and not by the harness: every inference of the cognizer provided to it is recorded,
  * and so is the cogitation each execution of the harness evaluates to, preceded by the inferences
- * the harness discarded, not enunciating them, e.g. in place of a malformed intent, see [CogitationRecorder.record].
+ * the harness discarded, not enunciating them, e.g. to infer again, see [CogitationRecorder.record].
  * What the host does is logged, without the content of the phenomena, which is recorded instead.
  *
  * @param cognizer unfolding every cogitation, the root one and all the invoked ones.
@@ -92,10 +92,6 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * @param parallelism how many steps of a tree of cogitations may execute at a time, `null` for no limit.
  * The steps beyond it wait in the queue.
  * @param introspector of the Kotlin API available to scripts, resolving declarations for every [Agency].
- * @param isMalformed whether an intent is not shaped as a Kotlin script, see [Agency.isMalformed],
- * by default whether it [isToolCall], or has no script, e.g. expressing only a response of the computer
- * made up by the cognizer, see [Phenomenon.Intent.script].
- * @param maxReinferences how many times a harness infers again in place of a malformed intent, see [Agency.maxReinferences].
  * @param preparePython preparing the Python environment of the cogitations, before their first Python is started, see [PythonVenv].
  * @param http the HTTP client of every cogitation, see [Agency.http], shared by default with the other hosts of the JVM.
  */
@@ -106,8 +102,6 @@ class HarnessHost(
     private val tokenBudget: Long? = null,
     private val parallelism: Int? = null,
     private val introspector: KotlinIntrospector = lazyKotlinIntrospector(),
-    private val isMalformed: (Phenomenon.Intent) -> Boolean = { it.isToolCall || it.script.isBlank() },
-    private val maxReinferences: Int = 1,
     private val preparePython: () -> Unit = PythonVenv::prepare,
     private val http: HttpClient = annieHttpClient
 ) {
@@ -338,7 +332,7 @@ class HarnessHost(
      */
     private suspend fun rested(unfolding: Unfolding, runtime: Runtime, extra: Enunciation?) {
         val enunciations = unfolding.cogitation.enunciations.filter { it.isOutput } + listOfNotNull(extra)
-        val output = enunciations.flatMap { it.phenomena }
+        val output = enunciations.flatMap { it.phenomena }.filter { it !is Phenomenon.Monologue }
         logger.info {
             "[${unfolding.id}] Rested after ${Clock.System.now() - unfolding.initiated}, " +
                     "${unfolding.cogitation.enunciations.size} enunciation(s), output: ${output.kinds()}"
@@ -481,9 +475,7 @@ class HarnessHost(
             enunciate(Phenomenon.Impediment(reason))
         }
 
-        override fun isMalformed(intent: Phenomenon.Intent) = this@HarnessHost.isMalformed(intent)
 
-        override val maxReinferences = this@HarnessHost.maxReinferences
 
         override fun resolveDeclaration(name: String, page: Int, pageSize: Int) =
             introspector.resolve(name, page, pageSize)
@@ -523,12 +515,5 @@ class HarnessHost(
     }
 
 }
-
-/**
- * Whether this intent is a tool call, starting with `<invoke` in the markup of Claude's training,
- * which no request declares, so that it never compiles as a Kotlin script.
- */
-val Phenomenon.Intent.isToolCall: Boolean get() = expression.trimStart().startsWith("<invoke")
-
 /** The kinds of these phenomena, e.g. `[monologue, intent]`. */
 private fun List<Phenomenon>.kinds(): String = joinToString(prefix = "[", postfix = "]") { it.kind }

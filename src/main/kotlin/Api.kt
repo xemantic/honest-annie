@@ -79,18 +79,6 @@ interface Agency {
     /** Enunciates a [Phenomenon.Impediment] as the output of the current cogitation, like the text [enunciate]. */
     fun impede(reason: String)
     /**
-     * Whether the [intent] is not shaped as a Kotlin script, e.g. a tool call in the markup of a model's training,
-     * often followed by a result the model made up itself, or nothing but such a result, see [Phenomenon.Intent.script],
-     * so that the harness infers again instead of executing it,
-     * at most [maxReinferences] times.
-     */
-    fun isMalformed(intent: Phenomenon.Intent): Boolean
-    /**
-     * How many times the harness infers again, from the same cogitation, in place of a malformed intent, see [isMalformed],
-     * or of an inference completed without expressing any.
-     */
-    val maxReinferences: Int
-    /**
      * Renders the Kotlin declaration of the fully qualified [name], as available to scripts,
      * e.g. `kotlinx.coroutines.flow.Flow`: its current signature, together with the extensions of a type,
      * paged by [pageSize] declarations, the first [page] being `1`.

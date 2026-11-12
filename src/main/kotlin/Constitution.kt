@@ -18,10 +18,32 @@
 
 package com.xemantic.ai.annie
 
-/** The constitution of every cogitation, with the placeholder of its `{{harness}}`, see `constitution.md`. */
+/** The default constitution, with the placeholder of its `{{harness}}`, see `constitution.md`. */
 val constitutionTemplate: String = checkNotNull(
-    Agency::class.java.getResource("/constitution.md")
-) { "No constitution on the classpath" }.readText().trim()
+    constitutionResource("/constitution.md")
+) { "No constitution on the classpath" }
+
+/**
+ * The constitution of the [model], with the placeholder of its `{{harness}}`:
+ * the one of the closest family of the model, see `constitutions`, the default [constitutionTemplate] when there is none.
+ *
+ * A family is named by the name of the model, without what precedes its last `/`,
+ * or by what is left of it when cut at a `-`, the longest one winning:
+ * `deepseek-v4_1-flash` is constituted by `constitutions/deepseek-v4_1-flash.md`,
+ * then `constitutions/deepseek-v4_1.md`, then `constitutions/deepseek.md`.
+ */
+fun constitutionTemplate(model: String): String {
+    val segments = model.substringAfterLast('/').split('-')
+    return segments.indices.reversed().firstNotNullOfOrNull { last ->
+        val family = segments.subList(0, last + 1).joinToString("-")
+        if (family.matches(familyName)) constitutionResource("/constitutions/$family.md") else null
+    } ?: constitutionTemplate
+}
+
+private val familyName = Regex("""[\w.-]*\w""")
+
+private fun constitutionResource(path: String): String? =
+    Agency::class.java.getResource(path)?.readText()?.trim()
 
 /** The constitution of a cogitation unfolded by the [harness], filled into the [template]. */
 fun constitution(

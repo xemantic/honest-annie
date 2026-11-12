@@ -26,27 +26,29 @@ import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.cognizer.Cognizer
+import com.xemantic.ai.annie.cognizer.Effort
+import com.xemantic.ai.annie.cognizer.MonologueVisibility
 import com.xemantic.ai.annie.cognizer.claude.ClaudeInference
 import com.xemantic.ai.annie.cognizer.openai.OpenAIInference
 import com.xemantic.ai.annie.cognizer.openai.openAIClient
 import com.xemantic.ai.annie.cognizer.openai.openAIProvider
 import com.xemantic.ai.annie.constitution
+import com.xemantic.ai.annie.constitutionTemplate
 import kotlin.io.path.Path
 import kotlin.io.path.readText
 import kotlinx.coroutines.runBlocking
 
 /**
  * A single cognizer unfolds every cogitation: Claude when `ANTHROPIC_MODEL` is set,
- * the `OPENAI_MODEL` served by the OpenAI-compatible endpoint at `OPENAI_BASE_URL` otherwise.
+ * the `OPENAI_MODEL` served by the OpenAI-compatible endpoint at `OPENAI_BASE_URL` otherwise,
+ * under the constitution of the family of its model, see [constitutionTemplate].
  *
  * Cogitations are recorded in `ANNIE_COGITATIONS_DIR`, `cogitations` by default, and unfolded
  * by the harness script at the `ANNIE_HARNESS` path, the [defaultHarness] when not set,
  * spending at most `ANNIE_TOKEN_BUDGET` tokens, and stepping at most `ANNIE_PARALLELISM` cogitations
- * at a time, when set, inferring again at most `ANNIE_REINFERENCES` times, 1 by default,
- * in place of a malformed intent, or of none, see [HarnessHost].
- * The cognizer reasons with the `ANNIE_EFFORT`, e.g. `xhigh`, see [Monologue.Effort], the default of its model when not set,
+ * at a time, when set, see [HarnessHost].
+ * The cognizer reasons with the `ANNIE_EFFORT`, e.g. `xhigh`, see [Effort], the default of its model when not set,
  * inferring at most `ANNIE_MAX_TOKENS` tokens at a time, when set.
  * The Python of the intents runs in the virtual environment of `VIRTUAL_ENV`, or of `ANNIE_PYTHON_VENV`,
  * created with `ANNIE_PYTHON` when it does not exist, see [PythonVenv].
@@ -56,10 +58,10 @@ fun main(args: Array<String>) {
     val harness = System.getenv("ANNIE_HARNESS")?.let { Path(it).readText() } ?: defaultHarness
     val tokenBudget = System.getenv("ANNIE_TOKEN_BUDGET")?.toLong()
     val parallelism = System.getenv("ANNIE_PARALLELISM")?.toInt()
-    val maxReinferences = System.getenv("ANNIE_REINFERENCES")?.toInt() ?: 1
-    val effort = System.getenv("ANNIE_EFFORT")?.let { Monologue.Effort.valueOf(it.uppercase()) }
+    val effort = System.getenv("ANNIE_EFFORT")?.let { Effort.valueOf(it.uppercase()) }
     val maxTokens = System.getenv("ANNIE_MAX_TOKENS")?.toLong()
     val claudeModel = System.getenv("ANTHROPIC_MODEL")
+    val model = claudeModel ?: System.getenv("OPENAI_MODEL") ?: error("Neither ANTHROPIC_MODEL nor OPENAI_MODEL is set")
     val client: AutoCloseable
     val cognizer: Cognizer
     if (claudeModel != null) {
@@ -76,12 +78,11 @@ fun main(args: Array<String>) {
             .build()
         client = AutoCloseable(claude::close)
         cognizer = if (maxTokens != null) {
-            ClaudeInference(claude, claudeModel, maxTokens = maxTokens, effort = effort, visibility = Monologue.Visibility.SUMMARY)
+            ClaudeInference(claude, claudeModel, maxTokens = maxTokens, effort = effort, visibility = MonologueVisibility.SUMMARY)
         } else {
-            ClaudeInference(claude, claudeModel, effort = effort, visibility = Monologue.Visibility.SUMMARY)
+            ClaudeInference(claude, claudeModel, effort = effort, visibility = MonologueVisibility.SUMMARY)
         }
     } else {
-        val model = System.getenv("OPENAI_MODEL") ?: error("Neither ANTHROPIC_MODEL nor OPENAI_MODEL is set")
         val openAI = openAIClient()
         client = AutoCloseable(openAI::close)
         cognizer = if (maxTokens != null) {
@@ -93,10 +94,9 @@ fun main(args: Array<String>) {
     client.use {
         runBlocking {
             val output = HarnessHost(
-                cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism,
-                maxReinferences = maxReinferences
+                cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism
             ).cognize(Cogitation(
-                constitution = listOf(constitution(harness)),
+                constitution = listOf(constitution(harness, constitutionTemplate(model))),
                 harness = harness,
                 enunciations = listOf(Enunciation(
                     actant = Actant(

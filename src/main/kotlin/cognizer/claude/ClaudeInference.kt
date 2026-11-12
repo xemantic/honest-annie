@@ -19,6 +19,8 @@
 package com.xemantic.ai.annie.cognizer.claude
 
 import com.anthropic.client.AnthropicClient
+import com.anthropic.core.JsonValue
+import com.anthropic.core.jsonMapper
 import com.anthropic.models.messages.Base64ImageSource
 import com.anthropic.models.messages.Base64PdfSource
 import com.anthropic.models.messages.CacheControlEphemeral
@@ -33,15 +35,23 @@ import com.anthropic.models.messages.RedactedThinkingBlockParam
 import com.anthropic.models.messages.TextBlockParam
 import com.anthropic.models.messages.ThinkingBlockParam
 import com.anthropic.models.messages.ThinkingConfigAdaptive
-import com.anthropic.models.messages.ToolChoiceNone
+import com.anthropic.models.messages.Tool
+import com.anthropic.models.messages.ToolChoiceAuto
+import com.anthropic.models.messages.ToolResultBlockParam
+import com.anthropic.models.messages.ToolUseBlockParam
 import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Inference.Tokens
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
-import com.xemantic.ai.annie.Phenomenon.Monologue.Continuation
 import com.xemantic.ai.annie.cognizer.Cognized
 import com.xemantic.ai.annie.cognizer.Cognizer
+import com.xemantic.ai.annie.cognizer.Effort
+import com.xemantic.ai.annie.cognizer.InMemoryMonologueStore
+import com.xemantic.ai.annie.cognizer.IntentTool
+import com.xemantic.ai.annie.cognizer.MonologueStore
+import com.xemantic.ai.annie.cognizer.MonologueTrace
+import com.xemantic.ai.annie.cognizer.MonologueVisibility
 import com.xemantic.ai.annie.cognizer.Perceived
 import com.xemantic.ai.annie.cognizer.Turn
 import com.xemantic.ai.annie.cognizer.systemPrompt
@@ -53,8 +63,11 @@ import kotlinx.coroutines.future.await
  * the [client] deciding where the model is served, e.g. by a Bedrock backend.
  *
  * Claude always thinks adaptively, and its monologue (thinking blocks, redacted ones included)
- * is returned as [Monologue] phenomena, replayed on subsequent inferences only when it was produced
+ * is returned as [Monologue] phenomena, their exact form kept in the [monologues],
+ * to be replayed on subsequent inferences only when it was produced
  * by the very same [modelId], whatever endpoint served it, as other models cannot verify it.
+ * It expresses its intent by calling the only tool offered, see [IntentTool], one call at a time,
+ * the text it writes being a [Phenomenon.Text], replayed to any model: its answer when it calls no tool.
  *
  * The constitution is cached with a 1-hour breakpoint, while the growing cogitation is cached
  * by the automatic (top-level) breakpoint with [tailCache] TTL. Longer TTLs must precede shorter ones,
@@ -67,6 +80,7 @@ import kotlinx.coroutines.future.await
  * the maximum of Claude Opus 5.5 by default.
  * @param effort how much effort is put into the monologue and the response, the default of the model when `null`.
  * @param visibility how much of the monologue is returned.
+ * @param monologues keeping the exact form of the monologues, see [MonologueStore].
  */
 class ClaudeInference(
     private val client: AnthropicClient,
@@ -74,9 +88,10 @@ class ClaudeInference(
     private val modelId: String = model,
     private val provider: String = "anthropic",
     private val maxTokens: Long = 128_000,
-    private val effort: Monologue.Effort? = null,
-    private val visibility: Monologue.Visibility = Monologue.Visibility.HIDDEN,
-    private val tailCache: CacheControlEphemeral.Ttl = CacheControlEphemeral.Ttl.TTL_5M
+    private val effort: Effort? = null,
+    private val visibility: MonologueVisibility = MonologueVisibility.HIDDEN,
+    private val tailCache: CacheControlEphemeral.Ttl = CacheControlEphemeral.Ttl.TTL_5M,
+    private val monologues: MonologueStore = InMemoryMonologueStore()
 ) : Cognizer {
 
     override suspend fun cognize(cogitation: Cogitation): Cognized {
@@ -99,19 +114,45 @@ class ClaudeInference(
         }
         .cacheControl(CacheControlEphemeral.builder().ttl(tailCache).build())
         .thinking(ThinkingConfigAdaptive.builder().display(visibility.claudeDisplay).build())
-        // no tools are offered, the intent being the text of the response
-        .toolChoice(ToolChoiceNone.builder().build())
+        .addTool(Tool.builder()
+            .name(IntentTool.NAME)
+            .description(IntentTool.DESCRIPTION)
+            .inputSchema(Tool.InputSchema.builder()
+                .properties(Tool.InputSchema.Properties.builder()
+                    .putAdditionalProperty(IntentTool.PARAMETER, JsonValue.from(IntentTool.parameter))
+                    .build())
+                .required(listOf(IntentTool.PARAMETER))
+                .putAdditionalProperty("additionalProperties", JsonValue.from(false))
+                .build())
+            // the arguments of a call always fit the schema
+            .strict(true)
+            .build())
+        // a single intent per inference, never forced: a response calling no tool answers with its text
+        .toolChoice(ToolChoiceAuto.builder().disableParallelToolUse(true).build())
         .apply {
             effort?.let { outputConfig(OutputConfig.builder().effort(it.claudeEffort).build()) }
-            if (visibility == Monologue.Visibility.UPDATES) {
+            if (visibility == MonologueVisibility.UPDATES) {
                 putAdditionalHeader("anthropic-beta", "thinking-display-updates-2026-08-18")
             }
         }
         .messages(
             cogitation
                 .toTurns(
-                    intent = { ContentBlockParam.ofText(TextBlockParam.builder().text(it.script).build()) },
-                    monologue = { it.toBlock() }
+                    intent = { intent ->
+                        ContentBlockParam.ofToolUse(ToolUseBlockParam.builder()
+                            .id(intent.id)
+                            .name(IntentTool.NAME)
+                            .input(ToolUseBlockParam.Input.builder()
+                                .putAdditionalProperty(IntentTool.PARAMETER, JsonValue.from(intent.script))
+                                .build())
+                            .build())
+                    },
+                    monologue = { it.toBlock() },
+                    text = { text ->
+                        text.text.takeIf { it.isNotBlank() }?.let {
+                            ContentBlockParam.ofText(TextBlockParam.builder().text(it).build())
+                        }
+                    }
                 )
                 .map { turn ->
                     when (turn) {
@@ -126,21 +167,20 @@ class ClaudeInference(
         )
         .build()
 
-    /** The monologue is replayed only to the model which produced it, others cannot verify it. */
-    private fun Monologue.toBlock(): ContentBlockParam? = when (val continuation = continuation) {
-        is Continuation.ClaudeSignature -> if (continuation.producedBy == modelId) {
-            // must be byte-identical to what was received, otherwise the signature is invalid
+    /** The monologue is replayed only to the model which produced it, others cannot verify it, in the exact form it had. */
+    private fun Monologue.toBlock(): ContentBlockParam? = when (val trace = monologues[id]) {
+        is MonologueTrace.ClaudeThinking -> if (trace.producedBy == modelId) {
             ContentBlockParam.ofThinking(ThinkingBlockParam.builder()
-                .thinking(summary.joinToString(separator = ""))
-                .signature(continuation.signature)
+                .thinking(trace.thinking)
+                .signature(trace.signature)
                 .build())
         } else null
-        is Continuation.ClaudeRedacted -> if (continuation.producedBy == modelId) {
+        is MonologueTrace.ClaudeRedacted -> if (trace.producedBy == modelId) {
             ContentBlockParam.ofRedactedThinking(RedactedThinkingBlockParam.builder()
-                .data(continuation.data)
+                .data(trace.data)
                 .build())
         } else null
-        is Continuation.OpenAIReasoning, null -> null
+        is MonologueTrace.OpenAIReasoning, null -> null
     }
 
     /** The input tokens of Claude exclude the cached ones, while its output tokens include the thinking ones. */
@@ -167,7 +207,7 @@ class ClaudeInference(
                 Inference.Stop(
                     kind = when (reason) {
                         // no stop sequences are requested, but they would complete the response as intended
-                        "end_turn", "stop_sequence" -> Inference.Stop.Kind.COMPLETED
+                        "end_turn", "stop_sequence", "tool_use" -> Inference.Stop.Kind.COMPLETED
                         "max_tokens", "model_context_window_exceeded" -> Inference.Stop.Kind.TRUNCATED
                         "refusal" -> Inference.Stop.Kind.REFUSED
                         else -> Inference.Stop.Kind.OTHER
@@ -179,48 +219,50 @@ class ClaudeInference(
     }
 
     /**
-     * Thinking blocks become monologues, and consecutive text blocks a single intent.
-     * Thinking interleaved after the intent, and whatever follows it, is not perceived:
+     * Thinking blocks become monologues, text blocks texts, and the call of the tool the intent.
+     * Whatever follows the tool call is not perceived:
      * the model continues as if it perceived the result of the intent, which is not executed yet.
      */
-    internal fun phenomena(message: Message): List<Phenomenon> = message.content().let { content ->
-        val firstText = content.indexOfFirst { it.isText() }
-        if (firstText == -1) content else content.take(
-            content.drop(firstText).indexOfFirst { !it.isText() }.let { if (it == -1) content.size else firstText + it }
-        )
-    }.fold(
-        mutableListOf()
-    ) { phenomena, block ->
-        when {
-            block.isThinking() -> block.asThinking().let {
-                phenomena += Monologue(
-                    summary = listOf(it.thinking()).filter { text -> text.isNotEmpty() },
-                    role = Monologue.Role.REASONING,
-                    continuation = Continuation.ClaudeSignature(producedBy = modelId, signature = it.signature())
-                )
-            }
-            block.isRedactedThinking() -> phenomena += Monologue(
-                role = Monologue.Role.REASONING,
-                continuation = Continuation.ClaudeRedacted(producedBy = modelId, data = block.asRedactedThinking().data())
-            )
-            block.isText() -> {
-                val text = block.asText().text()
-                val last = phenomena.lastOrNull()
-                if (last is Phenomenon.Intent) {
-                    phenomena[phenomena.lastIndex] = last.copy(expression = "${last.expression}\n$text")
-                } else {
-                    phenomena += Phenomenon.Intent(text)
+    internal fun phenomena(message: Message): List<Phenomenon> {
+        val phenomena = mutableListOf<Phenomenon>()
+        for (block in message.content()) {
+            when {
+                block.isThinking() -> block.asThinking().let {
+                    val monologue = Monologue(it.thinking())
+                    monologues[monologue.id] = MonologueTrace.ClaudeThinking(
+                        producedBy = modelId, thinking = it.thinking(), signature = it.signature()
+                    )
+                    phenomena += monologue
                 }
+                block.isRedactedThinking() -> {
+                    val monologue = Monologue("")
+                    monologues[monologue.id] = MonologueTrace.ClaudeRedacted(
+                        producedBy = modelId, data = block.asRedactedThinking().data()
+                    )
+                    phenomena += monologue
+                }
+                block.isText() -> block.asText().text().takeIf { it.isNotBlank() }?.let {
+                    phenomena += Phenomenon.Text(it)
+                }
+                block.isToolUse() -> {
+                    val use = block.asToolUse()
+                    IntentTool.intent(use.name(), jsonMapper().writeValueAsString(use._input()))
+                        ?.let { phenomena += it }
+                    break
+                }
+                else -> {}
             }
-            // no tools are offered to the model
-            else -> {}
         }
-        phenomena
+        return phenomena
     }
 
 }
 
 private fun Perceived.toBlock(): ContentBlockParam = when (this) {
+    is Perceived.Result -> ContentBlockParam.ofToolResult(ToolResultBlockParam.builder()
+        .toolUseId(intent)
+        .contentOfBlocks(parts.map { it.toResultBlock() })
+        .build())
     is Perceived.Text -> ContentBlockParam.ofText(this.text)
     is Perceived.Image -> ContentBlockParam.ofImage(ImageBlockParam.builder()
         .source(Base64ImageSource.builder()
@@ -233,7 +275,17 @@ private fun Perceived.toBlock(): ContentBlockParam = when (this) {
         .build())
 }
 
-private val Monologue.Visibility.claudeDisplay: ThinkingConfigAdaptive.Display get() = when (this) {
+private fun Perceived.toResultBlock(): ToolResultBlockParam.Content.Block = when (this) {
+    is Perceived.Text -> ToolResultBlockParam.Content.Block.ofText(text)
+    is Perceived.Image -> ToolResultBlockParam.Content.Block.ofImage(Base64ImageSource.builder()
+        .data(base64)
+        .mediaType(Base64ImageSource.MediaType.of(mediaType))
+        .build())
+    is Perceived.Document -> ToolResultBlockParam.Content.Block.ofDocument(Base64PdfSource.builder().data(base64).build())
+    is Perceived.Result -> error("A tool result never nests another one")
+}
+
+private val MonologueVisibility.claudeDisplay: ThinkingConfigAdaptive.Display get() = when (this) {
     HIDDEN -> ThinkingConfigAdaptive.Display.OMITTED
     SUMMARY -> ThinkingConfigAdaptive.Display.SUMMARIZED
     // requires the thinking-display-updates-2026-08-18 beta header
@@ -241,7 +293,7 @@ private val Monologue.Visibility.claudeDisplay: ThinkingConfigAdaptive.Display g
 }
 
 /** Claude's lowest effort is `low`. */
-private val Monologue.Effort.claudeEffort: OutputConfig.Effort get() = when (this) {
+private val Effort.claudeEffort: OutputConfig.Effort get() = when (this) {
     NONE, MINIMAL, LOW -> OutputConfig.Effort.LOW
     MEDIUM -> OutputConfig.Effort.MEDIUM
     HIGH -> OutputConfig.Effort.HIGH

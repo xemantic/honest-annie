@@ -56,7 +56,15 @@ sealed interface Perceived {
     data class Document(override val data: Phenomenon.Data) : Attachment {
         override val mediaType: String get() = MediaType.PDF.mime
     }
+    /**
+     * The result of the tool call expressing the [intent], see [IntentTool]: what its execution enunciated,
+     * always starting the user turn which follows it.
+     */
+    data class Result(val intent: String, val parts: List<Perceived>) : Perceived
 }
+
+/** The result of the tool call of an intent never executed, e.g. interrupted, as an API rejects a tool call without one. */
+const val NOT_EXECUTED: String = "<annie:impediment/>\nThe intent was not executed."
 
 /** The maximal size of an image accepted by every API, the one of Claude, a larger one is perceived only as markup. */
 const val MAX_IMAGE_SIZE: Int = 5 * 1024 * 1024
@@ -68,47 +76,97 @@ const val MAX_DOCUMENT_SIZE: Int = 24 * 1024 * 1024
 private val imageMediaTypes = setOf(MediaType.JPEG, MediaType.PNG, MediaType.GIF, MediaType.WEBP)
 
 /**
- * Intents and monologues of the enunciations become assistant turns, everything else is perceived in user turns,
+ * What the cognizer expressed in an inference, see [isExpressed], becomes assistant turns: its intents, monologues and texts.
+ * Everything else is perceived in user turns,
  * headed by the actant of the enunciation, the first one by the depth of the cogitation too.
- * The role follows the phenomenon, not the actant:
- * the output of an invoked cogitation is enunciated by [Actant.Type.SELF], yet perceived.
+ * The role follows the expression, not the actant:
+ * the output an intent enunciates, and the output of an invoked cogitation, are enunciated by [Actant.Type.SELF], yet perceived.
+ * The execution of an intent, expressed as a tool call, is perceived as its [Perceived.Result]:
+ * the output the intent enunciated, and the response of the computer to it, see [isExecutionOf],
+ * while what follows, e.g. the outcomes of the cogitations it invoked, is perceived after it.
  *
  * @param intent the assistant part of the intent.
  * @param monologue the assistant part of the monologue, `null` when it cannot be replayed to the model.
+ * @param text the assistant part of the text the cognizer expressed, `null` when there is nothing to replay, e.g. a blank one.
  */
 fun <P> Cogitation.toTurns(
     intent: (Phenomenon.Intent) -> P,
-    monologue: (Monologue) -> P?
+    monologue: (Monologue) -> P?,
+    text: (Phenomenon.Text) -> P?
 ): List<Turn<P>> {
     // intent ids are never rendered, so the model would not know what a response to an intent refers to
     val invocations = enunciations.flatMap { it.phenomena }
         .filterIsInstance<Phenomenon.Invocation>()
         .mapTo(mutableSetOf()) { it.id }
-    val turns = enunciations.fold(mutableListOf<Turn<P>>()) { turns, enunciation ->
+    val turns = mutableListOf<Turn<P>>()
+    // the intent whose tool call awaits its result, and the result perceived so far
+    var called: Phenomenon.Intent? = null
+    var result: MutableList<Perceived>? = null
+    fun conclude() {
+        val intent = called ?: return
+        turns += Turn.User(listOf(Perceived.Result(intent.id, result ?: listOf(Perceived.Text(NOT_EXECUTED)))))
+        called = null
+        result = null
+    }
+    enunciations.forEach { enunciation ->
+        val calling = called
+        val expressed = enunciation.isExpressed
+        if (calling != null && !expressed) {
+            if (enunciation.isExecutionOf(calling)) {
+                if (result == null) result = mutableListOf()
+            } else {
+                conclude()
+            }
+        } else {
+            conclude()
+        }
         var headed = false
         enunciation.phenomena.forEach { phenomenon ->
             when (phenomenon) {
-                is Intent -> turns.appendAssistant(intent(phenomenon))
+                is Intent -> {
+                    turns.appendAssistant(intent(phenomenon))
+                    called = phenomenon
+                }
                 is Monologue -> monologue(phenomenon)?.let { turns.appendAssistant(it) }
+                is Phenomenon.Text if expressed -> text(phenomenon)?.let { turns.appendAssistant(it) }
                 else -> {
                     val text = phenomenon.toText()
-                    turns.appendUser(if (headed) text else "${enunciation.actantTag(invocations)}\n$text")
+                    val perceived = result ?: turns.userParts()
+                    perceived.appendText(if (headed) text else "${enunciation.actantTag(invocations)}\n$text")
                     headed = true
-                    if (phenomenon is Phenomenon.Data) phenomenon.toAttachment()?.let { turns.appendUser(it) }
+                    if (phenomenon is Phenomenon.Data) phenomenon.toAttachment()?.let { perceived += it }
+                    if (result == null) turns.replaceUserParts(perceived)
                 }
             }
         }
-        turns
     }
+    // an intent awaiting its execution is the last enunciation, followed by nothing to perceive yet
+    if (result != null) conclude()
     val first = turns.indexOfFirst { it is Turn.User }
     if (first >= 0) {
-        // a user turn always starts with the text heading the enunciation
+        // the first user turn always starts with the text heading the enunciation of the task
         val parts = (turns[first] as Turn.User).parts
-        val heading = parts.first() as Perceived.Text
-        turns[first] = Turn.User(listOf(Perceived.Text("<annie:cogitation depth=\"$depth\"/>\n${heading.text}")) + parts.drop(1))
+        val heading = parts.first()
+        if (heading is Perceived.Text) {
+            turns[first] = Turn.User(listOf(Perceived.Text("<annie:cogitation depth=\"$depth\"/>\n${heading.text}")) + parts.drop(1))
+        }
     }
     return turns
 }
+
+/**
+ * Whether the cognizer expressed this enunciation in an inference, rather than a script enunciating it as output:
+ * it carries its inference, or an intent or a monologue, which only an inference expresses.
+ */
+private val Enunciation.isExpressed: Boolean get() = actant == Actant.SELF && respondsTo == null
+        && (inference != null || phenomena.any { it is Phenomenon.Intent || it is Monologue })
+
+/**
+ * Whether this enunciation is part of executing the [intent]: the response of the computer to it,
+ * or the output it enunciated, by self, responding to nothing, and not inferred.
+ */
+private fun Enunciation.isExecutionOf(intent: Phenomenon.Intent): Boolean =
+    respondsTo == intent.id || (actant == Actant.SELF && respondsTo == null && inference == null)
 
 private fun Phenomenon.Data.toAttachment(): Perceived.Attachment? {
     val mediaType = bytes.detectMediaType() ?: return null
@@ -119,23 +177,19 @@ private fun Phenomenon.Data.toAttachment(): Perceived.Attachment? {
     }
 }
 
-private fun <P> MutableList<Turn<P>>.appendUser(text: String) {
-    val last = lastOrNull()
-    if (last is Turn.User) {
-        val lastPart = last.parts.last()
-        this[lastIndex] = Turn.User(
-            if (lastPart is Perceived.Text) last.parts.dropLast(1) + Perceived.Text("${lastPart.text}\n\n$text")
-            else last.parts + Perceived.Text(text)
-        )
-    } else {
-        this += Turn.User(listOf(Perceived.Text(text)))
-    }
+/** The parts of the last user turn, to perceive more, empty when the last turn is not a user one. */
+private fun <P> List<Turn<P>>.userParts(): MutableList<Perceived> =
+    (lastOrNull() as? Turn.User)?.parts?.toMutableList() ?: mutableListOf()
+
+/** The [parts] as the last user turn, replacing it, or following the last assistant turn. */
+private fun <P> MutableList<Turn<P>>.replaceUserParts(parts: List<Perceived>) {
+    if (lastOrNull() is Turn.User) this[lastIndex] = Turn.User(parts) else this += Turn.User(parts)
 }
 
-private fun <P> MutableList<Turn<P>>.appendUser(attachment: Perceived.Attachment) {
-    // an attachment is always perceived after its markup, so it never starts a turn
-    val last = last() as Turn.User
-    this[lastIndex] = Turn.User(last.parts + attachment)
+/** Consecutive text is merged into a single part, an attachment always following its markup. */
+private fun MutableList<Perceived>.appendText(text: String) {
+    val lastPart = lastOrNull()
+    if (lastPart is Perceived.Text) this[lastIndex] = Perceived.Text("${lastPart.text}\n\n$text") else this += Perceived.Text(text)
 }
 
 private fun <P> MutableList<Turn<P>>.appendAssistant(part: P) {
@@ -189,5 +243,5 @@ private fun Phenomenon.toText(): String = when (this) {
         append("/>")
     }
     is Impediment -> "<annie:impediment/>\n$reason"
-    is Monologue -> summary.joinToString(separator = "\n\n")
+    is Monologue -> text
 }

@@ -38,8 +38,7 @@ import kotlinx.coroutines.withContext
  * Records a cogitation as a folder within [parentDir], named after the moment of its first
  * enunciation, e.g. `2026-10-14T15-02-02.543893Z`. Each phenomenon becomes a file named after
  * its enunciation number, its position within the enunciation, actant type and kind,
- * e.g. `001-1-human-text.md`, `002-1-self-monologue.md`, `002-2-self-intent.kts`,
- * an intent as the cognizer expressed it, followed by `002-2-self-intent-executed.kts`, its script, when it differs beyond surrounding whitespace,
+ * e.g. `001-1-human-text.md`, `002-1-self-monologue.md`, `002-2-self-intent.kts`, the script of an intent,
  * so that the files are listed in the order of their enunciation, while `cogitation.md` indexes the enunciations, `constitution.md` holds the constitution,
  * and `harness.kts` the harness unfolding the cogitation.
  *
@@ -193,10 +192,7 @@ class CogitationRecorder(
             val suffix = if (count == 1) "" else "-$count"
             val file = "$position-${actant.type.name.lowercase()}-$kind.$extension"
             dir.resolve(file).writeBytes(content)
-            val executed = (phenomenon as? Phenomenon.Intent)?.script?.takeIf { it != phenomenon.expression.trim() }?.let { script ->
-                "$position-${actant.type.name.lowercase()}-$kind-executed.$extension".also { dir.resolve(it).writeText(script) }
-            }
-            "[$kind$suffix]($file)" + (executed?.let { " [executed]($it)" } ?: "")
+            "[$kind$suffix]($file)"
         }
         val responding = enunciation.respondsTo?.let { id ->
             requests[id]?.let { " ↩ $it" } ?: " ↩ `$id`"
@@ -278,20 +274,13 @@ internal val Phenomenon.kind: String get() = when (this) {
 private fun Phenomenon.toFile(): Triple<String, String, ByteArray> = when (this) {
     is Text -> Triple(kind, contentType.extension ?: "txt", text.encodeToByteArray())
     is Data -> Triple(kind, contentType?.extension ?: "bin", bytes)
-    is Intent -> Triple(kind, "kts", expression.encodeToByteArray())
+    is Intent -> Triple(kind, "kts", script.encodeToByteArray())
     is Invocation -> Triple(kind, "md", buildString {
         append("id: `$id`  \n")
         append("\n").append(prompt)
     }.encodeToByteArray())
     is Impediment -> Triple(kind, "md", reason.encodeToByteArray())
-    is Monologue -> Triple(
-        kind,
-        "md",
-        buildString {
-            role?.let { append("_${it.name.lowercase()}_\n\n") }
-            append(summary.joinToString(separator = "\n\n"))
-        }.encodeToByteArray()
-    )
+    is Monologue -> Triple(kind, "md", text.encodeToByteArray())
 }
 
 private val String.extension: String? get() = when (substringBefore(';').trim().lowercase()) {

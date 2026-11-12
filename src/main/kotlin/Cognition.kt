@@ -29,22 +29,19 @@ sealed interface Phenomenon {
         val id: String
     }
     /**
-     * Request to execute the [script], responded by its result, unless it produced no phenomena, see [Cogitation].
-     *
-     * @property expression the text the cognizer expressed, recorded as is.
+     * Request to execute the Kotlin [script], responded by its result, unless it produced no phenomena, see [Cogitation].
+     * A [Text] the cognizer expresses along it, in the same enunciation, is its commentary, not an output.
+     * The cognizer expresses it by calling the only tool it is offered, whose result is the response,
+     * the call being replayed with the [id] of the intent, rather than the one the cognizer gave it.
      */
     data class Intent(
-        val expression: String,
+        val script: String,
         override val id: String = randomId()
-    ) : Request {
-        /**
-         * The script of the [expression], the only part of it executed, and perceived again by the cognizer:
-         * what precedes a line of perceived markup, e.g. an `annie:actant` tag of a response the cognizer made up itself,
-         * or a line of closing tags outside a multiline string, e.g. `</script>`, after which it repeats its script,
-         * within the first Markdown code fence, if any, without the closing tags of a tool call ending it.
-         */
-        val script: String get() = expression.executable()
-    }
+    ) : Request
+    /**
+     * Text, e.g. the prompt of a task, the value of an intent, or what the cognizer says:
+     * an inference expressing text, and no [Intent], answers with it, which is the output of its cogitation.
+     */
     data class Text(val text: String, val contentType: String = MARKDOWN) : Phenomenon {
         companion object {
             const val MARKDOWN = "text/markdown"
@@ -71,36 +68,19 @@ sealed interface Phenomenon {
     }
     /** What impeded the cogitation, or an intent, as the [reason] for it, see [Agency.impede]. */
     data class Impediment(val reason: String) : Phenomenon
+    /**
+     * What the cognizer thought before expressing anything else in the same inference, as far as its provider reveals it:
+     * the [text] is empty when nothing of it is revealed.
+     * Never an output of its cogitation, and replayed only to the model which thought it.
+     *
+     * @property id unique within its cogitation, like the id of a [Request]:
+     * whatever the provider needs to replay the monologue exactly is kept by the cognizer under this id, not here.
+     */
     data class Monologue(
-        val summary: List<String> = emptyList(),
-        val role: Role? = null,
-        val continuation: Continuation? = null
-    ) : Phenomenon {
-        enum class Role { REASONING, PROGRESS_UPDATE }
-        sealed interface Continuation {
-            /** Model that produced it; needed to decide whether a target model can read it. */
-            val producedBy: String
-            data class ClaudeSignature(
-                override val producedBy: String,
-                val signature: String
-            ) : Continuation
-            data class ClaudeRedacted(
-                override val producedBy: String,
-                val data: String
-            ) : Continuation
-            data class OpenAIReasoning(
-                override val producedBy: String,
-                val itemId: String,
-                val encryptedContent: String?,   // null when stored server-side
-            ) : Continuation
-        }
-        enum class Effort { NONE, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX }
-        enum class Visibility { HIDDEN, UPDATES, SUMMARY }
-    }
+        val text: String,
+        val id: String = randomId()
+    ) : Phenomenon
 }
-
-/** Lossless escape hatch: keep the original JSON and re-emit it byte-for-byte. */
-// val raw: JsonObject  ← I'd attach this to Reasoning too, for round-trip safety
 
 data class Actant(
     val type: Type,
@@ -142,11 +122,11 @@ data class Enunciation(
     val duration: Duration get() = finalized - initiated
     /**
      * Whether this is the output of its cogitation, addressed to its invoker, see [Cogitation.output]:
-     * enunciated by [Actant.SELF], neither expressing intents and monologues, nor responding to a request,
-     * e.g. what an intent enunciates through its agency.
+     * enunciated by [Actant.SELF], not responding to a request, and expressing no intent, but something else than a monologue,
+     * e.g. what an intent enunciates through its agency, or the text of an inference answering without an intent.
      */
     val isOutput: Boolean get() = actant == Actant.SELF && respondsTo == null
-            && phenomena.none { it is Phenomenon.Intent || it is Phenomenon.Monologue }
+            && phenomena.none { it is Phenomenon.Intent } && phenomena.any { it !is Phenomenon.Monologue }
 }
 
 /**
@@ -212,7 +192,8 @@ data class Inference(
  * - `cognizer`: `Cognizer` of the package `com.xemantic.ai.annie.cognizer`, whose
  *   `suspend fun cognize(cogitation: Cogitation): Cognized` makes a single inference, returning
  *   `data class Cognized(val phenomena: List<Phenomenon>, val inference: Inference? = null)`:
- *   the phenomena to be enunciated by [Actant.SELF], and the [Inference] expressing them,
+ *   the phenomena to be enunciated by [Actant.SELF], e.g. a [Phenomenon.Monologue], a [Phenomenon.Text] and a [Phenomenon.Intent],
+ *   and the [Inference] expressing them,
  *   to be carried by that enunciation; only inferences made this way are recorded,
  * - `executor`: `ScriptExecutor`, whose
  *   `suspend fun execute(script: String, cogitation: Cogitation, agency: Agency): List<Phenomenon>`
@@ -224,7 +205,8 @@ data class Inference(
  *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated].
  *
  * The harness unfolds the cogitation by a single step, e.g. one inference, and is executed
- * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded:
+ * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded,
+ * or the text of an inference expressing no intent:
  * then the cogitation rests, until another interaction progresses it.
  * A cogitation awaiting [unansweredInvocations] is not unfolded further
  * until all of them are answered, the responding [Enunciation]s appended to it.
@@ -259,8 +241,9 @@ data class Cogitation(
     }
     val unansweredInvocations: List<Phenomenon.Invocation> get() =
         unansweredRequests.filterIsInstance<Phenomenon.Invocation>()
-    /** The phenomena of every [Enunciation.isOutput] of this cogitation, in their order. */
+    /** The phenomena of every [Enunciation.isOutput] of this cogitation, in their order, without the monologues. */
     val output: List<Phenomenon> get() = enunciations.filter { it.isOutput }.flatMap { it.phenomena }
+        .filter { it !is Phenomenon.Monologue }
 }
 
 /** Id of the enunciation responding to the request with [requestId], the same however many times it is enunciated. */

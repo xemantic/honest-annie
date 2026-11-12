@@ -27,7 +27,8 @@ package com.xemantic.ai.annie
 // cogitation, whose `cogitation` includes the enunciation carrying the intent, invoking new cogitations,
 // enunciating its output and resolving the Kotlin API.
 //
-// What an intent enunciates through `agency` is the output of the cogitation, enunciated by self after the intent,
+// An inference expressing text, and no intent, answers with it: the text is the output of the cogitation, which rests.
+// What an intent enunciates through `agency` is the output of the cogitation too, enunciated by self after the intent,
 // perceived by its invoker, and by the cognizer too, if the cogitation is unfolded further.
 // The result of the intent is enunciated by the computer, responding to the intent: the invocations it made, in their order,
 // followed by its value, unless `Unit` or `null`, or by the impediment describing its failure, if it failed.
@@ -35,14 +36,11 @@ package com.xemantic.ai.annie
 // when it enunciated output, invoking nothing and not failing, its value being ignored.
 // An intent with an empty result, enunciating nothing, is responded with a text telling that nothing of it is perceived,
 // e.g. what it printed, instead of resting the cogitation with no output.
-// An inference expressing a malformed intent, see `Agency.isMalformed`, or completed without expressing any,
-// is discarded, inferring again instead, at most `Agency.maxReinferences` times.
 // An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment
-// enunciated by self instead, as its intent might be cut short.
-import com.xemantic.ai.annie.cognizer.Cognized
+// enunciated by self instead, as its intent, or its answer, might be cut short.
+// So does an inference expressing neither an intent, nor a text to answer with.
 import com.xemantic.ai.annie.cognizer.Cognizer
 import kotlin.time.Clock
-import kotlin.time.Instant
 
 /**
  * Unfolds the cogitation of the [agency] by a single step, the parameters being the properties provided to a harness,
@@ -61,20 +59,8 @@ private suspend fun unfold(
                 "e.g. what it printed: evaluate to what you need to know, or enunciate your answer.",
         Phenomenon.Text.PLAIN
     )
-    var inferenceInitiated: Instant
-    var cognized: Cognized
-    var reinferences = 0
-    // A malformed intent, e.g. a tool call, is discarded, inferring again from the same cogitation,
-    // and executed, failing, only when still expressed after the last reinference.
-    // So is a completed inference expressing no intent, e.g. its tool call taken apart by the endpoint.
-    do {
-        inferenceInitiated = Clock.System.now()
-        cognized = cognizer.cognize(cogitation)
-        val expressed = cognized.phenomena.filterIsInstance<Phenomenon.Intent>().lastOrNull()
-        val completed = cognized.inference?.stop.let { it == null || it.kind == Inference.Stop.Kind.COMPLETED }
-        val discarded = if (expressed == null) completed else agency.isMalformed(expressed)
-    } while (discarded && reinferences++ < agency.maxReinferences)
-    val (phenomena, inference) = cognized
+    val inferenceInitiated = Clock.System.now()
+    val (phenomena, inference) = cognizer.cognize(cogitation)
     val inferred = cogitation + Enunciation(
         actant = Actant.SELF,
         initiated = inferenceInitiated,
@@ -91,7 +77,8 @@ private suspend fun unfold(
     return if (stop != null && stop.kind != Inference.Stop.Kind.COMPLETED) {
         impeded("Inference not completed, stopped by ${stop.reason}")
     } else if (intent == null) {
-        impeded("No intent expressed")
+        // the text of an inference expressing no intent is the answer, enunciated by self last, so the cogitation rests
+        if (phenomena.any { it is Phenomenon.Text }) inferred else impeded("Neither an intent nor an answer expressed")
     } else {
         val initiated = Clock.System.now()
         val result = executor.execute(intent.script, inferred, agency)

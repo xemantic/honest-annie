@@ -65,8 +65,6 @@ class ScriptExecutorTest {
         override fun impede(reason: String) {
             enunciated += Phenomenon.Impediment(reason)
         }
-        override fun isMalformed(intent: Phenomenon.Intent) = false
-        override val maxReinferences = 0
         override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
         override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
         override fun execute(
@@ -121,6 +119,33 @@ class ScriptExecutorTest {
         // then
         assert(number == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
         assert(string == listOf(Phenomenon.Text("*answer*", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should resolve the API of annie without importing it`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            "fun said(phenomenon: Phenomenon) = (phenomenon as Phenomenon.Text).text\n" +
+                "said(Phenomenon.Text(\"no import needed\"))",
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("no import needed", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should digest value of intent, telling to keep the whole value in a val`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute("(0 until 100_000).joinToString(\"\\n\")", cogitation, TestAgency())
+
+        // then
+        val value = (phenomena.single() as Phenomenon.Text).text
+        assert(value.length < 11_000)
+        assert(value.startsWith("0\n1\n2\n"))
+        assert(value.contains(Regex("\\d+ more characters omitted")))
+        assert(value.contains("val"))
     }
 
     @Test
@@ -214,7 +239,7 @@ class ScriptExecutorTest {
         // then
         val reason = (phenomena.single() as Phenomenon.Impediment).reason
         assert(reason.length <= 5000)
-        assert(reason.startsWith("snippet1.kts:1:"))
+        assert(reason.contains(Regex("^snippet\\d+\\.kts:1:")))
         assert(reason.contains(Regex("\\d+ more errors omitted")))
     }
 

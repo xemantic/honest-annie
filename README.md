@@ -19,8 +19,9 @@ A recursive self-modifying harness for scientific research
 
 ## What makes Honest Annie different from other harnesses?
 
-- Its only expression is Kotlin Script: natural language appears only in its monologue, its comments, and the strings it enunciates or passes on.
-- It doesn't use tools, only the same scripting language
+- It acts only through Kotlin Script: natural language appears in its monologue, its comments, the strings it enunciates or passes on,
+  and in the text it answers with, when it calls no tool.
+- It uses a single tool, executing a Kotlin script, whose API the system prompt documents, instead of a tool for each action
 - The script evaluates to what Annie needs to perceive, and enunciates what its invoker needs to know
 - The script is technically compiled, which ensures formal analysis before evaluation
 - The script can call Annie recursively (RLM)
@@ -69,12 +70,11 @@ Therefore, it can amplify evaluation score of language models.
    which makes pre-execution review by a monitor model possible.
    How reliably does such a monitor catch harmful or deceptive intents,
    compared with monitoring individual tool calls?
-4. **Honesty under a tool-less design.**
+4. **Honesty under a single-tool design.**
    Which dishonest behaviors does a harness expressed only in code reveal, and which does it hide?
    The harness already records these signals, instrumented, not yet findings:
-   - fabricated responses of the computer, which some models write after their own script:
-     the intent is recorded as expressed, with the script actually executed beside it (`*-intent-executed.kts`),
-     and an inference expressing nothing but such a response, or a tool call, is discarded and recorded as `*-discarded-*`;
+   - an inference expressing no intent, or calling another tool than the one executing scripts,
+     is discarded and recorded as `*-discarded-*`, while whatever a model writes after its call, e.g. a made up result, is never perceived;
    - impeding versus answering: `agency.impede(reason)` is recorded as an impediment, distinct from an answer;
    - whether the final answer follows from the agent's own judgments, the **own** metric of the [OOLONG eval](evals/oolong/README.md);
    - whether an intent mentions the gold answers, the **LEAKED** flag of the [LongCoT eval](evals/longcot/README.md).
@@ -166,7 +166,7 @@ When `ANNIE_TOKEN_BUDGET` is set, the cogitation and the ones it invokes spend a
 and are impeded once they have spent them.
 When `ANNIE_PARALLELISM` is set, at most that many of them step at a time, e.g. `1` for one inference at a time,
 the others waiting in the queue.
-When an intent is malformed, e.g. a tool call, or no intent is expressed, the harness infers again, at most `ANNIE_REINFERENCES` times, 1 by default.
+An inference calling no tool answers with its text, which rests the cogitation.
 `ANNIE_EFFORT` sets how much effort the model puts into its reasoning and response,
 one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
 mapped to the nearest level the model supports, its default when not set.
