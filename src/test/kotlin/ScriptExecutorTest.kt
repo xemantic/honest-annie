@@ -739,6 +739,44 @@ class ScriptExecutorTest {
         assert(requests.get() == 2)
     }
 
+    // The example of the HTTP section of the constitution, as it is written there.
+    @Test
+    fun `should run JSON example of constitution digesting with buildString`() = runTest(timeout = 5.minutes) {
+        // given
+        val server = serve("/items") { exchange ->
+            val body = """{"name": "honest annie", "stock": {"count": 3}, "price": 4.2, "tags": [{"label": "kotlin", "active": true}, {"label": "old", "active": false}, {"label": "agent", "active": true}]}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        val url = "http://localhost:${server.address.port}/items"
+
+        // when
+        val phenomena = try {
+            executor.execute(
+                $$"""
+                import io.ktor.client.call.*
+                import io.ktor.client.request.*
+                import kotlinx.serialization.json.*
+
+                val item = await { agency.http.get("$$url/42").body<JsonElement>() }
+                val tags = item["tags"].list.filter { it["active"].boolean }.map { it["label"].string }
+                buildString {
+                    +"${item["name"].string}: ${item["stock"]["count"].int} in stock, price ${item.getOrNull("price")?.double}\n"
+                    for (tag in tags) +"- $tag\n"
+                }
+                """.trimIndent(),
+                cogitation,
+                TestAgency()
+            )
+        } finally {
+            server.stop(0)
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("honest annie: 3 in stock, price 4.2\n- kotlin\n- agent\n", Phenomenon.Text.PLAIN)))
+    }
+
     @Test
     fun `should fail intent on error status received by http client of agency`()= runTest(timeout = 5.minutes) {
         // given
