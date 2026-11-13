@@ -121,6 +121,7 @@ KINDS = [
 
 PROMPT = (
     "The file {context} holds a dataset (~{tokens}K tokens). "
+    "Judge what the question needs yourself, never looking it up elsewhere, e.g. in the published labels of the dataset. "
     "Without loading it all into your own context, answer: {question}"
 )
 
