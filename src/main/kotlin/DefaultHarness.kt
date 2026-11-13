@@ -36,6 +36,8 @@ package com.xemantic.ai.annie
 // when it enunciated output, invoking nothing and not failing, its value being ignored.
 // An intent with an empty result, enunciating nothing, is responded with a text telling that nothing of it is perceived,
 // e.g. what it printed, instead of resting the cogitation with no output.
+// Each response ends with what the cogitation spent so far, its inferences and their tokens,
+// so that the cognizer weighs further steps against what it already knows.
 // An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment
 // enunciated by self instead, as its intent, or its answer, might be cut short.
 // So does an inference expressing neither an intent, nor a text to answer with.
@@ -59,6 +61,13 @@ private suspend fun unfold(
                 "e.g. what it printed: evaluate to what you need to know, or enunciate your answer.",
         Phenomenon.Text.PLAIN
     )
+    fun spent(cogitation: Cogitation): Phenomenon.Text {
+        val inferences = cogitation.enunciations.mapNotNull { it.inference }
+        return Phenomenon.Text(
+            "Spent by this cogitation so far: ${inferences.size} inference(s), ${inferences.sumOf { it.total }} token(s).",
+            Phenomenon.Text.PLAIN
+        )
+    }
     val inferenceInitiated = Clock.System.now()
     val (phenomena, inference) = cognizer.cognize(cogitation)
     val inferred = cogitation + Enunciation(
@@ -99,7 +108,7 @@ private suspend fun unfold(
                 initiated = initiated,
                 finalized = executed,
                 respondsTo = intent.id,
-                phenomena = result.ifEmpty { listOf(nothingPerceived) }
+                phenomena = result.ifEmpty { listOf(nothingPerceived) } + spent(inferred)
             )
         }
     }

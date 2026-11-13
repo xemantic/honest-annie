@@ -190,7 +190,7 @@ class HarnessTest {
         val response = perceived.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
         assert(response.respondsTo == intent.id)
-        assert(response.phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+        assert(response.phenomena.first() == Phenomenon.Text("42", Phenomenon.Text.PLAIN))
     }
 
     @Test
@@ -245,7 +245,7 @@ class HarnessTest {
         assert(cognizer.perceived.size == 2)
         val response = cognizer.perceived[1].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
-        assert((response.phenomena.single() as Phenomenon.Text).text.startsWith("The intent evaluated to nothing"))
+        assert((response.phenomena.first() as Phenomenon.Text).text.startsWith("The intent evaluated to nothing"))
     }
 
     @Test
@@ -264,7 +264,7 @@ class HarnessTest {
         assert(cognizer.perceived.size == 2)
         val response = cognizer.perceived[1].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
-        assert((response.phenomena.single() as Phenomenon.Impediment).reason.contains("boom"))
+        assert((response.phenomena.first() as Phenomenon.Impediment).reason.contains("boom"))
     }
 
     @Test
@@ -283,7 +283,7 @@ class HarnessTest {
         assert(cognizer.perceived.size == 2)
         val response = cognizer.perceived[1].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
-        assert((response.phenomena.single() as Phenomenon.Text).text.startsWith("The intent evaluated to nothing"))
+        assert((response.phenomena.first() as Phenomenon.Text).text.startsWith("The intent evaluated to nothing"))
     }
 
     @Test
@@ -321,7 +321,7 @@ class HarnessTest {
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("The answer is 42.")))
         assert(perceived.size == 2)
-        assert((perceived[1].enunciations.last().phenomena.single() as Phenomenon.Text).text == "42")
+        assert((perceived[1].enunciations.last().phenomena.first() as Phenomenon.Text).text == "42")
     }
 
     @Test
@@ -462,7 +462,7 @@ class HarnessTest {
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("echo: sub")))
         val perceived = cognizer.perceived[1].enunciations
-        val invocation = perceived[perceived.size - 2].phenomena.single() as Phenomenon.Invocation
+        val invocation = perceived[perceived.size - 2].phenomena.first() as Phenomenon.Invocation
         assert(invocation.prompt == "sub")
         val response = perceived.last()
         assert(response.respondsTo == invocation.id)
@@ -544,6 +544,23 @@ class HarnessTest {
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Impediment("Harness did not unfold the cogitation")))
+    }
+
+    @Test
+    fun `should tell cognizer what cogitation spent so far with each response to its intents`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer("6 * 7", "6 * 8", restingIntent)
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        // each inference consumes as many tokens as the enunciations it perceived: 1, then 3
+        val responses = cognizer.perceived.last().enunciations.filter { it.actant.type == Actant.Type.COMPUTER }
+        assert(responses.map { it.phenomena.last() } == listOf(
+            Phenomenon.Text("Spent by this cogitation so far: 1 inference(s), 1 token(s).", Phenomenon.Text.PLAIN),
+            Phenomenon.Text("Spent by this cogitation so far: 2 inference(s), 4 token(s).", Phenomenon.Text.PLAIN)
+        ))
     }
 
     @Test

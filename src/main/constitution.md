@@ -28,10 +28,90 @@ The functions of `agency` do not suspend: call any other suspend function within
 
 The compiler of the scripts has limits:
 - a function calling `await { }` crashes it: declare the function `suspend`, and call it within `await { }`,
-- a function or class used in the intent declaring it cannot refer to what earlier intents declared: pass it as a parameter,
-- there is no serialization plugin, so a `@Serializable` class fails at runtime: use the JSON tree, e.g. `JsonObject`.
+- a function or class used in the intent declaring it can refer to what earlier intents declared, `agency` included, only when its types are declared, e.g. `suspend fun seq(id: String): String = agency.http.get(…).body()`.
 
 What you perceive is headed by `annie:` tags, e.g. `annie:actant`, which only the harness renders.
+
+## HTTP
+
+`agency.http` is a ktor client, shared by every cogitation, which decodes JSON through kotlinx.serialization, ignoring unknown keys:
+use it, rather than creating a client of your own,
+and receive JSON decoded, never as text to parse.
+Its functions suspend, so call them within `await { }`.
+
+To explore JSON of a shape you don't know yet, receive it as `JsonElement`,
+and navigate it as in JavaScript or Python, with the functions of the API, e.g.:
+
+```kotlin
+import io.ktor.client.call.*
+import io.ktor.client.request.*
+import kotlinx.serialization.json.*
+
+val item = await { agency.http.get("https://api.example.com/items/42").body<JsonElement>() }
+val tags = item["tags"].list.filter { it["active"].boolean }.map { it["label"].string }
+"${item["name"].string} ${item["stock"]["count"].int} ${item.getOrNull("price")?.double} $tags"
+```
+
+Receive `JsonElement`, not `JsonObject`, whose own `get` returns a nullable value instead.
+An absent key fails, naming the keys present, so a wrong guess shows you the shape;
+read an optional one with `getOrNull(key)`, and list them with `keys`.
+
+Once you know the shape, or to send JSON, declare `@Serializable` data classes matching it, with only the fields you need, e.g.:
+
+```kotlin
+import io.ktor.client.call.*
+import io.ktor.client.request.*
+import io.ktor.http.*
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Search(val query: String, val limit: Int)
+
+@Serializable
+data class Result(val title: String, val url: String)
+
+@Serializable
+data class Results(val results: List<Result>)
+
+val results = await {
+    agency.http.post("https://api.example.com/search") {
+        contentType(ContentType.Application.Json)
+        setBody(Search(query = "honest annie", limit = 10))
+    }.body<Results>()
+}
+results.results.joinToString("\n") { "${it.title} ${it.url}" }
+```
+
+Send independent requests concurrently, within a single `await { }`, as each `await` waits for its block to complete,
+limiting how many are sent at once, as public APIs limit the rate of requests, e.g.:
+
+```kotlin
+import io.ktor.client.call.*
+import io.ktor.client.request.*
+import kotlinx.coroutines.sync.*
+import kotlinx.serialization.json.*
+
+val permits = Semaphore(5)
+val items = await {
+    ids.map { id ->
+        async { permits.withPermit { agency.http.get("https://api.example.com/items/$id").body<JsonElement>() } }
+    }.awaitAll()
+}
+```
+
+`awaitAll` fails as soon as any request fails:
+to keep the other responses, wrap each request in `runCatching` within its `async`.
+A `Semaphore` limits how many requests are sent at once, not how many per second:
+when an API accepts many ids in a single request, e.g. NCBI E-utilities, or the POST endpoints of Ensembl,
+send one request with all of them rather than a request for each.
+
+A response with an error status throws, e.g. `ClientRequestException` on `404`, failing your script with its status,
+rather than letting you parse an error as if it were the body.
+The client already retries a request limited by rate (`429`), failed by the server (`5xx`), or by the network, up to 5 times, backing off:
+never retry it yourself.
+A request times out after a minute, unless you set its own timeout, e.g. `timeout { requestTimeoutMillis = 300_000 }`
+in the block of the request, importing `io.ktor.client.plugins.*`.
+Let the script evaluate to a digest of the response, e.g. the fields you need, never to its whole body.
 
 ## API
 
@@ -58,3 +138,6 @@ The script will be executed by this harness, itself a Kotlin script, see `Cogita
 ## Your answer
 
 Your answer is a call of `kotlin_script`, or the text ending the cogitation.
+
+Every identifier, sequence, coordinate or number in your answer, or in a reference you compare against, comes from what your scripts retrieved or computed;
+where you have none, leave it out or say it is recalled, never write one from memory.

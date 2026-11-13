@@ -24,6 +24,10 @@ import com.xemantic.ai.annie.host.annieHttpClient
 import com.xemantic.kotlin.test.assert
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.time.Duration
@@ -346,8 +350,8 @@ class ScriptExecutorTest {
         assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
     }
 
-    // The constitution tells to refer to what an earlier intent declared through a val of the same intent,
-    // because a function or class used in the intent declaring it cannot refer to it directly.
+    // A function or class of inferred types, used in the intent declaring it, can still refer to what an earlier intent
+    // declared through a val of the same intent.
     @Test
     fun `should use function and class referring to declaration of earlier intent through val of same intent`() = runTest(timeout = 5.minutes) {
         // given
@@ -370,10 +374,110 @@ class ScriptExecutorTest {
         assert(phenomena == listOf(Phenomenon.Text("gat-aca", Phenomenon.Text.PLAIN)))
     }
 
+    // The constitution tells to declare the types of a function used in the intent declaring it,
+    // as the compiler then resolves what an earlier intent declared within it.
+    @Test
+    fun `should use function of declared type referring to declaration of earlier intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val agency = TestAgency()
+        executor.execute("val genome = \"gattaca\"", cogitation, agency)
+
+        // when
+        val phenomena = executor.execute(
+            """
+            fun prefix(length: Int): String = genome.take(length)
+            prefix(3)
+            """.trimIndent(),
+            cogitation,
+            agency
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("gat", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should impede function of inferred type referring to declaration of earlier intent, hinting to declare its type`() = runTest(timeout = 5.minutes) {
+        // given
+        val agency = TestAgency()
+        executor.execute("val genome = \"gattaca\"", cogitation, agency)
+
+        // when
+        val phenomena = executor.execute(
+            """
+            fun prefix(length: Int) = genome.take(length)
+            prefix(3)
+            """.trimIndent(),
+            cogitation,
+            agency
+        )
+
+        // then
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert("Unresolved reference 'genome'" in reason)
+        assert("declare the type" in reason)
+    }
+
+    @Test
+    fun `should use class with properties of declared types referring to declaration of earlier intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val agency = TestAgency()
+        executor.execute("val genome = \"gattaca\"", cogitation, agency)
+
+        // when
+        val phenomena = executor.execute(
+            """
+            class Suffix(val length: Int) { val text: String = genome.takeLast(length) }
+            Suffix(3).text
+            """.trimIndent(),
+            cogitation,
+            agency
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("aca", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should use suspend function of declared type referring to agency in intent declaring it`() = runTest(timeout = 5.minutes) {
+        // given
+        val server = serve("/seq") { exchange ->
+            val body = """{"seq": "${exchange.requestURI.path.substringAfterLast('/')}"}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        val url = "http://localhost:${server.address.port}/seq"
+
+        // when
+        // as Claude wrote it, with the type declared
+        val phenomena = try {
+            executor.execute(
+                $$"""
+                import io.ktor.client.call.*
+                import io.ktor.client.request.*
+                import kotlinx.serialization.json.*
+
+                suspend fun seq(id: String): String = agency.http.get("$$url/$id").body<JsonElement>()["seq"].string
+                await { seq("MKSIY") }
+                """.trimIndent(),
+                cogitation,
+                TestAgency()
+            )
+        } finally {
+            server.stop(0)
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("MKSIY", Phenomenon.Text.PLAIN)))
+    }
+
     /** Serves the [handler] on a free port of the loopback address, until stopped. */
     private fun serve(path: String, handler: HttpHandler): HttpServer =
         HttpServer.create(InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0).apply {
             createContext(path, handler)
+            // handles requests concurrently, like a real server
+            executor = Executors.newCachedThreadPool()
             start()
         }
 
@@ -421,7 +525,222 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should fail intent on error status received by http client of agency`() = runTest(timeout = 5.minutes) {
+    fun `should receive JSON as data class declared by intent with http client of agency`() = runTest(timeout = 5.minutes) {
+        // given
+        // responds with the answer, and a field to ignore
+        val server = serve("/answer") { exchange ->
+            val body = """{"question": "ultimate", "answer": 42, "unknown": true}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        val url = "http://localhost:${server.address.port}/answer"
+
+        // when
+        val phenomena = try {
+            executor.execute(
+                $$"""
+                import io.ktor.client.call.*
+                import io.ktor.client.request.*
+                import kotlinx.serialization.Serializable
+
+                @Serializable
+                data class Answer(val question: String, val answer: Int)
+
+                val answer = await { agency.http.get("$$url").body<Answer>() }
+                "${answer.question}: ${answer.answer}"
+                """.trimIndent(),
+                cogitation,
+                TestAgency()
+            )
+        } finally {
+            server.stop(0)
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("ultimate: 42", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should navigate JSON received as JsonElement by http client of agency`() = runTest(timeout = 5.minutes) {
+        // given
+        val server = serve("/gene") { exchange ->
+            val body = """{"id": "GCG", "Transcript": [{"id": "T1", "is_canonical": false}, {"id": "T2", "is_canonical": true, "Translation": {"id": "P2"}}]}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        val url = "http://localhost:${server.address.port}/gene"
+
+        // when
+        val phenomena = try {
+            executor.execute(
+                $$"""
+                import io.ktor.client.call.*
+                import io.ktor.client.request.*
+                import kotlinx.serialization.json.*
+
+                val gene = await { agency.http.get("$$url").body<JsonElement>() }
+                val canonical = gene["Transcript"].list.first { it["is_canonical"].boolean }
+                "${gene["id"].string}: ${canonical["id"].string} ${canonical["Translation"]["id"].string}"
+                """.trimIndent(),
+                cogitation,
+                TestAgency()
+            )
+        } finally {
+            server.stop(0)
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("GCG: T2 P2", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should send requests concurrently with http client of agency`() = runTest(timeout = 5.minutes) {
+        // given
+        // each request waits for the other two to arrive, so requests sent one after another fail with 503
+        val arrivals = CyclicBarrier(3)
+        val server = serve("/item") { exchange ->
+            val id = exchange.requestURI.path.substringAfterLast('/')
+            val arrivedTogether = try {
+                arrivals.await(30, TimeUnit.SECONDS)
+                true
+            } catch (_: Exception) {
+                false
+            }
+            val body = """{"id": "$id"}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(if (arrivedTogether) 200 else 503, body.size.toLong())
+            exchange.responseBody.use { it.write(body) }
+        }
+        val url = "http://localhost:${server.address.port}/item"
+
+        // when
+        val phenomena = try {
+            executor.execute(
+                $$"""
+                import io.ktor.client.call.*
+                import io.ktor.client.request.*
+                import kotlinx.coroutines.sync.*
+                import kotlinx.serialization.json.*
+
+                val ids = listOf("a", "b", "c")
+                val permits = Semaphore(5)
+                val items = await {
+                    ids.map { id ->
+                        async { permits.withPermit { agency.http.get("$$url/$id").body<JsonElement>() } }
+                    }.awaitAll()
+                }
+                items.joinToString { it["id"].string }
+                """.trimIndent(),
+                cogitation,
+                TestAgency()
+            )
+        } finally {
+            server.stop(0)
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("a, b, c", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should append to string builder in its scope opened by intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            $$"""
+            val report = StringBuilder()
+            for ((name, length) in listOf("dog" to 180, "cow" to 180)) report {
+                +"$name: $length aa\n"
+            }
+            report
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("dog: 180 aa\ncow: 180 aa\n", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should append with unary plus in buildString of intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            $$"""
+            buildString {
+                for ((name, length) in listOf("dog" to 180, "cow" to 180)) +"$name: $length aa\n"
+            }
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("dog: 180 aa\ncow: 180 aa\n", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should append every part joined with plus after unary plus in intent`() = runTest(timeout = 5.minutes) {
+        // when
+        // as cognizers write it, e.g. deepseek
+        val phenomena = executor.execute(
+            $$"""
+            fun digest(name: String) = "$name: present"
+            buildString {
+                +"DOG: " + digest("GCG") + "\n"
+                +digest("GLP1R") + "\n"
+            }
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("DOG: GCG: present\nGLP1R: present\n", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should retry request limited by rate with http client of agency`() = runTest(timeout = 5.minutes) {
+        // given
+        // limits the rate of the first request, telling to retry right away, and serves the second one
+        val requests = AtomicInteger()
+        val server = serve("/limited") { exchange ->
+            if (requests.incrementAndGet() == 1) {
+                exchange.responseHeaders.add("Retry-After", "0")
+                exchange.sendResponseHeaders(429, -1)
+                exchange.close()
+            } else {
+                val body = "served".toByteArray()
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { it.write(body) }
+            }
+        }
+        val url = "http://localhost:${server.address.port}/limited"
+
+        // when
+        val phenomena = try {
+            executor.execute(
+                $$"""
+                import io.ktor.client.request.*
+                import io.ktor.client.statement.*
+
+                await { agency.http.get("$$url").bodyAsText() }
+                """.trimIndent(),
+                cogitation,
+                TestAgency()
+            )
+        } finally {
+            server.stop(0)
+        }
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("served", Phenomenon.Text.PLAIN)))
+        assert(requests.get() == 2)
+    }
+
+    @Test
+    fun `should fail intent on error status received by http client of agency`()= runTest(timeout = 5.minutes) {
         // given
         val server = serve("/missing") { exchange ->
             exchange.sendResponseHeaders(404, -1)

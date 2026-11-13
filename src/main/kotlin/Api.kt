@@ -19,6 +19,16 @@
 package com.xemantic.ai.annie
 
 import io.ktor.client.HttpClient
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -118,8 +128,9 @@ interface Agency {
     val python: Python
     /**
      * The HTTP client of every cogitation, whose functions suspend, so they are called within `await { }`,
-     * e.g. `await { agency.http.get(url).body<JsonObject>() }`, see the HTTP section of the constitution.
+     * e.g. `await { agency.http.get(url).body<JsonElement>() }`, navigated with [get], see the HTTP section of the constitution.
      * It negotiates JSON with kotlinx.serialization, ignoring unknown keys, times out a request after a minute,
+     * retries a request limited by rate (`429`), failed by the server (`5xx`), or by the network, up to 5 times, backing off,
      * and throws on a response with an error status, e.g. `ClientRequestException` on `404`.
      */
     val http: HttpClient
@@ -181,3 +192,107 @@ fun Agency.bash(
     script: String,
     timeout: Duration = 1.minutes
 ): Execution = execute(listOf("bash", "-c", script), timeout = timeout)
+
+/*
+ * Navigating JSON of an unknown shape, received e.g. with `agency.http.get(url).body<JsonElement>()`,
+ * as in JavaScript or Python, e.g. `gene["Transcript"][0]["Translation"]["id"].string`.
+ * Each one fails on JSON of another kind, or on an absent key or index, telling what there is instead.
+ */
+
+/** The value of the [key] of this JSON object, failing when absent, naming the keys present. */
+operator fun JsonElement.get(key: String): JsonElement = when (this) {
+    is JsonObject -> get(key) ?: throw NoSuchElementException(
+        "No key \"$key\" in JSON object of keys: ${keys.joinToString()}"
+    )
+    else -> error("Key \"$key\" of JSON ${kind()}, not object")
+}
+
+/** The value of the [key] of this JSON object, `null` when absent or JSON `null`. */
+fun JsonElement.getOrNull(key: String): JsonElement? = when (this) {
+    is JsonObject -> get(key)?.takeUnless { it is JsonNull }
+    else -> error("Key \"$key\" of JSON ${kind()}, not object")
+}
+
+/** The element at the [index] of this JSON array, failing when absent, naming its size. */
+operator fun JsonElement.get(index: Int): JsonElement = when (this) {
+    is JsonArray -> getOrNull(index) ?: throw IndexOutOfBoundsException(
+        "No index $index in JSON array of size $size"
+    )
+    else -> error("Index $index of JSON ${kind()}, not array")
+}
+
+/** The keys of this JSON object. */
+val JsonElement.keys: Set<String> get() = (this as? JsonObject)?.keys ?: error("Keys of JSON ${kind()}, not object")
+
+/** The elements of this JSON array. */
+val JsonElement.list: List<JsonElement> get() = this as? JsonArray ?: error("List of JSON ${kind()}, not array")
+
+/** The content of this JSON string, or of a number or boolean, as written. */
+val JsonElement.string: String get() = primitive("String").content
+val JsonElement.int: Int get() = primitive("Int").intOrNull ?: error("Int of JSON $this")
+val JsonElement.long: Long get() = primitive("Long").longOrNull ?: error("Long of JSON $this")
+val JsonElement.double: Double get() = primitive("Double").doubleOrNull ?: error("Double of JSON $this")
+/** This JSON boolean, also `1` or `0`, as some APIs encode booleans, e.g. `is_canonical` of Ensembl. */
+val JsonElement.boolean: Boolean get() = primitive("Boolean").toBoolean() ?: error("Boolean of JSON $this")
+
+/*
+ * The same values, `null` for JSON `null`, or for JSON of another kind, e.g. an object, or text not being a number,
+ * e.g. `transcript.getOrNull("phase")?.intOrNull ?: 0`.
+ */
+val JsonElement.contentOrNull: String? get() = (this as? JsonPrimitive)?.contentOrNull
+val JsonElement.intOrNull: Int? get() = (this as? JsonPrimitive)?.intOrNull
+val JsonElement.longOrNull: Long? get() = (this as? JsonPrimitive)?.longOrNull
+val JsonElement.doubleOrNull: Double? get() = (this as? JsonPrimitive)?.doubleOrNull
+val JsonElement.booleanOrNull: Boolean? get() = (this as? JsonPrimitive)?.toBoolean()
+
+private fun JsonPrimitive.toBoolean(): Boolean? = booleanOrNull ?: if (isString) null else when (content) {
+    "1" -> true
+    "0" -> false
+    else -> null
+}
+
+private fun JsonElement.primitive(type: String): JsonPrimitive = when (this) {
+    is JsonNull -> error("$type of JSON null")
+    is JsonPrimitive -> this
+    else -> error("$type of JSON ${kind()}, not primitive: ${toString().take(200)}")
+}
+
+private fun JsonElement.kind(): String = when (this) {
+    is JsonObject -> "object"
+    is JsonArray -> "array"
+    is JsonNull -> "null"
+    is JsonPrimitive -> "primitive"
+}
+
+/**
+ * Opens the scope of this appendable, e.g. a `StringBuilder`, where `+text` appends the text,
+ * see [unaryPlus], evaluating to the appendable, e.g.:
+ * ```kotlin
+ * val report = StringBuilder()
+ * for ((name, length) in proteins) report {
+ *     +"$name: $length aa\n"
+ * }
+ * report
+ * ```
+ */
+operator fun <T : Appendable> T.invoke(block: T.() -> Unit): T = apply(block)
+
+/**
+ * Appends this text, `null` as `"null"`, to the appendable in scope,
+ * e.g. within `buildString { }`, or the scope opened by [invoke],
+ * so that `+"$name\n"` stands for `appendLine(name)`,
+ * appending also whatever is joined to it with `+`, e.g. `+"exons: " + exons.size + "\n"`, see [Appending].
+ */
+context(appendable: Appendable)
+operator fun CharSequence?.unaryPlus(): Appending {
+    appendable.append(this)
+    return Appending(appendable)
+}
+
+/** Appends to the appendable what is joined with `+` after [unaryPlus], as its text, `null` as `"null"`. */
+class Appending(private val appendable: Appendable) {
+    operator fun plus(value: Any?): Appending {
+        appendable.append(value.toString())
+        return this
+    }
+}

@@ -20,6 +20,7 @@ package com.xemantic.ai.annie.host
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpRequestRetry
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.UserAgent
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -35,6 +36,15 @@ val annieHttpClient: HttpClient by lazy {
     HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
+        }
+        // public APIs limit the rate of requests, and fail now and then, so scripts need not retry on their own
+        install(HttpRequestRetry) {
+            retryIf(maxRetries = 5) { _, response ->
+                response.status.value == 429 || response.status.value >= 500
+            }
+            // a request timing out is not retried, as it would take minutes, see HttpTimeout
+            retryOnException(maxRetries = 5, retryOnTimeout = false)
+            exponentialDelay(respectRetryAfterHeader = true)
         }
         install(HttpTimeout) {
             requestTimeoutMillis = 60_000
