@@ -182,6 +182,16 @@ in `~/.cache/honest-annie`, or at the `ANNIE_PYTHON_VENV` path,
 with `python3`, or the `ANNIE_PYTHON` executable, and installs `jep` into it,
 which, when no wheel matches the Python, is built from its source, needing a C compiler and a JDK found through `JAVA_HOME`.
 
+On Debian or Ubuntu, `jep` is built from its source,
+so the virtual environment and the build need the `python3-venv`, `python3-dev` and `build-essential` packages:
+
+```shell
+sudo apt install python3-venv python3-dev build-essential
+```
+
+Without `python3-venv`, `python3 -m venv` leaves a virtual environment with no `pip`;
+remove the `.venv` it left, or run `.venv/bin/python -m ensurepip`, and build again.
+
 `./gradlew listModels [-Pprompt="text"]` lists the models served at `OPENAI_BASE_URL`.
 
 ### Running without a JDK
