@@ -74,6 +74,7 @@ dependencies {
     implementation(libs.anthropic.java)
     implementation(libs.openai.java)
     implementation(libs.xemantic.ai.file.magic)
+    implementation(libs.xemantic.ai.money)
     implementation(libs.kotlin.logging)
 
     runtimeOnly(libs.logback.classic)

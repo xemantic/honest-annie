@@ -20,6 +20,7 @@ package com.xemantic.ai.annie.host
 
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
+import com.xemantic.ai.annie.Edit
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
@@ -29,11 +30,14 @@ import com.xemantic.ai.annie.responseId
 import com.xemantic.kotlin.test.assert
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
+import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.name
 import kotlin.io.path.readText
+import kotlin.io.path.writeText
 import kotlin.test.Test
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CompletableDeferred
@@ -304,6 +308,33 @@ class HarnessTest {
     }
 
     @Test
+    fun `should respond to a tool call it could not execute, rather than resting with the text along it`() = runTest(timeout = 5.minutes) {
+        // given
+        val perceived = mutableListOf<Cogitation>()
+        val cognizer = Cognizer { cogitation ->
+            perceived += cogitation
+            Cognized(
+                if (perceived.size == 1) listOf(
+                    Phenomenon.Text("Found it: the retry frame."),
+                    Phenomenon.Impediment("Your call of kotlin_script carried no script")
+                )
+                else listOf(Phenomenon.Text("The answer is 42.")),
+                Inference(model = "scripted", provider = "test", tokens = emptyMap())
+            )
+        }
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("The answer is 42.")))
+        assert(perceived.size == 2)
+        val response = perceived[1].enunciations.last()
+        assert(response.actant.type == Actant.Type.COMPUTER)
+        assert(response.phenomena.first() == Phenomenon.Impediment("Your call of kotlin_script carried no script"))
+    }
+
+    @Test
     fun `should answer with text after executing intents`() = runTest(timeout = 5.minutes) {
         // given
         val perceived = mutableListOf<Cogitation>()
@@ -390,6 +421,63 @@ class HarnessTest {
             Phenomenon.Impediment("Inference not completed, stopped by length")
         ))
         assert(inferences.get() == 1)
+    }
+
+    @Test
+    fun `should infer once more after refused inference, discarding what it expressed`() = runTest(timeout = 5.minutes) {
+        // given
+        val perceived = mutableListOf<Cogitation>()
+        val cognizer = Cognizer { cogitation ->
+            perceived += cogitation
+            if (perceived.size == 1) Cognized(
+                listOf(Phenomenon.Monologue("I'm weighing"), Phenomenon.Text("partial")),
+                Inference(
+                    model = "refusing",
+                    provider = "test",
+                    tokens = mapOf(Inference.Tokens.OUTPUT to 7L),
+                    stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal", category = "cyber")
+                )
+            ) else Cognized(
+                listOf(Phenomenon.Text("answer is 42")),
+                Inference(model = "falling back", provider = "test", stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn"))
+            )
+        }
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("answer is 42")))
+        assert(perceived.size == 2)
+        // the refused inference stays, so that what it spent is counted, and the cognizer knows it was refused
+        val refused = perceived.last().enunciations.last()
+        assert(refused.actant == Actant.SELF)
+        assert(refused.phenomena.isEmpty())
+        assert(refused.inference?.stop == Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal", category = "cyber"))
+    }
+
+    @Test
+    fun `should impede when inference made once more after refused inference is refused too`() = runTest(timeout = 5.minutes) {
+        // given
+        val inferences = AtomicInteger()
+        val cognizer = Cognizer {
+            inferences.incrementAndGet()
+            Cognized(
+                listOf(Phenomenon.Text("partial")),
+                Inference(
+                    model = "refusing",
+                    provider = "test",
+                    stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal", category = "cyber")
+                )
+            )
+        }
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Impediment("Inference not completed, stopped by refusal (cyber)")))
+        assert(inferences.get() == 2)
     }
 
     @Test
@@ -561,6 +649,39 @@ class HarnessTest {
             Phenomenon.Text("Spent by this cogitation so far: 1 inference(s), 1 token(s).", Phenomenon.Text.PLAIN),
             Phenomenon.Text("Spent by this cogitation so far: 2 inference(s), 4 token(s).", Phenomenon.Text.PLAIN)
         ))
+    }
+
+    @Test
+    fun `should tell cognizer what its tree may still spend of the token budget and time only once little is left`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer("6 * 7", "6 * 8", restingIntent)
+        val host = HarnessHost(cognizer, store, tokenBudget = 5, timeLimit = 90.minutes)
+
+        // when
+        host.cognize(cogitation(defaultHarness))
+
+        // then
+        // each inference consumes as many tokens as the enunciations it perceived: 1, then 3
+        val responses = cognizer.perceived.last().enunciations.filter { it.actant.type == Actant.Type.COMPUTER }
+        val first = (responses[0].phenomena.last() as Phenomenon.Text).text
+        val second = (responses[1].phenomena.last() as Phenomenon.Text).text
+        // a budget told at every step is spent rather than guarded, see the Fable constitution
+        assert(first == "Spent by this cogitation so far: 1 inference(s), 1 token(s).")
+        assert(second.startsWith("Spent by this cogitation so far: 2 inference(s), 4 token(s). Left to the whole tree of cogitations: 1 of 5 token(s)"))
+        assert("A fifth or less of what you may spend is left" in second)
+    }
+
+    @Test
+    fun `should impede cogitation once its time limit has passed`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer("6 * 7", restingIntent)
+
+        // when
+        val output = HarnessHost(cognizer, store, timeLimit = Duration.ZERO).cognize(cogitation(defaultHarness))
+
+        // then
+        assert(cognizer.perceived.isEmpty())
+        assert(output.phenomena == listOf(Phenomenon.Impediment("Time limit of 0s passed")))
     }
 
     @Test
@@ -765,6 +886,78 @@ class HarnessTest {
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("not shared")))
+    }
+
+    /** Expresses the [intent] first, then answers with the text of the response to it. */
+    private class EditingCognizer(private val intent: Phenomenon.Intent) : Cognizer {
+        val perceived = mutableListOf<Cogitation>()
+        override suspend fun cognize(cogitation: Cogitation): Cognized {
+            perceived += cogitation
+            return Cognized(if (perceived.size == 1) listOf(intent) else listOf(Phenomenon.Text("Done.")))
+        }
+        val response: List<Phenomenon> get() = perceived[1].enunciations.last().phenomena
+    }
+
+    @Test
+    fun `should apply edits of intent before executing its script, responding with where`() = runTest(timeout = 5.minutes) {
+        // given
+        val dir = createTempDirectory()
+        val source = dir.resolve("main.py").apply { writeText("def f():\n    return 1\n") }
+        val created = dir.resolve("notes.md")
+        val cognizer = EditingCognizer(Phenomenon.Intent(
+            script = "java.io.File(${'"'}$source${'"'}).readText()",
+            edits = listOf(
+                Edit(path = source.toString(), old = "    return 1\n", new = "    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n    return 2\n"),
+                Edit(path = created.toString(), new = "notes\n")
+            )
+        ))
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(cognizer.response.take(2) == listOf(
+            Phenomenon.Text("Edited $source at line 2\nWrote $created, 1 lines", Phenomenon.Text.PLAIN),
+            Phenomenon.Text("def f():\n    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n    return 2\n", Phenomenon.Text.PLAIN)
+        ))
+        assert(created.readText() == "notes\n")
+    }
+
+    @Test
+    fun `should apply edits of intent without script`() = runTest(timeout = 5.minutes) {
+        // given
+        val created = createTempDirectory().resolve("notes.md")
+        val cognizer = EditingCognizer(Phenomenon.Intent(script = "", edits = listOf(Edit(path = created.toString(), new = "notes\n"))))
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(cognizer.response.first() == Phenomenon.Text("Wrote $created, 1 lines", Phenomenon.Text.PLAIN))
+        assert(created.readText() == "notes\n")
+    }
+
+    @Test
+    fun `should not execute script of intent when one of its edits fails`() = runTest(timeout = 5.minutes) {
+        // given
+        val dir = createTempDirectory()
+        val source = dir.resolve("main.py").apply { writeText("x = 1\n") }
+        val executed = dir.resolve("executed")
+        val cognizer = EditingCognizer(Phenomenon.Intent(
+            script = "java.io.File(${'"'}$executed${'"'}).writeText(${'"'}yes${'"'})",
+            edits = listOf(Edit(path = source.toString(), old = "y = 1\n", new = "y = 2\n"))
+        ))
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(cognizer.response.first() == Phenomenon.Impediment(
+            "Edit 1 of 1 failed: the old text does not occur in $source, its closest line being 1: \"x = 1\"\n" +
+                    "No file was changed, and the script was not executed."
+        ))
+        assert(!executed.exists())
+        assert(source.readText() == "x = 1\n")
     }
 
 }

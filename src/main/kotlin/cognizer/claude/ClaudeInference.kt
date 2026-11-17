@@ -69,9 +69,8 @@ import kotlinx.coroutines.future.await
  * It expresses its intent by calling the only tool offered, see [IntentTool], one call at a time,
  * the text it writes being a [Phenomenon.Text], replayed to any model: its answer when it calls no tool.
  *
- * The constitution is cached with a 1-hour breakpoint, while the growing cogitation is cached
- * by the automatic (top-level) breakpoint with [tailCache] TTL. Longer TTLs must precede shorter ones,
- * so the tail can be either 5 minutes or 1 hour, but the constitution never shorter.
+ * The constitution is cached by a breakpoint of its own, shared by every cogitation of the tree,
+ * while the growing cogitation is cached by the automatic (top-level) breakpoint, both for the [cache] lifetime.
  *
  * @param model the model id as known to the endpoint, e.g. a Bedrock one.
  * @param modelId the canonical id of the [model], the same at every endpoint serving it.
@@ -80,6 +79,14 @@ import kotlinx.coroutines.future.await
  * the maximum of Claude Opus 5.5 by default.
  * @param effort how much effort is put into the monologue and the response, the default of the model when `null`.
  * @param visibility how much of the monologue is returned.
+ * @param cache how long the cache lives, 5 minutes by default, each read renewing it:
+ * as long as the inferences of a tree start less than 5 minutes apart, which they did in every recorded eval run,
+ * a 1-hour cache only doubles the price of writing it, instead of 1.25 times the input,
+ * paying off when the same constitution is inferred again 5 to 60 minutes later, e.g. by the next task of a batch.
+ * @param fallback the canonical id of the model inferring after a refused inference, e.g. one of a safety classifier,
+ * which might be a false positive, see [com.xemantic.ai.annie.Inference.Stop.Kind.REFUSED],
+ * the same id at the endpoint, the [model] inferring again when `null`;
+ * only the inference right after the refused one is made by it, its monologue replayed only to it.
  * @param monologues keeping the exact form of the monologues, see [MonologueStore].
  */
 class ClaudeInference(
@@ -90,38 +97,44 @@ class ClaudeInference(
     private val maxTokens: Long = 128_000,
     private val effort: Effort? = null,
     private val visibility: MonologueVisibility = MonologueVisibility.HIDDEN,
-    private val tailCache: CacheControlEphemeral.Ttl = CacheControlEphemeral.Ttl.TTL_5M,
+    private val cache: CacheControlEphemeral.Ttl = CacheControlEphemeral.Ttl.TTL_5M,
+    private val fallback: String? = null,
     private val monologues: MonologueStore = InMemoryMonologueStore()
 ) : Cognizer {
 
     override suspend fun cognize(cogitation: Cogitation): Cognized {
         val message = client.async().messages().create(request(cogitation)).await()
-        return Cognized(phenomena(message), inference(message))
+        return Cognized(phenomena(message, cogitation), inference(message, cogitation))
     }
 
+    /** The model id at the endpoint, and its canonical id, inferring from the [cogitation], see [fallback]. */
+    private fun inferring(cogitation: Cogitation?): Pair<String, String> =
+        if (fallback != null && cogitation?.enunciations?.lastOrNull()?.inference?.stop?.kind == Inference.Stop.Kind.REFUSED) {
+            fallback to fallback
+        } else model to modelId
+
     internal fun request(cogitation: Cogitation): MessageCreateParams = MessageCreateParams.builder()
-        .model(model)
+        .model(inferring(cogitation).first)
         .maxTokens(maxTokens)
         .apply {
             cogitation.systemPrompt?.let {
                 systemOfTextBlockParams(listOf(
                     TextBlockParam.builder()
                         .text(it)
-                        .cacheControl(CacheControlEphemeral.builder().ttl(CacheControlEphemeral.Ttl.TTL_1H).build())
+                        .cacheControl(CacheControlEphemeral.builder().ttl(cache).build())
                         .build()
                 ))
             }
         }
-        .cacheControl(CacheControlEphemeral.builder().ttl(tailCache).build())
+        .cacheControl(CacheControlEphemeral.builder().ttl(cache).build())
         .thinking(ThinkingConfigAdaptive.builder().display(visibility.claudeDisplay).build())
         .addTool(Tool.builder()
             .name(IntentTool.NAME)
             .description(IntentTool.DESCRIPTION)
             .inputSchema(Tool.InputSchema.builder()
                 .properties(Tool.InputSchema.Properties.builder()
-                    .putAdditionalProperty(IntentTool.PARAMETER, JsonValue.from(IntentTool.parameter))
+                    .putAllAdditionalProperties(IntentTool.properties.mapValues { JsonValue.from(it.value) })
                     .build())
-                .required(listOf(IntentTool.PARAMETER))
                 .putAdditionalProperty("additionalProperties", JsonValue.from(false))
                 .build())
             // the arguments of a call always fit the schema
@@ -143,11 +156,11 @@ class ClaudeInference(
                             .id(intent.id)
                             .name(IntentTool.NAME)
                             .input(ToolUseBlockParam.Input.builder()
-                                .putAdditionalProperty(IntentTool.PARAMETER, JsonValue.from(intent.script))
+                                .putAllAdditionalProperties(IntentTool.input(intent).mapValues { JsonValue.from(it.value) })
                                 .build())
                             .build())
                     },
-                    monologue = { it.toBlock() },
+                    monologue = { it.toBlock(inferring(cogitation).second) },
                     text = { text ->
                         text.text.takeIf { it.isNotBlank() }?.let {
                             ContentBlockParam.ofText(TextBlockParam.builder().text(it).build())
@@ -168,7 +181,7 @@ class ClaudeInference(
         .build()
 
     /** The monologue is replayed only to the model which produced it, others cannot verify it, in the exact form it had. */
-    private fun Monologue.toBlock(): ContentBlockParam? = when (val trace = monologues[id]) {
+    private fun Monologue.toBlock(modelId: String): ContentBlockParam? = when (val trace = monologues[id]) {
         is MonologueTrace.ClaudeThinking -> if (trace.producedBy == modelId) {
             ContentBlockParam.ofThinking(ThinkingBlockParam.builder()
                 .thinking(trace.thinking)
@@ -184,7 +197,8 @@ class ClaudeInference(
     }
 
     /** The input tokens of Claude exclude the cached ones, while its output tokens include the thinking ones. */
-    internal fun inference(message: Message): Inference {
+    internal fun inference(message: Message, cogitation: Cogitation? = null): Inference {
+        val modelId = inferring(cogitation).second
         val usage = message.usage()
         val cacheCreation = usage.cacheCreation().orElse(null)
         val thinking = usage.outputTokensDetails().map { it.thinkingTokens() }.orElse(0L)
@@ -212,7 +226,8 @@ class ClaudeInference(
                         "refusal" -> Inference.Stop.Kind.REFUSED
                         else -> Inference.Stop.Kind.OTHER
                     },
-                    reason = reason
+                    reason = reason,
+                    category = message.stopDetails().flatMap { it.category() }.map { it.asString() }.orElse(null)
                 )
             }
         )
@@ -223,7 +238,8 @@ class ClaudeInference(
      * Whatever follows the tool call is not perceived:
      * the model continues as if it perceived the result of the intent, which is not executed yet.
      */
-    internal fun phenomena(message: Message): List<Phenomenon> {
+    internal fun phenomena(message: Message, cogitation: Cogitation? = null): List<Phenomenon> {
+        val modelId = inferring(cogitation).second
         val phenomena = mutableListOf<Phenomenon>()
         for (block in message.content()) {
             when {
@@ -246,8 +262,7 @@ class ClaudeInference(
                 }
                 block.isToolUse() -> {
                     val use = block.asToolUse()
-                    IntentTool.intent(use.name(), jsonMapper().writeValueAsString(use._input()))
-                        ?.let { phenomena += it }
+                    phenomena += IntentTool.intent(use.name(), jsonMapper().writeValueAsString(use._input()))
                     break
                 }
                 else -> {}

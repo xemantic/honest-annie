@@ -129,6 +129,8 @@ fun <P> Cogitation.toTurns(
                 }
                 is Monologue -> monologue(phenomenon)?.let { turns.appendAssistant(it) }
                 is Phenomenon.Text if expressed -> text(phenomenon)?.let { turns.appendAssistant(it) }
+                // a tool call which could not be executed, perceived in the response of the computer to it
+                is Phenomenon.Impediment if expressed -> {}
                 else -> {
                     val text = phenomenon.toText()
                     val perceived = result ?: turns.userParts()

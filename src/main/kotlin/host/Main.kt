@@ -19,6 +19,7 @@
 package com.xemantic.ai.annie.host
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
+import com.anthropic.models.messages.CacheControlEphemeral
 import com.anthropic.core.http.ProxyAuthenticator
 import com.xemantic.ai.annie.cognizer.httpsProxy
 import java.net.URI
@@ -38,25 +39,31 @@ import com.xemantic.ai.annie.constitutionTemplate
 import kotlin.io.path.Path
 import kotlin.io.path.readText
 import kotlinx.coroutines.runBlocking
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * A single cognizer unfolds every cogitation: Claude when `ANTHROPIC_MODEL` is set,
  * the `OPENAI_MODEL` served by the OpenAI-compatible endpoint at `OPENAI_BASE_URL` otherwise,
- * under the constitution of the family of its model, see [constitutionTemplate].
+ * under the constitution of the family of its model, see [constitutionTemplate],
+ * or the one at the `ANNIE_CONSTITUTION` path, when set, e.g. a variant of a generated one to compare against.
  *
  * Cogitations are recorded in `ANNIE_COGITATIONS_DIR`, `cogitations` by default, and unfolded
  * by the harness script at the `ANNIE_HARNESS` path, the [defaultHarness] when not set,
- * spending at most `ANNIE_TOKEN_BUDGET` tokens, and stepping at most `ANNIE_PARALLELISM` cogitations
+ * spending at most `ANNIE_TOKEN_BUDGET` tokens within `ANNIE_TIME_LIMIT` seconds, and stepping at most `ANNIE_PARALLELISM` cogitations
  * at a time, when set, see [HarnessHost].
  * The cognizer reasons with the `ANNIE_EFFORT`, e.g. `xhigh`, see [Effort], the default of its model when not set,
  * inferring at most `ANNIE_MAX_TOKENS` tokens at a time, when set.
+ * Claude caches what it reads for `ANNIE_CACHE_TTL`, `5m` by default, or `1h`, see [ClaudeInference],
+ * and infers after a refused inference by `ANNIE_FALLBACK_MODEL`, `claude-opus-5-5` by default, or by its own model when `none`.
  * The Python of the intents runs in the virtual environment of `VIRTUAL_ENV`, or of `ANNIE_PYTHON_VENV`,
  * created with `ANNIE_PYTHON` when it does not exist, see [PythonVenv].
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")
     val harness = System.getenv("ANNIE_HARNESS")?.let { Path(it).readText() } ?: defaultHarness
+    val constitutionFile = System.getenv("ANNIE_CONSTITUTION")?.let { Path(it) }
     val tokenBudget = System.getenv("ANNIE_TOKEN_BUDGET")?.toLong()
+    val timeLimit = System.getenv("ANNIE_TIME_LIMIT")?.toLong()?.seconds
     val parallelism = System.getenv("ANNIE_PARALLELISM")?.toInt()
     val effort = System.getenv("ANNIE_EFFORT")?.let { Effort.valueOf(it.uppercase()) }
     val maxTokens = System.getenv("ANNIE_MAX_TOKENS")?.toLong()
@@ -77,10 +84,23 @@ fun main(args: Array<String>) {
             }
             .build()
         client = AutoCloseable(claude::close)
+        val cache = when (val ttl = System.getenv("ANNIE_CACHE_TTL")) {
+            null, "5m" -> CacheControlEphemeral.Ttl.TTL_5M
+            "1h" -> CacheControlEphemeral.Ttl.TTL_1H
+            else -> error("ANNIE_CACHE_TTL is either 5m or 1h, not $ttl")
+        }
+        val fallback = when (val fallback = System.getenv("ANNIE_FALLBACK_MODEL")) {
+            null -> "claude-opus-5-5"
+            "none" -> null
+            else -> fallback
+        }
         cognizer = if (maxTokens != null) {
-            ClaudeInference(claude, claudeModel, maxTokens = maxTokens, effort = effort, visibility = MonologueVisibility.SUMMARY)
+            ClaudeInference(
+                claude, claudeModel, maxTokens = maxTokens, effort = effort, visibility = MonologueVisibility.SUMMARY,
+                cache = cache, fallback = fallback
+            )
         } else {
-            ClaudeInference(claude, claudeModel, effort = effort, visibility = MonologueVisibility.SUMMARY)
+            ClaudeInference(claude, claudeModel, effort = effort, visibility = MonologueVisibility.SUMMARY, cache = cache, fallback = fallback)
         }
     } else {
         val openAI = openAIClient()
@@ -94,9 +114,9 @@ fun main(args: Array<String>) {
     client.use {
         runBlocking {
             val output = HarnessHost(
-                cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, parallelism = parallelism
+                cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism
             ).cognize(Cogitation(
-                constitution = listOf(constitution(harness, constitutionTemplate(model))),
+                constitution = listOf(constitution(harness, constitutionTemplate(model, constitutionFile))),
                 harness = harness,
                 enunciations = listOf(Enunciation(
                     actant = Actant(

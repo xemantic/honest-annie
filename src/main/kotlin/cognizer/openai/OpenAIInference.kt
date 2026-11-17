@@ -313,7 +313,7 @@ class OpenAIInference(
 
     /**
      * The reasoning becomes a monologue, the content a text, and the first call of a tool the intent,
-     * unless it calls another tool, or carries no script, see [IntentTool.intent].
+     * or an impediment, when it calls another tool, or carries no script, see [IntentTool.intent].
      */
     internal fun phenomena(completion: ChatCompletion): List<Phenomenon> {
         val message = completion.choices().first().message()
@@ -361,7 +361,7 @@ class OpenAIInference(
                     .forEach { phenomena += Phenomenon.Text(it) }
                 item.isFunctionCall() -> {
                     val call = item.asFunctionCall()
-                    IntentTool.intent(call.name(), call.arguments())?.let { phenomena += it }
+                    phenomena += IntentTool.intent(call.name(), call.arguments())
                     break
                 }
                 else -> {}
@@ -375,12 +375,11 @@ class OpenAIInference(
 /** The JSON schema of the input of the tool of intents, see [IntentTool]. */
 private val intentParameters: FunctionParameters = FunctionParameters.builder()
     .putAdditionalProperty("type", JsonValue.from("object"))
-    .putAdditionalProperty("properties", JsonValue.from(mapOf(IntentTool.PARAMETER to IntentTool.parameter)))
-    .putAdditionalProperty("required", JsonValue.from(listOf(IntentTool.PARAMETER)))
+    .putAdditionalProperty("properties", JsonValue.from(IntentTool.properties))
     .build()
 
 /** The arguments of the call of the tool of intents, executing the script of this intent. */
-private val Phenomenon.Intent.arguments: String get() = jsonMapper().writeValueAsString(mapOf(IntentTool.PARAMETER to script))
+private val Phenomenon.Intent.arguments: String get() = jsonMapper().writeValueAsString(IntentTool.input(this))
 
 /** The texts among these parts of an assistant turn, as a single text, `null` when none. */
 private fun List<Phenomenon>.text(): String? =

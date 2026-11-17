@@ -25,6 +25,8 @@ import com.xemantic.kotlin.script.python.Python as Interpreter
 import org.intellij.lang.annotations.Language
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.io.path.createTempFile
+import kotlin.io.path.writeText
 import kotlin.time.Duration
 
 /**
@@ -221,23 +223,38 @@ private fun Interpreter.printed(): Phenomenon.Text? {
 
 /**
  * The first [MAX_RESULT_LENGTH] characters of this text perceived in the result of an intent,
- * telling how many more are omitted, followed by the [advice], so that a single result does not flood the cogitation,
- * where it would be perceived again at every later step.
+ * telling how many more are omitted and the file holding the whole text, followed by the [advice],
+ * so that a single result does not flood the cogitation, where it would be perceived again at every later step,
+ * while the rest can still be read, e.g. by `sed -n`, without executing the script again.
+ *
+ * The limit is the one of Claude Code for the output of a command, which its models are used to:
+ * cut at 10,000 characters, a model reading source files in ranges spent a step on every cut file.
  */
-private fun String.digest(advice: String): String =
-    if (length <= MAX_RESULT_LENGTH) this
-    else take(MAX_RESULT_LENGTH) + "\n… ${length - MAX_RESULT_LENGTH} more characters omitted$advice"
+private fun String.digest(advice: String): String {
+    if (length <= MAX_RESULT_LENGTH) return this
+    val whole = createTempFile("annie-result-", ".txt").apply { writeText(this@digest) }
+    return take(MAX_RESULT_LENGTH) +
+        "\n… ${length - MAX_RESULT_LENGTH} more characters omitted, the whole text being in $whole$advice"
+}
 
-private const val MAX_RESULT_LENGTH = 10_000
+private const val MAX_RESULT_LENGTH = 30_000
 
 /**
  * What the session of the intents imports before the first one, so that a script uses the API of annie,
  * e.g. `Phenomenon`, without importing it: one forgetting to was the most frequent failure of an intent,
  * costing a whole step to fix, whatever the model. An import of a snippet stays visible to the later ones.
+ * So are durations, e.g. `10.minutes` timing out `agency.bash`, and paths, e.g. `Path(file).writeText(…)`,
+ * whose missing imports failed whole intents of edits, to be sent again.
  */
-private const val DEFAULT_IMPORTS = "import com.xemantic.ai.annie.*"
+private const val DEFAULT_IMPORTS = """
+import com.xemantic.ai.annie.*
+import kotlin.io.path.*
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+"""
 
-private const val VALUE_OMISSION = ": keep the whole value in a `val`, " +
+private const val VALUE_OMISSION = "; keep the whole value in a `val`, " +
         "and let the script evaluate to a digest of what you need to know of it"
 
 /**
@@ -293,6 +310,7 @@ internal class SwitchedAgency : Agency {
     override val parentCogitation: Cogitation? get() = current.parentCogitation
     override val depth: Int get() = current.depth
     override val invocations: List<Phenomenon.Invocation> get() = current.invocations
+    override val allowance: Allowance get() = current.allowance
     override val enunciated: List<Phenomenon> get() = current.enunciated
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http

@@ -18,6 +18,9 @@
 
 package com.xemantic.ai.annie
 
+import java.nio.file.Path
+import kotlin.io.path.readText
+
 /** The default constitution, with the placeholder of its `{{harness}}`, see `constitution.md`. */
 val constitutionTemplate: String = checkNotNull(
     constitutionResource("/constitution.md")
@@ -39,6 +42,13 @@ fun constitutionTemplate(model: String): String {
         if (family.matches(familyName)) constitutionResource("/constitutions/$family.md") else null
     } ?: constitutionTemplate
 }
+
+/**
+ * The constitution template of the [file], e.g. a variant of a generated one, see `generateConstitution`,
+ * whose API and cognition are therefore already filled in, or the one of the [model] when there is no [file].
+ */
+fun constitutionTemplate(model: String, file: Path?): String =
+    file?.readText()?.trim() ?: constitutionTemplate(model)
 
 private val familyName = Regex("""[\w.-]*\w""")
 

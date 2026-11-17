@@ -19,6 +19,8 @@
 package com.xemantic.ai.annie
 
 import com.xemantic.kotlin.test.assert
+import kotlin.io.path.createTempFile
+import kotlin.io.path.writeText
 import kotlin.test.Test
 
 class ConstitutionTest {
@@ -61,12 +63,50 @@ class ConstitutionTest {
     }
 
     @Test
-    fun `should load the default constitution for a model without one of its own`() {
+    fun `should load the constitution of Claude Fable`() {
         // when
         val template = constitutionTemplate(model = "claude-fable-5-2")
 
         // then
+        assert(template != constitutionTemplate)
+        assert(template != constitutionTemplate(model = "deepseek-v4_1-flash"))
+        assert(template.startsWith("# The constitution of honest-annie\n\n## Identity\n\n"))
+        assert("\n## Steps\n" in template)
+        assert("\n## Changing files\n" in template)
+        assert("interface Agency" in template)
+        assert("class Cogitation(" in template)
+        assert("{{api}}" !in template && "{{cognition}}" !in template)
+        assert("````kotlin\n{{harness}}\n````\n\n## Your answer\n\n" in template)
+    }
+
+    @Test
+    fun `should load the default constitution for a model without one of its own`() {
+        // when
+        val template = constitutionTemplate(model = "claude-opus-5-5")
+
+        // then
         assert(template == constitutionTemplate)
+    }
+
+    @Test
+    fun `should load the constitution of a file in place of the one of the model`() {
+        // given
+        val file = createTempFile(suffix = ".md").apply { writeText("## Harness\n\n{{harness}}\n") }
+
+        // when
+        val template = constitutionTemplate(model = "deepseek-v4_1-flash", file = file)
+
+        // then
+        assert(template == "## Harness\n\n{{harness}}")
+    }
+
+    @Test
+    fun `should load the constitution of the model without a file`() {
+        // when
+        val template = constitutionTemplate(model = "deepseek-v4_1-flash", file = null)
+
+        // then
+        assert(template == constitutionTemplate(model = "deepseek-v4_1-flash"))
     }
 
     @Test

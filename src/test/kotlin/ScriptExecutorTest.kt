@@ -28,6 +28,8 @@ import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.io.path.Path
+import kotlin.io.path.readText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.time.Duration
@@ -140,15 +142,63 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should digest value of intent, telling to keep the whole value in a val`() = runTest(timeout = 5.minutes) {
+    fun `should resolve durations and paths without importing them`() = runTest(timeout = 5.minutes) {
+        // given
+        val file = kotlin.io.path.createTempFile()
+
+        // when
+        // e.g. the timeout of `agency.bash`, whose missing import failed an 8 KB intent of edits
+        val phenomena = executor.execute(
+            "Path(\"$file\").writeText(\"edited\")\n" +
+                "\"${'$'}{10.minutes} ${'$'}{Path(\"$file\").readText()}\"",
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("10m edited", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should write triple quotes into raw strings as TQ`() = runTest(timeout = 5.minutes) {
+        // given
+        // e.g. a Python docstring, whose triple quotes would end the raw string, which failed a 13 KB intent of edits
+        val q = "\"\"\""
+        val script = "val plain = ${q}def f():\n    \${TQ}Docstring.\${TQ}\n$q\n" +
+            "val multiDollar = $$${q}price = \"$\" + \$\$TQ + \"$$\" + \$\$TQ$q\n" +
+            "plain + multiDollar"
+
+        // when
+        val phenomena = executor.execute(script, cogitation, TestAgency())
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text(
+            "def f():\n    ${q}Docstring.$q\nprice = \"$\" + $q + \"$$\" + $q",
+            Phenomenon.Text.PLAIN
+        )))
+    }
+
+    @Test
+    fun `should perceive whole value of intent up to 30,000 characters`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute("\"a\".repeat(30_000)", cogitation, TestAgency())
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("a".repeat(30_000), Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should digest longer value of intent, telling the file of the whole value`() = runTest(timeout = 5.minutes) {
         // when
         val phenomena = executor.execute("(0 until 100_000).joinToString(\"\\n\")", cogitation, TestAgency())
 
         // then
         val value = (phenomena.single() as Phenomenon.Text).text
-        assert(value.length < 11_000)
+        assert(value.length in 30_000..31_000)
         assert(value.startsWith("0\n1\n2\n"))
         assert(value.contains(Regex("\\d+ more characters omitted")))
+        val file = Regex("the whole text being in (\\S+);").find(value)?.groupValues?.get(1)
+        assert(file != null && Path(file).readText() == (0 until 100_000).joinToString("\n"))
         assert(value.contains("val"))
     }
 
@@ -927,9 +977,11 @@ class ScriptExecutorTest {
 
         // then
         val printed = (phenomena.single() as Phenomenon.Text).text
-        assert(printed.length < 11_000)
+        assert(printed.length in 30_000..31_000)
         assert(printed.startsWith("Printed by Python:\n0\n1\n"))
         assert(printed.contains(Regex("\\d+ more characters omitted")))
+        val file = Regex("the whole text being in (\\S+)$").find(printed)?.groupValues?.get(1)
+        assert(file != null && Path(file).readText() == (0 until 100_000).joinToString("\n"))
     }
 
 }

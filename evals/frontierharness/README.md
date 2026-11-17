@@ -55,6 +55,7 @@ and the agent's directory of each job holds `honest-annie.txt`, her answer,
    which honest-annie takes from `HTTPS_PROXY`, see [HttpsProxy.kt](../../src/main/kotlin/cognizer/HttpsProxy.kt).
 4. After the run, the adapter reads the tokens of every inference of the tree of cogitations from their `inferences.json`,
    reports their totals to the runner, the cached input included in the input, the reasoning in the output,
+   and their cost at list prices as `cost_usd`, when honest-annie knows the prices of every inference,
    and writes each call to `honest-annie-calls.jsonl`, in the format of the `hermes` parser of the eval's `usage_details.py`,
    which `setup` registers for `honest-annie`, so that the first-cold cost and the turns are accounted for like those of the baselines.
 
@@ -64,10 +65,17 @@ and the agent's directory of each job holds `honest-annie.txt`, her answer,
   since the egress policy of the baselines is not recorded,
   until a matched control, e.g. Pi, runs under the same policy, see the [eval's reference](https://github.com/frontier-harness-eval/eval/blob/main/skills/frontierharness-eval/reference.md#corpus-pin-and-pi-control).
 - The distribution is linked against glibc, as are the task images of the eval; an Alpine-based task would fail at setup.
-- The Python of the intents needs `jep`, built from source when no wheel matches, needing a C compiler the task image may lack;
-  an intent using Python then fails, like a missing tool would.
+- The Python of the intents needs `jep`, which has no wheel, so it is built from source against the Python of the task image, needing a C compiler and a JDK.
+  Under Pier, it is built into the image of the task, while the network is still open, see `python_install_command` in [honest_annie_adapter.py](honest_annie_adapter.py):
+  the JDK and any other package it installs are purged afterwards, so that the packages of the task image stay as they were.
+  At run time PyPI is out of reach of the egress, so without it, e.g. in a task image with no `apt-get` or no C compiler, or under Harbor,
+  an intent using Python fails, like a missing tool would.
 - `ANNIE_TOKEN_BUDGET` in [annie.env](annie.env) guards against a runaway tree of cogitations,
   far above the tokens the baselines spend on a task, so it should not decide any outcome.
+- `local.sh` sets `ANNIE_TIME_LIMIT` of a DeepSWE task to its agent timeout less `ANNIE_TIME_MARGIN` (300 s),
+  so that Annie is told how much time is left, and secures her change before the runner kills her.
+- `local.sh` marks a trial whose verifier reported no test results, e.g. failing to download its test runner,
+  as `infra_invalid` rather than a failure.
 - The registry entry `setup` adds to the eval's `usage_details.py` is the only change made to the eval's scripts;
   it is a candidate for an upstream pull request.
 

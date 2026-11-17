@@ -98,6 +98,7 @@ Today, Honest Annie is a research prototype to be run only on a machine dedicate
 
 What already bounds it:
 `ANNIE_TOKEN_BUDGET` caps the tokens a whole tree of cogitations may spend, impeding it once spent,
+`ANNIE_TIME_LIMIT` caps the seconds it may unfold, likewise,
 `ANNIE_PARALLELISM` caps how many of them step at a time,
 a process started by an intent is destroyed, together with its descendants, when its timeout elapses,
 and every intent is compiled, so it is analysed before it is executed.
@@ -139,15 +140,16 @@ Current:
   each pointing to the offending line of the script;
 - [xemantic-kotlin-introspection](https://github.com/xemantic/xemantic-kotlin-introspection) renders the signatures of any Kotlin declaration on the classpath,
   so a script can look up the API it compiles against, even one absent from the training data of the model;
-- [xemantic-ai-file-magic](https://github.com/xemantic/xemantic-ai-file-magic) detects the media type of the data Annie perceives.
+- [xemantic-ai-file-magic](https://github.com/xemantic/xemantic-ai-file-magic) detects the media type of the data Annie perceives;
+- [xemantic-ai-money](https://github.com/xemantic/xemantic-ai-money) calculates exactly what each inference costs at the list prices of its model, see [Pricing.kt](src/main/kotlin/Pricing.kt).
 
 Future:
 - [xemantic-kotlin-script-python](https://github.com/xemantic/xemantic-kotlin-script-python) embeds a stateful CPython interpreter into the Kotlin script session,
   opening the Python ecosystem (numpy, pandas, scikit-learn, …) to the intents;
 - [anthropic-sdk-kotlin](https://github.com/xemantic/anthropic-sdk-kotlin), a Kotlin multiplatform variant of the Anthropic SDK,
   to replace the official `anthropic-java` one;
-- [xemantic-ai-money](https://github.com/xemantic/xemantic-ai-money) calculates the cost of LLM usage in real time,
-  so that a tree of cogitations can be bounded by a monetary budget, not only by a token one.
+- the costs calculated by [xemantic-ai-money](https://github.com/xemantic/xemantic-ai-money)
+  bounding a tree of cogitations by a monetary budget, not only by a token one.
 
 ## Running
 
@@ -160,10 +162,16 @@ Claude when `ANTHROPIC_MODEL` is set (with `ANTHROPIC_API_KEY`),
 otherwise the `OPENAI_MODEL` (with `OPENAI_API_KEY`) served by the OpenAI API,
 or by any OpenAI-compatible endpoint set as `OPENAI_BASE_URL`, the `/v1` suffix included.
 Cogitations are recorded in `ANNIE_COGITATIONS_DIR` (`cogitations` by default),
+each with the tokens of its inferences in `inferences.json`,
+and their cost in US dollars at list prices, when [Pricing.kt](src/main/kotlin/Pricing.kt) knows the prices of the model,
 and unfolded by the harness script at the `ANNIE_HARNESS` path,
 or by the default harness extracted from [DefaultHarness.kt](src/main/kotlin/DefaultHarness.kt) when not set.
 When `ANNIE_TOKEN_BUDGET` is set, the cogitation and the ones it invokes spend at most that many tokens,
 and are impeded once they have spent them.
+When `ANNIE_TIME_LIMIT` is set, they are impeded likewise once that many seconds have passed since the root cogitation started.
+Once a fifth or less of either is left, each response to an intent tells what is left of both, warning about it,
+so that the cognizer secures its result in time:
+it is not told before, since a model told a large allowance at every step spends more of it.
 When `ANNIE_PARALLELISM` is set, at most that many of them step at a time, e.g. `1` for one inference at a time,
 the others waiting in the queue.
 An inference calling no tool answers with its text, which rests the cogitation.
@@ -172,6 +180,14 @@ one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
 mapped to the nearest level the model supports, its default when not set.
 `ANNIE_MAX_TOKENS` limits the tokens of a single inference, the reasoning included, 128000 by default,
 which, together with the prompt, must fit the context window of the model, e.g. `32000` for a 128K one.
+Claude caches the constitution and the growing cogitation for `ANNIE_CACHE_TTL`, `5m` by default, or `1h`,
+which doubles the price of writing the cache instead of 1.25 times the input, and pays off only when the same constitution is inferred again 5 to 60 minutes later,
+e.g. by the next task of a batch: a cache read renews its lifetime, so that a tree whose inferences start less than 5 minutes apart keeps it warm anyway.
+A refused inference, e.g. stopped by a safety classifier of Claude on benign code, which happens to Claude Fable,
+is kept in the cogitation for what it spent, what it expressed being discarded, and the step is inferred once more,
+by Claude `ANNIE_FALLBACK_MODEL`, `claude-opus-5-5` by default, or by the same model when `none`;
+only a step refused again ends the cogitation with an impediment naming the category of the refusal, e.g. `cyber`,
+which is recorded in the `stop` of each inference in `inferences.json` too.
 
 The Python of the intents is embedded through [Jep](https://github.com/ninia/jep),
 whose `jep` package must be installed in the Python environment, of the same version as the Java library.

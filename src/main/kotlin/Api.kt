@@ -29,8 +29,15 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
+import kotlin.io.path.Path
+import kotlin.io.path.createDirectories
+import kotlin.io.path.exists
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
+import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
 
 /**
  * The agency within the current cogitation: how its harness, and the intents it executes, act within it,
@@ -57,6 +64,8 @@ interface Agency {
     val depth: Int
     /** Invocations made during this execution of the harness, e.g. by the intent it executes. */
     val invocations: List<Phenomenon.Invocation>
+    /** What the whole tree of the current cogitation may still spend, unlimited unless its host limits it. */
+    val allowance: Allowance get() = Allowance()
     /**
      * Output enunciated during this execution of the harness, e.g. by the intent it executes,
      * to be enunciated by the harness in the cogitation it unfolds, see [Enunciation.isOutput].
@@ -137,6 +146,24 @@ interface Agency {
 }
 
 /**
+ * What a tree of cogitations may spend, see [Agency.allowance]: its [tokens], and its [time], each `null` when unlimited.
+ *
+ * @property spentTokens inferred so far by the whole tree, see [Inference.total].
+ * @property started when the tree started unfolding, its [time] being measured from it.
+ */
+data class Allowance(
+    val tokens: Long? = null,
+    val spentTokens: Long = 0,
+    val time: Duration? = null,
+    val started: Instant = Clock.System.now()
+) {
+    /** The tokens left to spend, `null` when unlimited. */
+    val tokensLeft: Long? get() = tokens?.let { (it - spentTokens).coerceAtLeast(0) }
+    /** The time left until the [time] has passed, `null` when unlimited. */
+    val timeLeft: Duration? get() = time?.let { (started + it - Clock.System.now()).coerceAtLeast(Duration.ZERO) }
+}
+
+/**
  * The CPython interpreter of the current cogitation, started when first used,
  * stateful like your Kotlin session: the variables, functions, classes and imports of the Python code it executes
  * stay visible to the Python code of your later intents.
@@ -192,6 +219,99 @@ fun Agency.bash(
     script: String,
     timeout: Duration = 1.minutes
 ): Execution = execute(listOf("bash", "-c", script), timeout = timeout)
+
+/**
+ * Triple quotes, which end a raw string, written into one as `$TQ`, or `$$TQ` in a multi-dollar one,
+ * e.g. the docstrings of Python: `"""def f():\n    ${TQ}Docstring.$TQ"""`.
+ */
+const val TQ: String = "\"\"\""
+
+/**
+ * Replaces the only occurrence of the [old] text in the file at the [path] with the [new] one, telling at which line,
+ * so that a change is made without reading, nor retyping, the whole file.
+ * Fails, leaving the file unchanged, when the [old] text does not occur, naming the line closest to its first one,
+ * e.g. indented otherwise, or when it occurs more than once, naming their lines.
+ */
+fun edit(path: String, old: String, new: String): String {
+    require(old.isNotEmpty()) { "The old text is empty" }
+    val file = Path(path)
+    val edited = file.readText().edited(path, old, new, all = false)
+    edited.failure?.let { throw IllegalArgumentException(it.replaceFirstChar(Char::uppercaseChar)) }
+    file.writeText(edited.text)
+    return "Edited $path at line ${edited.lines.single()}"
+}
+
+/**
+ * Applies the [edits] in their order, each one to the file as the edits before it left it, see [Edit],
+ * telling where, one line for each edit, e.g. `Edited /app/f.py at line 12`.
+ * Fails, leaving every file unchanged, when any edit fails, naming it and why, as [edit] of a single text does.
+ */
+fun edit(edits: List<Edit>): String {
+    val texts = linkedMapOf<java.nio.file.Path, String>()
+    val reports = edits.mapIndexed { index, edit ->
+        fun fail(reason: String): Nothing = throw IllegalArgumentException("Edit ${index + 1} of ${edits.size} failed: $reason")
+        val file = Path(edit.path)
+        val old = edit.old
+        if (old == null) {
+            texts[file] = edit.new
+            "Wrote ${edit.path}, ${edit.new.lineCount} lines"
+        } else {
+            if (old.isEmpty()) fail("the old text is empty: give it, or omit it to write the whole file")
+            val text = texts[file] ?: if (file.exists()) file.readText() else {
+                fail("no file at ${edit.path} to edit: write it whole, without the old text")
+            }
+            val edited = text.edited(edit.path, old, edit.new, edit.all)
+            edited.failure?.let { fail(if (edit.all) it else it.replace("occur once", "occur once, or replace all")) }
+            texts[file] = edited.text
+            "Edited ${edit.path} at line${if (edited.lines.size == 1) "" else "s"} ${edited.lines.joinToString()}"
+        }
+    }
+    texts.forEach { (file, text) ->
+        file.parent?.createDirectories()
+        file.writeText(text)
+    }
+    return reports.joinToString("\n")
+}
+
+/** This text with the [old] text replaced by the [new] one, the lines where, or why it could not be. */
+private class Edited(val text: String, val lines: List<Int> = emptyList(), val failure: String? = null)
+
+private fun String.edited(path: String, old: String, new: String, all: Boolean): Edited {
+    fun line(index: Int) = substring(0, index).count { it == '\n' } + 1
+    val occurrences = generateSequence(indexOf(old).takeIf { it >= 0 }) { previous ->
+        indexOf(old, previous + if (all) old.length else 1).takeIf { it >= 0 }
+    }.toList()
+    if (occurrences.isEmpty()) {
+        val lines = lines()
+        val first = old.lines().firstOrNull { it.isNotBlank() } ?: old
+        val closest = lines.indices.maxBy { similarity(first, lines[it]) }
+        return Edited(this, failure = "the old text does not occur in $path, its closest line being ${closest + 1}: \"${lines[closest]}\"")
+    }
+    if (occurrences.size > 1 && !all) return Edited(this, failure =
+        "the old text occurs ${occurrences.size} times in $path, at lines ${occurrences.joinToString { "${line(it)}" }}: extend it to occur once"
+    )
+    val text = buildString {
+        var from = 0
+        occurrences.forEach { at ->
+            append(this@edited, from, at).append(new)
+            from = at + old.length
+        }
+        append(this@edited, from, this@edited.length)
+    }
+    return Edited(text, occurrences.map(::line))
+}
+
+/** The number of lines of this text, the last one counted also when not ended by a line break. */
+private val String.lineCount: Int get() = count { it == '\n' } + if (isEmpty() || endsWith('\n')) 0 else 1
+
+/** How many of the words and symbols of two lines they share, from 0 to 1, whatever their whitespace. */
+private fun similarity(a: String, b: String): Double {
+    val tokens = Regex("""\w+|[^\s\w]""")
+    val left = tokens.findAll(a).map { it.value }.groupingBy { it }.eachCount()
+    val right = tokens.findAll(b).map { it.value }.groupingBy { it }.eachCount()
+    val shared = left.entries.sumOf { (token, count) -> minOf(count, right[token] ?: 0) }
+    return shared.toDouble() / maxOf(left.values.sum(), right.values.sum(), 1)
+}
 
 /*
  * Navigating JSON of an unknown shape, received e.g. with `agency.http.get(url).body<JsonElement>()`,
