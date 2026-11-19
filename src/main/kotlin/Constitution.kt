@@ -30,13 +30,13 @@ val constitutionTemplate: String = checkNotNull(
  * The constitution of the [model], with the placeholder of its `{{harness}}`:
  * the one of the closest family of the model, see `constitutions`, the default [constitutionTemplate] when there is none.
  *
- * A family is named by the name of the model, without what precedes its last `/`,
+ * A family is named by the name of the model in lowercase, e.g. of `moonshotai/Kimi-K3`, without what precedes its last `/`,
  * or by what is left of it when cut at a `-`, the longest one winning:
  * `deepseek-v4_1-flash` is constituted by `constitutions/deepseek-v4_1-flash.md`,
  * then `constitutions/deepseek-v4_1.md`, then `constitutions/deepseek.md`.
  */
 fun constitutionTemplate(model: String): String {
-    val segments = model.substringAfterLast('/').split('-')
+    val segments = model.substringAfterLast('/').lowercase().split('-')
     return segments.indices.reversed().firstNotNullOfOrNull { last ->
         val family = segments.subList(0, last + 1).joinToString("-")
         if (family.matches(familyName)) constitutionResource("/constitutions/$family.md") else null

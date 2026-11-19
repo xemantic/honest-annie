@@ -30,10 +30,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlin.io.path.Path
-import kotlin.io.path.createDirectories
-import kotlin.io.path.exists
 import kotlin.io.path.readText
-import kotlin.io.path.writeText
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -171,6 +168,11 @@ data class Allowance(
  * What the code prints, to `sys.stdout` or `sys.stderr`, is perceived in the result of the intent,
  * truncated, before the value of the intent, also when the intent fails.
  * An exception of Python fails the intent, perceived with its type and message.
+ *
+ * It is the Python of honest-annie, in an environment of its own, embedded in the JVM:
+ * it cannot import the packages of the task, e.g. of the project being changed, nor its code,
+ * so run the code, tests and tools of the task by [Agency.execute], e.g. `agency.bash("python -m pytest")`,
+ * with the Python the task provides.
  */
 interface Python {
     /**
@@ -227,90 +229,14 @@ fun Agency.bash(
 const val TQ: String = "\"\"\""
 
 /**
- * Replaces the only occurrence of the [old] text in the file at the [path] with the [new] one, telling at which line,
- * so that a change is made without reading, nor retyping, the whole file.
- * Fails, leaving the file unchanged, when the [old] text does not occur, naming the line closest to its first one,
- * e.g. indented otherwise, or when it occurs more than once, naming their lines.
+ * The [lines] of the file at the [path], each range of line numbers, e.g. `120..260`, numbered as by `cat -n`,
+ * ranges overlapping or adjacent read as one, and apart ones separated by `…`, the whole file when none is given,
+ * so that one intent reads all the code the next decision needs, e.g. whole functions of several files:
+ * `read("fastapi/routing.py", 1..60, 420..610) + read("fastapi/applications.py", 900..1100)`.
  */
-fun edit(path: String, old: String, new: String): String {
-    require(old.isNotEmpty()) { "The old text is empty" }
-    val file = Path(path)
-    val edited = file.readText().edited(path, old, new, all = false)
-    edited.failure?.let { throw IllegalArgumentException(it.replaceFirstChar(Char::uppercaseChar)) }
-    file.writeText(edited.text)
-    return "Edited $path at line ${edited.lines.single()}"
-}
-
-/**
- * Applies the [edits] in their order, each one to the file as the edits before it left it, see [Edit],
- * telling where, one line for each edit, e.g. `Edited /app/f.py at line 12`.
- * Fails, leaving every file unchanged, when any edit fails, naming it and why, as [edit] of a single text does.
- */
-fun edit(edits: List<Edit>): String {
-    val texts = linkedMapOf<java.nio.file.Path, String>()
-    val reports = edits.mapIndexed { index, edit ->
-        fun fail(reason: String): Nothing = throw IllegalArgumentException("Edit ${index + 1} of ${edits.size} failed: $reason")
-        val file = Path(edit.path)
-        val old = edit.old
-        if (old == null) {
-            texts[file] = edit.new
-            "Wrote ${edit.path}, ${edit.new.lineCount} lines"
-        } else {
-            if (old.isEmpty()) fail("the old text is empty: give it, or omit it to write the whole file")
-            val text = texts[file] ?: if (file.exists()) file.readText() else {
-                fail("no file at ${edit.path} to edit: write it whole, without the old text")
-            }
-            val edited = text.edited(edit.path, old, edit.new, edit.all)
-            edited.failure?.let { fail(if (edit.all) it else it.replace("occur once", "occur once, or replace all")) }
-            texts[file] = edited.text
-            "Edited ${edit.path} at line${if (edited.lines.size == 1) "" else "s"} ${edited.lines.joinToString()}"
-        }
-    }
-    texts.forEach { (file, text) ->
-        file.parent?.createDirectories()
-        file.writeText(text)
-    }
-    return reports.joinToString("\n")
-}
-
-/** This text with the [old] text replaced by the [new] one, the lines where, or why it could not be. */
-private class Edited(val text: String, val lines: List<Int> = emptyList(), val failure: String? = null)
-
-private fun String.edited(path: String, old: String, new: String, all: Boolean): Edited {
-    fun line(index: Int) = substring(0, index).count { it == '\n' } + 1
-    val occurrences = generateSequence(indexOf(old).takeIf { it >= 0 }) { previous ->
-        indexOf(old, previous + if (all) old.length else 1).takeIf { it >= 0 }
-    }.toList()
-    if (occurrences.isEmpty()) {
-        val lines = lines()
-        val first = old.lines().firstOrNull { it.isNotBlank() } ?: old
-        val closest = lines.indices.maxBy { similarity(first, lines[it]) }
-        return Edited(this, failure = "the old text does not occur in $path, its closest line being ${closest + 1}: \"${lines[closest]}\"")
-    }
-    if (occurrences.size > 1 && !all) return Edited(this, failure =
-        "the old text occurs ${occurrences.size} times in $path, at lines ${occurrences.joinToString { "${line(it)}" }}: extend it to occur once"
-    )
-    val text = buildString {
-        var from = 0
-        occurrences.forEach { at ->
-            append(this@edited, from, at).append(new)
-            from = at + old.length
-        }
-        append(this@edited, from, this@edited.length)
-    }
-    return Edited(text, occurrences.map(::line))
-}
-
-/** The number of lines of this text, the last one counted also when not ended by a line break. */
-private val String.lineCount: Int get() = count { it == '\n' } + if (isEmpty() || endsWith('\n')) 0 else 1
-
-/** How many of the words and symbols of two lines they share, from 0 to 1, whatever their whitespace. */
-private fun similarity(a: String, b: String): Double {
-    val tokens = Regex("""\w+|[^\s\w]""")
-    val left = tokens.findAll(a).map { it.value }.groupingBy { it }.eachCount()
-    val right = tokens.findAll(b).map { it.value }.groupingBy { it }.eachCount()
-    val shared = left.entries.sumOf { (token, count) -> minOf(count, right[token] ?: 0) }
-    return shared.toDouble() / maxOf(left.values.sum(), right.values.sum(), 1)
+fun read(path: String, vararg lines: IntRange): String {
+    val text = Path(path).readText()
+    return text.numbered(lines.toList().ifEmpty { listOf(1..Int.MAX_VALUE) }, context = 0, spanLines = Int.MAX_VALUE)
 }
 
 /*

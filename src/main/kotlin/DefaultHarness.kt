@@ -119,7 +119,7 @@ private suspend fun unfold(
     } else {
         val initiated = Clock.System.now()
         val edited: Phenomenon? = if (intent.edits.isEmpty()) null else try {
-            Phenomenon.Text(edit(intent.edits), Phenomenon.Text.PLAIN)
+            Phenomenon.Text(applyEdits(intent.edits), Phenomenon.Text.PLAIN)
         } catch (e: Exception) {
             Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed.")
         }

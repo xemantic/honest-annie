@@ -19,6 +19,7 @@
 package com.xemantic.ai.annie.cognizer
 
 import com.fasterxml.jackson.databind.JsonNode
+import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.xemantic.ai.annie.Edit
 import com.xemantic.ai.annie.Phenomenon
@@ -48,7 +49,11 @@ object IntentTool {
     const val EDITS_DESCRIPTION: String = "Edits of files, applied in their order before the script, all of them or none, " +
             "each to the file as the edits before it left it: the code of any language written as it is, never escaped for Kotlin."
 
-    const val PATH_DESCRIPTION: String = "The path of the file, absolute, or relative to the working directory of the scripts."
+    const val PATH_DESCRIPTION: String = "The path of the file, absolute, or relative to the working directory of the scripts, " +
+            "given in every edit, even one changing the file of the edit before it."
+
+    /** The hint of an impediment of edits without a `path`, as DeepSeek leaves it out of every edit of a call, meaning the file of an earlier call. */
+    const val PATH_HINT: String = "give every edit its own `path`, even one changing the file of the edit before it, or of an earlier call"
 
     const val OLD_DESCRIPTION: String = "The text to replace, exactly as in the file, whitespace included, occurring once unless `all`: " +
             "omitted, the `new` text is written as the whole file, created when absent."
@@ -117,14 +122,21 @@ object IntentTool {
             if (node.isTextual) runCatching { mapper.readTree(node.asText()) }.getOrNull() ?: node else node
         }
         val edits = editsNode?.let { node ->
-            val items = if (node.isArray) node.toList() else listOf(node)
-            items.mapIndexed { index, item ->
-                item.toEdit() ?: return Phenomenon.Impediment(
-                    "Your call of `$NAME` carried an edit without its `path` and `new` texts, so nothing was executed: " +
-                            "each edit is {\"path\", \"old\", \"new\", \"all\"}, only `path` and `new` being required, " +
-                            "but edit ${index + 1} was ${mapper.writeValueAsString(item).take(200)}"
+            val sent = if (node.isArray) node.toList() else listOf(node)
+            val items = sent.withPathOfOthers()
+            val malformed = items.mapIndexedNotNull { index, item ->
+                if (item.toEdit() != null) null else "edit ${index + 1} of ${items.size} ${item.malformation(shape = sent[index])}"
+            }
+            if (malformed.isNotEmpty()) {
+                logger.warn { "Call of $NAME with malformed edits: $arguments" }
+                return Phenomenon.Impediment(
+                    "Your call of `$NAME` carried a malformed edit, so nothing was executed: " +
+                            "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
+                            "but ${malformed.joinToString(", and ")}" +
+                            if (items.any { it.isObject && it.get("path") == null }) ": $PATH_HINT" else ""
                 )
             }
+            items.mapNotNull { it.toEdit() }
         } ?: emptyList()
         val script = input?.let {
             it.get(PARAMETER)?.takeIf { node -> node.isTextual }
@@ -138,6 +150,55 @@ object IntentTool {
             )
         }
         return Phenomenon.Intent(script, edits)
+    }
+
+    /**
+     * These items of edits, each object without a `path` given the one of the others, when they all name a single file,
+     * as models leave out the path of further edits of the file they are editing, e.g. DeepSeek;
+     * when they name several files, or none, an edit without a path stays malformed, as its file is not known.
+     */
+    private fun List<JsonNode>.withPathOfOthers(): List<JsonNode> {
+        val paths = mapNotNull { item -> item.get("path")?.takeIf { it.isTextual }?.asText() }.distinct()
+        val path = paths.singleOrNull() ?: return this
+        return map { item ->
+            if (item.isObject && item.get("path") == null) (item.deepCopy<JsonNode>() as ObjectNode).put("path", path) else item
+        }
+    }
+
+    /**
+     * What is wrong with this JSON, not being an edit, described by the [shape] the model sent, e.g. `had no `path`, being {"new": a text of 731 characters}`:
+     * its keys and the kinds of their values, rather than its text, whose beginning, e.g. a long `new` one, may hide what is wrong.
+     */
+    private fun JsonNode.malformation(shape: JsonNode = this): String {
+        if (!isObject) return "was not an object, but ${described()}"
+        val defects = listOf("path" to true, "new" to true, "old" to false).mapNotNull { (key, required) ->
+            val value = get(key)
+            when {
+                value == null -> if (required) "no `$key`" else null
+                value.isTextual || (!required && value.isNull) -> null
+                else -> "`$key` being ${value.kind()}"
+            }
+        } + listOfNotNull(get("all")?.takeUnless { it.isBoolean || it.isNull }?.let { "`all` being ${it.kind()}" })
+        val sent = shape.properties().joinToString(prefix = "{", postfix = "}") { (key, value) -> "\"$key\": ${value.described()}" }
+        return "had ${defects.joinToString(", and ")}, being $sent"
+    }
+
+    /** The kind of this JSON value, e.g. `a text`. */
+    private fun JsonNode.kind(): String = when {
+        isTextual -> "a text"
+        isNumber -> "a number"
+        isBoolean -> "a boolean"
+        isNull -> "null"
+        isArray -> "an array"
+        else -> "an object"
+    }
+
+    /** The kind of this JSON value and its size, e.g. `a text of 12 characters`. */
+    private fun JsonNode.described(): String = when {
+        isTextual -> "a text of ${asText().length} character${if (asText().length == 1) "" else "s"}"
+        isArray -> "an array of ${size()} item${if (size() == 1) "" else "s"}"
+        isObject -> "an object of the keys ${properties().joinToString { "\"${it.key}\"" }}"
+        else -> kind()
     }
 
     /** The edit of this JSON object, `null` when it is not one. */

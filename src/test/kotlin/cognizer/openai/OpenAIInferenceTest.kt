@@ -762,14 +762,96 @@ class OpenAIInferenceTest {
     }
 
     @Test
+    fun `should take the path of an edit without one from the other edits of the call naming a single file`() {
+        // given
+        // DeepSeek left out the path of edits to the file the other edits of the call named
+        val arguments = """{"script": "1", "edits": [
+            {"path": "/app/a.py", "old": "a", "new": "b"},
+            {"new": "d", "old": "c"},
+            {"path": "/app/a.py", "old": "e", "new": "f", "all": true}
+        ]}"""
+
+        // when
+        val intent = IntentTool.intent("kotlin_script", arguments)
+
+        // then
+        assert(intent is Phenomenon.Intent && intent.edits == listOf(
+            Edit(path = "/app/a.py", old = "a", new = "b"),
+            Edit(path = "/app/a.py", old = "c", new = "d"),
+            Edit(path = "/app/a.py", old = "e", new = "f", all = true)
+        ))
+    }
+
+    @Test
+    fun `should not take the path of an edit without one when the other edits of the call name several files, or none`() {
+        // when
+        val impediments = listOf(
+            """{"script": "1", "edits": [{"path": "/app/a.py", "new": "b"}, {"path": "/app/b.py", "new": "c"}, {"new": "d", "old": "c"}]}""",
+            """{"script": "1", "edits": [{"new": "d", "old": "c"}, {"new": "f", "old": "e"}]}"""
+        ).map { IntentTool.intent("kotlin_script", it) }
+
+        // then
+        assert(impediments.all { it is Phenomenon.Impediment && "had no `path`" in it.reason })
+    }
+
+    @Test
     fun `should perceive call of the tool of intents with malformed edits as an impediment`() {
         // when
         val impediment = IntentTool.intent("kotlin_script", """{"script": "1", "edits": [{"file": "/app/g.py", "new": "x"}]}""")
 
         // then
         assert(impediment == Phenomenon.Impediment(
-            "Your call of `kotlin_script` carried an edit without its `path` and `new` texts, so nothing was executed: " +
-                    "each edit is {\"path\", \"old\", \"new\", \"all\"}, only `path` and `new` being required, but edit 1 was {\"file\":\"/app/g.py\",\"new\":\"x\"}"
+            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+                    "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
+                    "but edit 1 of 1 had no `path`, being {\"file\": a text of 9 characters, \"new\": a text of 1 character}: " +
+                    "give every edit its own `path`, even one changing the file of the edit before it, or of an earlier call"
+        ))
+    }
+
+    @Test
+    fun `should tell to give every edit its path when the edits of the call name no file`() {
+        // given
+        // the shape of the malformed edits of DeepSeek: none of them naming its file, the file of an earlier call being meant
+        val arguments = """{"script": "1", "edits": [{"old": "a", "new": "b"}, {"old": "c", "new": "d"}]}"""
+
+        // when
+        val impediment = IntentTool.intent("kotlin_script", arguments)
+
+        // then
+        assert(impediment == Phenomenon.Impediment(
+            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+                    "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
+                    "but edit 1 of 2 had no `path`, being {\"old\": a text of 1 character, \"new\": a text of 1 character}, " +
+                    "and edit 2 of 2 had no `path`, being {\"old\": a text of 1 character, \"new\": a text of 1 character}: " +
+                    "give every edit its own `path`, even one changing the file of the edit before it, or of an earlier call"
+        ))
+    }
+
+    @Test
+    fun `should name what a malformed edit among long ones has, rather than cutting its text`() {
+        // given
+        // the shape of the edits of DeepSeek which a cut text hid: a long `new` text, written first
+        val long = "    \"\"\"Docstring.\"\"\"\n".repeat(50)
+        val arguments = jsonMapper().writeValueAsString(mapOf(
+            "script" to "1",
+            "edits" to listOf(
+                mapOf("path" to "/app/a.py", "old" to "a", "new" to "b"),
+                mapOf("new" to long, "old" to "c", "all" to "yes"),
+                "/app/c.py"
+            )
+        ))
+
+        // when
+        val impediment = IntentTool.intent("kotlin_script", arguments)
+
+        // then
+        assert(impediment == Phenomenon.Impediment(
+            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+                    "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
+                    // its path taken from the other edit, as the edits name a single file
+                    "but edit 2 of 3 had `all` being a text, being " +
+                    "{\"new\": a text of ${long.length} characters, \"old\": a text of 1 character, \"all\": a text of 3 characters}, " +
+                    "and edit 3 of 3 was not an object, but a text of 9 characters"
         ))
     }
 

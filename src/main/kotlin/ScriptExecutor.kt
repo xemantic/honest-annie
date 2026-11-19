@@ -121,7 +121,7 @@ class SessionScriptExecutor(
             addAll(listOfNotNull(printed))
             addAll(
                 when (result) {
-                    is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest()))
+                    is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest().hinted()))
                     is ScriptResult.Value -> listOfNotNull(
                         when (val value = result.value) {
                             null, Unit, is Phenomenon.Invocation -> null
@@ -272,6 +272,22 @@ private fun String.digest(): String {
 }
 
 private const val MAX_ERRORS_LENGTH = 4000
+
+/**
+ * This digest of the errors of a failed script with a hint at the cause of an error it is known to be misread by models,
+ * so that the next intent fixes it rather than repeating it.
+ */
+private fun String.hinted(): String =
+    if ("error: Unsupported escape sequence." in this) "$this\n  $UNSUPPORTED_ESCAPE_HINT" else this
+
+/**
+ * The hint at a backslash escaping for a shell or a regex, e.g. `\|` of `grep`, within a plain string,
+ * which models kept writing in the commands of `agency.bash`, failing one intent after another.
+ */
+internal const val UNSUPPORTED_ESCAPE_HINT: String =
+    "hint: a backslash of a shell command or a regex, like `\\|` of grep or `\\d`, is no escape of a Kotlin string - " +
+        "write the command in a multi-dollar raw string, like `agency.bash(${'$'}${'$'}\"\"\"grep -n 'a\\|b' f\"\"\")`, " +
+        "where a backslash is itself, and only `${'$'}${'$'}` interpolates."
 
 /**
  * The [agency] collecting the invocations made through it, within the [cogitation] of the intent,

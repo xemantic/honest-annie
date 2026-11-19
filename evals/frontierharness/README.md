@@ -34,6 +34,26 @@ Before the full sweep, check the smoke run by hand, as the [eval's prompt](https
 and the agent's directory of each job holds `honest-annie.txt`, her answer,
 `honest-annie-stderr.txt`, and the `cogitations` she recorded.
 
+## Comparing constitutions
+
+Kimi K3 is constituted by [constitutions/kimi.md](../../src/main/constitutions/kimi.md),
+whatever the provider names it, e.g. `kimi-k3` or `moonshotai/Kimi-K3`,
+so the evaluated commit carries the constitution of its runs.
+
+To compare a variant against it, on this host, by [local.sh](local.sh),
+copy the generated constitution, whose API and cognition are filled in,
+change the copy, and run the same tasks with each, under runs of their own:
+
+```shell
+./gradlew generateConstitution
+cp build/generated/constitution/resources/constitutions/kimi.md /tmp/kimi-b.md   # then change it
+RUN_ID=<date>-kimi-a evals/frontierharness/local.sh run <tasks>
+RUN_ID=<date>-kimi-b ANNIE_CONSTITUTION=/tmp/kimi-b.md evals/frontierharness/local.sh run <tasks>
+```
+
+`ANNIE_CONSTITUTION` is a path on the host of the runner, uploaded into each task,
+so under Runta, where the runner runs in the checkpoint, the variant to compare is committed as `kimi.md` instead.
+
 ## How it works
 
 1. `provision` runs the eval's `provision-golden-checkpoint.sh` with [install-harness.sh](install-harness.sh),

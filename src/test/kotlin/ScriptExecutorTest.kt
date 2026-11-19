@@ -298,6 +298,21 @@ class ScriptExecutorTest {
     }
 
     @Test
+    fun `should impede intent escaping a backslash of shell command in plain string, hinting at raw string`() = runTest(timeout = 5.minutes) {
+        // given
+        // the alternation of grep, escaped for the shell, not for Kotlin, as models write it again and again
+        val script = "val command = \"grep -n 'deprecated\\|sunset' fastapi/routing.py\"\ncommand"
+
+        // when
+        val phenomena = executor.execute(script, cogitation, TestAgency())
+
+        // then
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert("error: Unsupported escape sequence." in reason)
+        assert(reason.endsWith(UNSUPPORTED_ESCAPE_HINT))
+    }
+
+    @Test
     fun `should return impediment of failing intent`() = runTest(timeout = 5.minutes) {
         // given
         val agency = TestAgency()

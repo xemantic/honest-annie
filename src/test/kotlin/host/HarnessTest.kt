@@ -917,7 +917,14 @@ class HarnessTest {
 
         // then
         assert(cognizer.response.take(2) == listOf(
-            Phenomenon.Text("Edited $source at line 2\nWrote $created, 1 lines", Phenomenon.Text.PLAIN),
+            Phenomenon.Text(
+                "Edited $source at line 2, as:\n" +
+                    "     1\tdef f():\n" +
+                    "     2\t    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n" +
+                    "     3\t    return 2\n" +
+                    "Wrote $created, 1 lines",
+                Phenomenon.Text.PLAIN
+            ),
             Phenomenon.Text("def f():\n    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n    return 2\n", Phenomenon.Text.PLAIN)
         ))
         assert(created.readText() == "notes\n")

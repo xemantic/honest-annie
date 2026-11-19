@@ -24,10 +24,13 @@ import kotlin.time.Duration
 import kotlin.time.Instant
 
 /**
- * A change of the file at the [path], passed along an intent, rather than written in its script, so that the code
- * of any language is written as it is, never escaped for a Kotlin string, see [Phenomenon.Intent]:
+ * A change of the file at the [path], carried by an intent, see [Phenomenon.Intent.edits]:
+ * passed along the call of the tool, rather than written in its script, so that the code
+ * of any language is written as it is, never escaped for a Kotlin string,
  * the only occurrence of the [old] text replaced by the [new] one, or each of its occurrences when [all],
  * or, without [old] text, the [new] text written as the whole file, created with its directories when absent.
+ * It is the record of an edit, read in a cogitation, e.g. of the parent one, to learn what its intents changed:
+ * an edit created in a script changes no file.
  */
 data class Edit(
     val path: String,

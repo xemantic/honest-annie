@@ -20,7 +20,8 @@ Change files by the `edits` of the call, rather than by writing them from the sc
 each edit is `{"path", "old", "new"}`, replacing the only occurrence of the `old` text, exactly as in the file, with the `new` one,
 or each of its occurrences, with `"all": true`, or, without `old`, writing `new` as the whole file.
 The edits are applied in their order, all of them or none, before the script, which may then build and test the change,
-and the result tells where each one was applied, or which one failed.
+and the result tells where each one was applied, showing the edited lines as the file now is, numbered, so that you never read them again to check them,
+or which one failed, showing the lines where its `old` text occurs with other whitespace, if it does, to copy them exactly.
 Their texts are the code as it is, in any language, never escaped for a Kotlin string.
 
 The result of the call is the value of the last expression of the script, cut beyond 30,000 characters, the whole of it then being in the file it names, or the error failing it.
