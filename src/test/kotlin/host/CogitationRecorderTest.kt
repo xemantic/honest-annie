@@ -20,6 +20,7 @@ package com.xemantic.ai.annie.host
 
 import com.xemantic.ai.annie.Actant
 import com.xemantic.ai.annie.Cogitation
+import com.xemantic.ai.annie.Edit
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
@@ -201,14 +202,38 @@ class CogitationRecorderTest {
                   "provider": "anthropic",
                   "tokens": {"input": 3, "cache_write_1h": 1000, "output": 40},
                   "total": 1043,
+                  "cost": "0.008812",
                   "stop": {"kind": "completed", "reason": "end_turn"}
                 }
               ],
               "invoked": {},
-              "total": {"inferences": 1, "tokens": {"input": 3, "cache_write_1h": 1000, "output": 40}, "total": 1043}
+              "total": {"inferences": 1, "tokens": {"input": 3, "cache_write_1h": 1000, "output": 40}, "total": 1043, "cost": "0.008812"}
             }
 
         """.trimIndent())
+    }
+
+    @Test
+    fun `should not cost inferences of a model of unknown prices`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)).let {
+                    it.copy(inference = it.inference!!.copy(model = "deepseek-v4_1-flash", provider = "llm.example.com"))
+                }
+            )
+        )
+
+        // when
+        CogitationRecorder(recordingDir).record(cogitation)
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        assert("cost" !in root.resolve("inferences.json").readText())
+        assert(root.resolve("cogitation.md").readText().endsWith(": 3 input, 1 output, 4 tokens\n"))
     }
 
     @Test
@@ -245,13 +270,14 @@ class CogitationRecorderTest {
         val json = root.resolve("inferences.json").readText()
         assert(json.contains("""
               "invoked": {
-                "002-1-2026-10-23T13-14-59Z": {"inferences": 1, "tokens": {"input": 2, "cache_read": 1000}, "total": 1002}
+                "002-1-2026-10-23T13-14-59Z": {"inferences": 1, "tokens": {"input": 2, "cache_read": 1000}, "total": 1002, "cost": "0.000208"}
               },
-              "total": {"inferences": 2, "tokens": {"input": 5, "cache_read": 1000, "cache_write_1h": 1000}, "total": 2005}
+              "total": {"inferences": 2, "tokens": {"input": 5, "cache_read": 1000, "cache_write_1h": 1000}, "total": 2005, "cost": "0.00822"}
         """.trimIndent().prependIndent("  ")))
         val index = root.resolve("cogitation.md").readText()
         assert(index.endsWith(
-            "\n**Total** of 2 inferences, 1 in invoked cogitations: 5 input, 1000 cache read, 1000 cache write 1h, 2005 tokens\n"
+            "\n**Total** of 2 inferences, 1 in invoked cogitations: 5 input, 1000 cache read, 1000 cache write 1h, 2005 tokens, " +
+                "costing 0.00822 USD at list prices\n"
         ))
     }
 
@@ -296,7 +322,7 @@ class CogitationRecorderTest {
         assert(discardedRow >= 0 && discardedRow < index.indexOf("| 002 | self `self` |"))
         val json = root.resolve("inferences.json").readText()
         assert(json.contains("\"enunciation\": \"002-discarded-1\""))
-        assert(json.contains("\"total\": {\"inferences\": 2, \"tokens\": {\"input\": 6, \"output\": 3}, \"total\": 9}"))
+        assert(json.contains("\"total\": {\"inferences\": 2, \"tokens\": {\"input\": 6, \"output\": 3}, \"total\": 9, \"cost\": \"0.000084\"}"))
     }
 
     @Test
@@ -310,7 +336,7 @@ class CogitationRecorderTest {
                 inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)),
                 inferred(
                     mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 2L),
-                    stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal")
+                    stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal", category = "cyber")
                 )
             )
         )
@@ -319,9 +345,45 @@ class CogitationRecorderTest {
         CogitationRecorder(recordingDir).record(cogitation)
 
         // then
-        val index = recordingDir.listDirectoryEntries().single().resolve("cogitation.md").readText()
+        val dir = recordingDir.listDirectoryEntries().single()
+        val index = dir.resolve("cogitation.md").readText()
         assert(index.contains("| `claude-opus-5-5` by anthropic: 3 input, 1 output · `end_turn` |\n"))
-        assert(index.contains("| `claude-opus-5-5` by anthropic: 3 input, 2 output · **refused** `refusal` |\n"))
+        assert(index.contains("| `claude-opus-5-5` by anthropic: 3 input, 2 output · **refused** `refusal` (cyber) |\n"))
+        val json = dir.resolve("inferences.json").readText()
+        assert(json.contains("\"stop\": {\"kind\": \"completed\", \"reason\": \"end_turn\"}"))
+        assert(json.contains("\"stop\": {\"kind\": \"refused\", \"reason\": \"refusal\", \"category\": \"cyber\"}"))
+    }
+
+    @Test
+    fun `should record edits of intent next to its script, as their JSON`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(Enunciation(
+                actant = Actant.SELF,
+                initiated = Instant.parse("2026-10-23T13:14:39Z"),
+                phenomena = listOf(Phenomenon.Intent(
+                    script = "1",
+                    edits = listOf(
+                        Edit(path = "/app/f.py", old = "    return 1\n", new = "    \"\"\"Docstring.\"\"\"\n"),
+                        Edit(path = "/app/g.py", new = "x\n", old = null, all = false)
+                    )
+                ))
+            ))
+        )
+
+        // when
+        CogitationRecorder(recordingDir).record(cogitation)
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        assert(root.resolve("001-1-self-intent.kts").readText() == "1")
+        assert(root.resolve("001-1-self-edits.json").readText() ==
+                "[\n  {\"path\": \"/app/f.py\", \"old\": \"    return 1\\n\", \"new\": \"    \\\"\\\"\\\"Docstring.\\\"\\\"\\\"\\n\"},\n" +
+                "  {\"path\": \"/app/g.py\", \"new\": \"x\\n\"}\n]\n")
+        assert("[intent](001-1-self-intent.kts) [edits](001-1-self-edits.json)" in root.resolve("cogitation.md").readText())
     }
 
 }

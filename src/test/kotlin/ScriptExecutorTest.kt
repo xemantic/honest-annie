@@ -28,6 +28,10 @@ import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.io.path.Path
+import kotlin.io.path.createTempFile
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.time.Duration
@@ -140,15 +144,63 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should digest value of intent, telling to keep the whole value in a val`() = runTest(timeout = 5.minutes) {
+    fun `should resolve durations and paths without importing them`() = runTest(timeout = 5.minutes) {
+        // given
+        val file = kotlin.io.path.createTempFile()
+
+        // when
+        // e.g. the timeout of `agency.bash`, whose missing import failed an 8 KB intent of edits
+        val phenomena = executor.execute(
+            "Path(\"$file\").writeText(\"edited\")\n" +
+                "\"${'$'}{10.minutes} ${'$'}{Path(\"$file\").readText()}\"",
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("10m edited", Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should write triple quotes into raw strings as TQ`() = runTest(timeout = 5.minutes) {
+        // given
+        // e.g. a Python docstring, whose triple quotes would end the raw string, which failed a 13 KB intent of edits
+        val q = "\"\"\""
+        val script = "val plain = ${q}def f():\n    \${TQ}Docstring.\${TQ}\n$q\n" +
+            "val multiDollar = $$${q}price = \"$\" + \$\$TQ + \"$$\" + \$\$TQ$q\n" +
+            "plain + multiDollar"
+
+        // when
+        val phenomena = executor.execute(script, cogitation, TestAgency())
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text(
+            "def f():\n    ${q}Docstring.$q\nprice = \"$\" + $q + \"$$\" + $q",
+            Phenomenon.Text.PLAIN
+        )))
+    }
+
+    @Test
+    fun `should perceive whole value of intent up to 30,000 characters`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute("\"a\".repeat(30_000)", cogitation, TestAgency())
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("a".repeat(30_000), Phenomenon.Text.PLAIN)))
+    }
+
+    @Test
+    fun `should digest longer value of intent, telling the file of the whole value`() = runTest(timeout = 5.minutes) {
         // when
         val phenomena = executor.execute("(0 until 100_000).joinToString(\"\\n\")", cogitation, TestAgency())
 
         // then
         val value = (phenomena.single() as Phenomenon.Text).text
-        assert(value.length < 11_000)
+        assert(value.length in 30_000..31_000)
         assert(value.startsWith("0\n1\n2\n"))
         assert(value.contains(Regex("\\d+ more characters omitted")))
+        val file = Regex("the whole text being in (\\S+);").find(value)?.groupValues?.get(1)
+        assert(file != null && Path(file).readText() == (0 until 100_000).joinToString("\n"))
         assert(value.contains("val"))
     }
 
@@ -245,6 +297,78 @@ class ScriptExecutorTest {
         assert(reason.length <= 5000)
         assert(reason.contains(Regex("^snippet\\d+\\.kts:1:")))
         assert(reason.contains(Regex("\\d+ more errors omitted")))
+    }
+
+    @Test
+    fun `should impede intent escaping a backslash of shell command in plain string, hinting at raw string`() = runTest(timeout = 5.minutes) {
+        // given
+        // the alternation of grep, escaped for the shell, not for Kotlin, as models write it again and again
+        val script = "val command = \"grep -n 'deprecated\\|sunset' fastapi/routing.py\"\ncommand"
+
+        // when
+        val phenomena = executor.execute(script, cogitation, TestAgency())
+
+        // then
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert("error: Unsupported escape sequence." in reason)
+        assert(reason.endsWith(UNSUPPORTED_ESCAPE_HINT))
+    }
+
+    @Test
+    fun `should apply the edits of an intent, then execute its script`() = runTest(timeout = 5.minutes) {
+        // given
+        val file = createTempFile(suffix = ".ts").apply { writeText("a\n") }
+        val intent = Phenomenon.Intent(script = "Path(\"$file\").readText()", edits = listOf(Edit(path = file.toString(), old = "a", new = "b")))
+
+        // when
+        val phenomena = executor.execute(intent, cogitation, TestAgency())
+
+        // then
+        assert(phenomena == listOf(
+            Phenomenon.Text("Edited $file at line 1, as:\n     1\tb", Phenomenon.Text.PLAIN),
+            Phenomenon.Text("b\n", Phenomenon.Text.PLAIN)
+        ))
+    }
+
+    @Test
+    fun `should not execute the script of an intent whose edits failed, changing no file`() = runTest(timeout = 5.minutes) {
+        // given
+        val file = createTempFile(suffix = ".ts").apply { writeText("a\n") }
+        val intent = Phenomenon.Intent(
+            script = "Path(\"$file\").writeText(\"script\")",
+            edits = listOf(Edit(path = file.toString(), old = "a", new = "b"), Edit(path = file.toString(), old = "x", new = "y"))
+        )
+
+        // when
+        val phenomena = executor.execute(intent, cogitation, TestAgency())
+
+        // then
+        assert(file.readText() == "a\n")
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert(reason.startsWith("Edit 2 of 2 failed:") && reason.endsWith("No file was changed, and the script was not executed."))
+    }
+
+    @Test
+    fun `should not let the script of an intent apply edits, telling to give them as the edits of the call`() = runTest(timeout = 5.minutes) {
+        // given
+        // DeepSeek saw the harness, in its constitution, applying the edits of the intent, and applied its own from the script,
+        // escaping the code it changed for a Kotlin string
+        val file = createTempFile(suffix = ".ts").apply { writeText("a\n") }
+
+        // when
+        val phenomena = executor.execute(
+            "applyEdits(listOf(Edit(path = \"$file\", old = \"a\", new = \"b\")))",
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(file.readText() == "a\n")
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert(reason.endsWith(
+            "Files are changed by the `edits` of your call, applied before its script, never from the script: " +
+                    "give them as the `edits` of the call, their texts the code as it is, never escaped for a Kotlin string."
+        ))
     }
 
     @Test
@@ -927,9 +1051,11 @@ class ScriptExecutorTest {
 
         // then
         val printed = (phenomena.single() as Phenomenon.Text).text
-        assert(printed.length < 11_000)
+        assert(printed.length in 30_000..31_000)
         assert(printed.startsWith("Printed by Python:\n0\n1\n"))
         assert(printed.contains(Regex("\\d+ more characters omitted")))
+        val file = Regex("the whole text being in (\\S+)$").find(printed)?.groupValues?.get(1)
+        assert(file != null && Path(file).readText() == (0 until 100_000).joinToString("\n"))
     }
 
 }

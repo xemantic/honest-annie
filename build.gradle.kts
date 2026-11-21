@@ -74,6 +74,7 @@ dependencies {
     implementation(libs.anthropic.java)
     implementation(libs.openai.java)
     implementation(libs.xemantic.ai.file.magic)
+    implementation(libs.xemantic.ai.money)
     implementation(libs.kotlin.logging)
 
     runtimeOnly(libs.logback.classic)
@@ -160,7 +161,8 @@ val generatePythonProperties = tasks.register("generatePythonProperties") {
 
 // Fills the constitution templates with the API and cognition sources, as resources:
 // constitution.md, the default one, and constitutions/<family>.md, the ones of model families, see Constitution.kt,
-// leaving the {{harness}} placeholder to the runtime, since the harness can differ in each invocation.
+// leaving the {{harness}} placeholder to the runtime, since the harness can differ in each invocation,
+// and the {{calls}} one, since whether an inference may express several intents is set at runtime.
 val generateConstitution = tasks.register("generateConstitution") {
     group = "annie"
     description = "Generates the constitution resources from their templates and the API and cognition sources"

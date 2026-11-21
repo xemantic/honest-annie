@@ -23,6 +23,7 @@ import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Execution
 import com.xemantic.ai.annie.Agency
+import com.xemantic.ai.annie.Allowance
 import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.ScriptExecutor
@@ -42,6 +43,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Clock
 import kotlin.time.Duration
+import kotlin.time.Instant
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.SendChannel
@@ -89,6 +91,9 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * @param tokenBudget the tokens all the inferences of a tree of cogitations may spend, see [Inference.total],
  * `null` for no limit. Once spent, every cogitation of the tree is impeded at its next step instead of inferring again,
  * the inferences still in progress being the only ones exceeding it.
+ * @param timeLimit how long a tree of cogitations may unfold, from when [cognize] is called, `null` for no limit.
+ * Once passed, every cogitation of the tree is impeded at its next step, like once the [tokenBudget] is spent.
+ * What is left of both is told to the cogitations by their [Agency.allowance].
  * @param parallelism how many steps of a tree of cogitations may execute at a time, `null` for no limit.
  * The steps beyond it wait in the queue.
  * @param introspector of the Kotlin API available to scripts, resolving declarations for every [Agency].
@@ -100,6 +105,7 @@ class HarnessHost(
     private val store: CogitationStore = InMemoryCogitationStore(),
     private val recordingDir: Path? = null,
     private val tokenBudget: Long? = null,
+    private val timeLimit: Duration? = null,
     private val parallelism: Int? = null,
     private val introspector: KotlinIntrospector = lazyKotlinIntrospector(),
     private val preparePython: () -> Unit = PythonVenv::prepare,
@@ -117,6 +123,7 @@ class HarnessHost(
      * @property rested the output of the root cogitation, once it rests.
      * @property queue of the ids of unfoldings ready for the next step, shared by the whole tree of cogitations.
      * @property spent the tokens inferred so far, shared by the whole tree of cogitations.
+     * @property started when the whole tree of cogitations started unfolding.
      * @property agency provided to the harness, acting as the agency of its current execution.
      * @property executor of the intents, in a session of their own, see [ScriptExecutor].
      * @property inferred by the current execution of the harness, see [recordingCognizer].
@@ -128,6 +135,7 @@ class HarnessHost(
         val rested: CompletableDeferred<Enunciation>,
         val queue: SendChannel<String>,
         val spent: AtomicLong,
+        val started: Instant,
         handler: CoroutineExceptionHandler,
         preparePython: () -> Unit
     ) {
@@ -167,6 +175,7 @@ class HarnessHost(
             rested = rested,
             queue = queue,
             spent = AtomicLong(),
+            started = Clock.System.now(),
             handler = CoroutineExceptionHandler { _, e -> rested.completeExceptionally(e) },
             preparePython = preparePython
         )
@@ -197,6 +206,10 @@ class HarnessHost(
         val runtime = runtimes.getValue(id)
         runtime.mutex.withLock {
             var unfolding = checkNotNull(store.load(id)) { "No unfolding $id" }
+            if (timeLimit != null && Clock.System.now() >= runtime.started + timeLimit) {
+                impede(unfolding, runtime, "Time limit of $timeLimit passed")
+                return
+            }
             val spent = runtime.spent.get()
             if (tokenBudget != null && spent >= tokenBudget) {
                 impede(unfolding, runtime, "Token budget of $tokenBudget spent: " +
@@ -209,7 +222,8 @@ class HarnessHost(
             val agency = HostedAgency(
                 unfolding = unfolding,
                 parentCogitation = unfolding.parent?.let { store.load(it)?.cogitation },
-                executor = runtime.executor
+                executor = runtime.executor,
+                runtime = runtime
             )
             val inferred = CopyOnWriteArrayList<Enunciation>()
             runtime.inferred = inferred
@@ -297,6 +311,7 @@ class HarnessHost(
                     rested = runtime.rested,
                     queue = runtime.queue,
                     spent = runtime.spent,
+                    started = runtime.started,
                     handler = CoroutineExceptionHandler { _, e -> runtime.rested.completeExceptionally(e) },
                     preparePython = preparePython
                 )
@@ -417,7 +432,8 @@ class HarnessHost(
     private inner class HostedAgency(
         private val unfolding: Unfolding,
         override val parentCogitation: Cogitation?,
-        private val executor: SessionScriptExecutor
+        private val executor: SessionScriptExecutor,
+        private val runtime: Runtime
     ) : Agency {
 
         private val lock = Any()
@@ -434,6 +450,10 @@ class HarnessHost(
         override val depth: Int = unfolding.cogitation.depth
 
         override val invocations = CopyOnWriteArrayList<Phenomenon.Invocation>()
+
+        override val allowance: Allowance get() = Allowance(
+            tokens = tokenBudget, spentTokens = runtime.spent.get(), time = timeLimit, started = runtime.started
+        )
 
         override val enunciated = CopyOnWriteArrayList<Phenomenon>()
 

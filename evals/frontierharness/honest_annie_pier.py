@@ -1,8 +1,9 @@
 """honest-annie as a Pier agent, run with `pier run --agent-import-path honest_annie_pier:HonestAnnie`."""
 from pier.agents.base import BaseAgent
+from pier.models.agent.install import AgentInstallSpec, InstallStep
 from pier.models.agent.network import NetworkAllowlist
 
-from honest_annie_adapter import HonestAnnieAgent
+from honest_annie_adapter import HonestAnnieAgent, python_install_command
 
 
 class HonestAnnie(HonestAnnieAgent, BaseAgent):
@@ -15,3 +16,10 @@ class HonestAnnie(HonestAnnieAgent, BaseAgent):
     def network_allowlist(self) -> NetworkAllowlist:
         # the only host the agent itself reaches, the task staying air-gapped
         return NetworkAllowlist(domains=[self.endpoint().host])
+
+    def install_spec(self) -> AgentInstallSpec:
+        # built into the image of the task, while the network is open, the distribution itself being uploaded at setup
+        return AgentInstallSpec(
+            agent_name=self.name(),
+            steps=[InstallStep(user="root", run=python_install_command())],
+        )

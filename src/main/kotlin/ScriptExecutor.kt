@@ -25,6 +25,8 @@ import com.xemantic.kotlin.script.python.Python as Interpreter
 import org.intellij.lang.annotations.Language
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.io.path.createTempFile
+import kotlin.io.path.writeText
 import kotlin.time.Duration
 
 /**
@@ -55,6 +57,28 @@ interface ScriptExecutor {
         cogitation: Cogitation,
         agency: Agency
     ): List<Phenomenon>
+
+    /**
+     * Executes the [intent] expressed in the [cogitation], e.g. `executor.execute(intent, inferred, agency)`:
+     * its edits applied first, all of them or none, see [Phenomenon.Intent.edits],
+     * then its script, as by the [execute] of a script, unless an edit failed, or the script is blank.
+     *
+     * @return the report of the edits, if any, as a [Phenomenon.Text] telling where each one was applied,
+     * followed by the result of the script,
+     * or only the [Phenomenon.Impediment] of the edit failing, no file being changed, and the script not executed.
+     */
+    suspend fun execute(
+        intent: Phenomenon.Intent,
+        cogitation: Cogitation,
+        agency: Agency
+    ): List<Phenomenon> {
+        val edited: Phenomenon? = if (intent.edits.isEmpty()) null else try {
+            Phenomenon.Text(applyEdits(intent.edits), Phenomenon.Text.PLAIN)
+        } catch (e: Exception) {
+            return listOf(Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed."))
+        }
+        return listOfNotNull(edited) + if (intent.script.isBlank()) emptyList() else execute(intent.script, cogitation, agency)
+    }
 }
 
 /**
@@ -119,7 +143,7 @@ class SessionScriptExecutor(
             addAll(listOfNotNull(printed))
             addAll(
                 when (result) {
-                    is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest()))
+                    is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest().hinted()))
                     is ScriptResult.Value -> listOfNotNull(
                         when (val value = result.value) {
                             null, Unit, is Phenomenon.Invocation -> null
@@ -221,23 +245,38 @@ private fun Interpreter.printed(): Phenomenon.Text? {
 
 /**
  * The first [MAX_RESULT_LENGTH] characters of this text perceived in the result of an intent,
- * telling how many more are omitted, followed by the [advice], so that a single result does not flood the cogitation,
- * where it would be perceived again at every later step.
+ * telling how many more are omitted and the file holding the whole text, followed by the [advice],
+ * so that a single result does not flood the cogitation, where it would be perceived again at every later step,
+ * while the rest can still be read, e.g. by `sed -n`, without executing the script again.
+ *
+ * The limit is the one of Claude Code for the output of a command, which its models are used to:
+ * cut at 10,000 characters, a model reading source files in ranges spent a step on every cut file.
  */
-private fun String.digest(advice: String): String =
-    if (length <= MAX_RESULT_LENGTH) this
-    else take(MAX_RESULT_LENGTH) + "\n… ${length - MAX_RESULT_LENGTH} more characters omitted$advice"
+private fun String.digest(advice: String): String {
+    if (length <= MAX_RESULT_LENGTH) return this
+    val whole = createTempFile("annie-result-", ".txt").apply { writeText(this@digest) }
+    return take(MAX_RESULT_LENGTH) +
+        "\n… ${length - MAX_RESULT_LENGTH} more characters omitted, the whole text being in $whole$advice"
+}
 
-private const val MAX_RESULT_LENGTH = 10_000
+private const val MAX_RESULT_LENGTH = 30_000
 
 /**
  * What the session of the intents imports before the first one, so that a script uses the API of annie,
  * e.g. `Phenomenon`, without importing it: one forgetting to was the most frequent failure of an intent,
  * costing a whole step to fix, whatever the model. An import of a snippet stays visible to the later ones.
+ * So are durations, e.g. `10.minutes` timing out `agency.bash`, and paths, e.g. `Path(file).writeText(…)`,
+ * whose missing imports failed whole intents of edits, to be sent again.
  */
-private const val DEFAULT_IMPORTS = "import com.xemantic.ai.annie.*"
+private const val DEFAULT_IMPORTS = """
+import com.xemantic.ai.annie.*
+import kotlin.io.path.*
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+"""
 
-private const val VALUE_OMISSION = ": keep the whole value in a `val`, " +
+private const val VALUE_OMISSION = "; keep the whole value in a `val`, " +
         "and let the script evaluate to a digest of what you need to know of it"
 
 /**
@@ -255,6 +294,33 @@ private fun String.digest(): String {
 }
 
 private const val MAX_ERRORS_LENGTH = 4000
+
+/**
+ * This digest of the errors of a failed script with a hint at the cause of an error it is known to be misread by models,
+ * so that the next intent fixes it rather than repeating it.
+ */
+private fun String.hinted(): String = when {
+    "error: Unsupported escape sequence." in this -> "$this\n  $UNSUPPORTED_ESCAPE_HINT"
+    "applyEdits" in this -> "$this\n  $EDITS_OF_SCRIPT_HINT"
+    else -> this
+}
+
+/**
+ * The hint at the edits of a script, as models seeing the harness apply the edits of the intent, in their constitution,
+ * called `applyEdits`, internal to the executor, from their scripts, escaping the code they changed for a Kotlin string.
+ */
+internal const val EDITS_OF_SCRIPT_HINT: String =
+    "Files are changed by the `edits` of your call, applied before its script, never from the script: " +
+        "give them as the `edits` of the call, their texts the code as it is, never escaped for a Kotlin string."
+
+/**
+ * The hint at a backslash escaping for a shell or a regex, e.g. `\|` of `grep`, within a plain string,
+ * which models kept writing in the commands of `agency.bash`, failing one intent after another.
+ */
+internal const val UNSUPPORTED_ESCAPE_HINT: String =
+    "hint: a backslash of a shell command or a regex, like `\\|` of grep or `\\d`, is no escape of a Kotlin string - " +
+        "write the command in a multi-dollar raw string, like `agency.bash(${'$'}${'$'}\"\"\"grep -n 'a\\|b' f\"\"\")`, " +
+        "where a backslash is itself, and only `${'$'}${'$'}` interpolates."
 
 /**
  * The [agency] collecting the invocations made through it, within the [cogitation] of the intent,
@@ -293,6 +359,7 @@ internal class SwitchedAgency : Agency {
     override val parentCogitation: Cogitation? get() = current.parentCogitation
     override val depth: Int get() = current.depth
     override val invocations: List<Phenomenon.Invocation> get() = current.invocations
+    override val allowance: Allowance get() = current.allowance
     override val enunciated: List<Phenomenon> get() = current.enunciated
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http

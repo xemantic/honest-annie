@@ -29,8 +29,12 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
+import kotlin.io.path.Path
+import kotlin.io.path.readText
+import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
 
 /**
  * The agency within the current cogitation: how its harness, and the intents it executes, act within it,
@@ -57,6 +61,8 @@ interface Agency {
     val depth: Int
     /** Invocations made during this execution of the harness, e.g. by the intent it executes. */
     val invocations: List<Phenomenon.Invocation>
+    /** What the whole tree of the current cogitation may still spend, unlimited unless its host limits it. */
+    val allowance: Allowance get() = Allowance()
     /**
      * Output enunciated during this execution of the harness, e.g. by the intent it executes,
      * to be enunciated by the harness in the cogitation it unfolds, see [Enunciation.isOutput].
@@ -137,6 +143,24 @@ interface Agency {
 }
 
 /**
+ * What a tree of cogitations may spend, see [Agency.allowance]: its [tokens], and its [time], each `null` when unlimited.
+ *
+ * @property spentTokens inferred so far by the whole tree, see [Inference.total].
+ * @property started when the tree started unfolding, its [time] being measured from it.
+ */
+data class Allowance(
+    val tokens: Long? = null,
+    val spentTokens: Long = 0,
+    val time: Duration? = null,
+    val started: Instant = Clock.System.now()
+) {
+    /** The tokens left to spend, `null` when unlimited. */
+    val tokensLeft: Long? get() = tokens?.let { (it - spentTokens).coerceAtLeast(0) }
+    /** The time left until the [time] has passed, `null` when unlimited. */
+    val timeLeft: Duration? get() = time?.let { (started + it - Clock.System.now()).coerceAtLeast(Duration.ZERO) }
+}
+
+/**
  * The CPython interpreter of the current cogitation, started when first used,
  * stateful like your Kotlin session: the variables, functions, classes and imports of the Python code it executes
  * stay visible to the Python code of your later intents.
@@ -144,6 +168,11 @@ interface Agency {
  * What the code prints, to `sys.stdout` or `sys.stderr`, is perceived in the result of the intent,
  * truncated, before the value of the intent, also when the intent fails.
  * An exception of Python fails the intent, perceived with its type and message.
+ *
+ * It is the Python of honest-annie, in an environment of its own, embedded in the JVM:
+ * it cannot import the packages of the task, e.g. of the project being changed, nor its code,
+ * so run the code, tests and tools of the task by [Agency.execute], e.g. `agency.bash("python -m pytest")`,
+ * with the Python the task provides.
  */
 interface Python {
     /**
@@ -192,6 +221,23 @@ fun Agency.bash(
     script: String,
     timeout: Duration = 1.minutes
 ): Execution = execute(listOf("bash", "-c", script), timeout = timeout)
+
+/**
+ * Triple quotes, which end a raw string, written into one as `$TQ`, or `$$TQ` in a multi-dollar one,
+ * e.g. the docstrings of Python: `"""def f():\n    ${TQ}Docstring.$TQ"""`.
+ */
+const val TQ: String = "\"\"\""
+
+/**
+ * The [lines] of the file at the [path], each range of line numbers, e.g. `120..260`, numbered as by `cat -n`,
+ * ranges overlapping or adjacent read as one, and apart ones separated by `…`, the whole file when none is given,
+ * so that one intent reads all the code the next decision needs, e.g. whole functions of several files:
+ * `read("fastapi/routing.py", 1..60, 420..610) + read("fastapi/applications.py", 900..1100)`.
+ */
+fun read(path: String, vararg lines: IntRange): String {
+    val text = Path(path).readText()
+    return text.numbered(lines.toList().ifEmpty { listOf(1..Int.MAX_VALUE) }, context = 0, spanLines = Int.MAX_VALUE)
+}
 
 /*
  * Navigating JSON of an unknown shape, received e.g. with `agency.http.get(url).body<JsonElement>()`,

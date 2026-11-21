@@ -19,6 +19,8 @@
 package com.xemantic.ai.annie
 
 import com.xemantic.kotlin.test.assert
+import kotlin.io.path.createTempFile
+import kotlin.io.path.writeText
 import kotlin.test.Test
 
 class ConstitutionTest {
@@ -61,12 +63,116 @@ class ConstitutionTest {
     }
 
     @Test
-    fun `should load the default constitution for a model without one of its own`() {
+    fun `should load the constitution of Claude Fable`() {
         // when
         val template = constitutionTemplate(model = "claude-fable-5-2")
 
         // then
+        assert(template != constitutionTemplate)
+        assert(template != constitutionTemplate(model = "deepseek-v4_1-flash"))
+        assert(template.startsWith("# The constitution of honest-annie\n\n## Identity\n\n"))
+        assert("\n## Steps\n" in template)
+        assert("\n## Changing files\n" in template)
+        assert("interface Agency" in template)
+        assert("class Cogitation(" in template)
+        assert("{{api}}" !in template && "{{cognition}}" !in template)
+        assert("````kotlin\n{{harness}}\n````\n\n## Your answer\n\n" in template)
+    }
+
+    @Test
+    fun `should load the constitution of Kimi for its model ids of every provider`() {
+        // given
+        val kimi = Agency::class.java.getResource("/constitutions/kimi.md")!!.readText().trim()
+
+        // when
+        val templates = listOf(
+            "kimi-k3",
+            "kimi-k3-2026-08-20",
+            "moonshotai/kimi-k3",
+            "accounts/fireworks/models/kimi-k3",
+            "moonshotai/Kimi-K3"
+        ).associateWith { constitutionTemplate(model = it) }
+
+        // then
+        assert(templates.values.all { it == kimi })
+        assert(kimi != constitutionTemplate)
+        assert(kimi.startsWith("# The constitution of honest-annie\n\n## Identity\n\n"))
+        assert("{{api}}" !in kimi && "{{cognition}}" !in kimi)
+        assert("````kotlin\n{{harness}}\n````\n\n## Your answer\n\n" in kimi)
+    }
+
+    @Test
+    fun `should show edits only as the record of intents, not as a function of scripts, which change files by the edits of the call`() {
+        // when
+        val templates = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3")
+            .map { constitutionTemplate(model = it) }
+
+        // then
+        // models seeing a function changing files called it from scripts, escaping the code they changed for Kotlin
+        assert(templates.none { "fun edit(" in it || "fun applyEdits(" in it })
+        // the edits of the intents of a cogitation are read when researching it, e.g. the one of the parent
+        assert(templates.all { "data class Edit(" in it && "changes no file" in it })
+    }
+
+    @Test
+    fun `should tell that the Python of scripts cannot import the packages of the task`() {
+        // when
+        val templates = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3")
+            .map { constitutionTemplate(model = it) }
+
+        // then
+        // a model ran the tests of the task through it, failing on `No module named 'fastapi'`
+        assert(templates.all { "cannot import the packages of the task" in it })
+    }
+
+    @Test
+    fun `should tell DeepSeek and Kimi to name the file of every edit`() {
+        // when
+        val templates = listOf("deepseek-v4_1-flash", "kimi-k3").map { constitutionTemplate(model = it) }
+
+        // then
+        // DeepSeek left out the `path` of every edit of a call, meaning the file of an earlier call
+        assert(templates.all { "every edit naming its own file by its `path`" in it })
+    }
+
+    @Test
+    fun `should tell DeepSeek and Kimi to write every file by an edit, a scratch file too, run in the same call`() {
+        // when
+        val templates = listOf("deepseek-v4_1-flash", "kimi-k3").map { constitutionTemplate(model = it) }
+
+        // then
+        // DeepSeek wrote probe tests by JSON-escaping them in the script, writing the JSON by `cat >`, and Python writing the file from it
+        assert(templates.all { "Write every file you need by an edit, a scratch file too, e.g. a probe test" in it })
+    }
+
+    @Test
+    fun `should load the default constitution for a model without one of its own`() {
+        // when
+        val template = constitutionTemplate(model = "claude-opus-5-5")
+
+        // then
         assert(template == constitutionTemplate)
+    }
+
+    @Test
+    fun `should load the constitution of a file in place of the one of the model`() {
+        // given
+        val file = createTempFile(suffix = ".md").apply { writeText("## Harness\n\n{{harness}}\n") }
+
+        // when
+        val template = constitutionTemplate(model = "deepseek-v4_1-flash", file = file)
+
+        // then
+        assert(template == "## Harness\n\n{{harness}}")
+    }
+
+    @Test
+    fun `should load the constitution of the model without a file`() {
+        // when
+        val template = constitutionTemplate(model = "deepseek-v4_1-flash", file = null)
+
+        // then
+        assert(template == constitutionTemplate(model = "deepseek-v4_1-flash"))
     }
 
     @Test
@@ -79,6 +185,23 @@ class ConstitutionTest {
 
         // then
         assert(constitution == "## Harness\n\nprintln(\"harness\")")
+    }
+
+    @Test
+    fun `should tell to call the tool once per inference, or several times when parallel intents are allowed`() {
+        // given
+        val templates = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3").map { constitutionTemplate(model = it) }
+
+        // when
+        val single = templates.map { constitution(harness = "", template = it) }
+        val parallel = templates.map { constitution(harness = "", template = it, parallelIntents = true) }
+
+        // then
+        assert(single.all { "Call it at most once per inference, which ends with the call." in it && "{{calls}}" !in it })
+        assert(parallel.all {
+            "Call it once per inference, or several times, e.g. once for each independent part of a change" in it &&
+                    "check(r.exitCode == 0) { r.output }" in it && "at most once" !in it
+        })
     }
 
 }

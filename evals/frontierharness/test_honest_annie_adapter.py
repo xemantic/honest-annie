@@ -9,12 +9,12 @@ from types import SimpleNamespace
 import honest_annie_adapter as adapter
 
 
-def inferences(*tokens, initiated=("2026-11-05T10:00:00Z",)):
-    """An inferences.json in the layout honest-annie writes, see CogitationRecorder."""
+def inferences(*tokens, initiated=("2026-11-05T10:00:00Z",), costs=None):
+    """An inferences.json in the layout honest-annie writes, see CogitationRecorder, the costs given only when known."""
     return json.dumps({
         "inferences": [
             {"enunciation": f"00{i}", "initiated": initiated[i], "model": "kimi-k3", "provider": "api.fireworks.ai",
-             "tokens": t, "total": sum(t.values()), "stop": None}
+             "tokens": t, "total": sum(t.values()), **({"cost": costs[i]} if costs else {}), "stop": None}
             for i, t in enumerate(tokens)
         ],
         "invoked": {},
@@ -22,8 +22,9 @@ def inferences(*tokens, initiated=("2026-11-05T10:00:00Z",)):
     })
 
 
-def recording():
-    """A cogitation invoking another one, which was initiated between the two inferences of its invoker."""
+def recording(costs=False):
+    """A cogitation invoking another one, which was initiated between the two inferences of its invoker,
+    its inferences costing 0.1, 0.02 and 0.003 when the costs are known."""
     root = Path(tempfile.mkdtemp())
     cogitation = root / "2026-11-05T10-00-00.000000Z"
     invoked = cogitation / "003-1-2026-11-05T10-00-30.000000Z"
@@ -32,10 +33,12 @@ def recording():
         {"input": 1000, "cache_read": 0, "output": 200, "reasoning": 50},
         {"input": 100, "cache_read": 1200, "output": 300},
         initiated=("2026-11-05T10:00:00Z", "2026-11-05T10:01:00Z"),
+        costs=("0.1", "0.02") if costs else None,
     ))
     (invoked / "inferences.json").write_text(inferences(
         {"input": 400, "cache_read": 600, "cache_write_1h": 10, "output": 40},
         initiated=("2026-11-05T10:00:30Z",),
+        costs=("0.003",) if costs else None,
     ))
     return root
 
@@ -65,6 +68,19 @@ class EndpointTest(unittest.TestCase):
         self.assertEqual(endpoint.model, "openai/kimi-k3")
         self.assertEqual(endpoint.key_env, "MY_GATEWAY_API_KEY")
         self.assertEqual(endpoint.host, "gateway.example")
+
+    def test_resolves_anthropic_route_to_the_claude_api(self):
+        # when
+        endpoint = adapter.resolve_endpoint("anthropic/claude-sonnet-5-5", {})
+
+        # then
+        self.assertEqual(endpoint, adapter.Endpoint(
+            base_url="https://api.anthropic.com",
+            model="claude-sonnet-5-5",
+            key_env="ANTHROPIC_API_KEY",
+            anthropic=True,
+        ))
+        self.assertEqual(endpoint.host, "api.anthropic.com")
 
     def test_refuses_unknown_route_without_base_url(self):
         # when / then
@@ -119,6 +135,28 @@ class UsageTest(unittest.TestCase):
         self.assertEqual((context.n_input_tokens, context.n_cache_tokens, context.n_output_tokens), (3310, 1800, 590))
         self.assertEqual(context.metadata["honest_annie"]["cogitations"], 2)
 
+    def test_populates_the_cost_of_the_agent_context_when_every_inference_has_one(self):
+        # given
+        context = SimpleNamespace(n_input_tokens=None, n_cache_tokens=None, n_output_tokens=None, cost_usd=None, metadata=None)
+
+        # when
+        adapter.populate(context, adapter.read_calls(recording(costs=True)))
+
+        # then the costs are summed exactly, as decimals
+        self.assertEqual(context.cost_usd, 0.123)
+
+    def test_leaves_the_cost_of_the_agent_context_unknown_when_an_inference_has_none(self):
+        # given
+        context = SimpleNamespace(n_input_tokens=None, n_cache_tokens=None, n_output_tokens=None, cost_usd=None, metadata=None)
+        root = recording(costs=True)
+        (next(root.rglob("003-1-*")) / "inferences.json").write_text(inferences({"input": 1}))
+
+        # when
+        adapter.populate(context, adapter.read_calls(root))
+
+        # then
+        self.assertIsNone(context.cost_usd)
+
     def test_leaves_the_context_empty_without_a_recording(self):
         # given
         context = SimpleNamespace(n_input_tokens=None, n_cache_tokens=None, n_output_tokens=None, metadata=None)
@@ -133,7 +171,8 @@ class UsageTest(unittest.TestCase):
 class FakeEnvironment:
     """The environment of Harbor and Pier as the agent uses it, recording what it is asked to do."""
 
-    def __init__(self, return_code=0, proxy=None):
+    def __init__(self, return_code=0, proxy=None, hangs=False):
+        self.hangs = hangs
         self.commands = []
         self.uploads = []
         self.return_code = return_code
@@ -142,6 +181,8 @@ class FakeEnvironment:
 
     async def exec(self, command, cwd=None, env=None, timeout_sec=None, user=None):
         self.commands.append((command, env, user))
+        if self.hangs and "bin/honest-annie" in command:
+            await asyncio.Event().wait()
         return SimpleNamespace(return_code=self.return_code if "bin/honest-annie" in command else 0,
                                stdout="", stderr="")
 
@@ -165,7 +206,9 @@ class AgentTest(unittest.TestCase):
     def test_runs_annie_on_the_instruction_against_the_endpoint_of_the_model(self):
         # given
         environment = FakeEnvironment(proxy="http://agent:token@pier-egress-proxy:8080")
-        agent = Agent(Path(tempfile.mkdtemp()), {"FIREWORKS_API_KEY": "runta-secret-stub", "ANNIE_TOKEN_BUDGET": "3000000"})
+        agent = Agent(Path(tempfile.mkdtemp()), {"FIREWORKS_API_KEY": "runta-secret-stub", "ANNIE_TOKEN_BUDGET": "3000000",
+                                                  "ANNIE_TIME_LIMIT": "5100", "ANNIE_CACHE_TTL": "1h",
+                                                  "ANNIE_FALLBACK_MODEL": "claude-opus-5"})
         context = SimpleNamespace(n_input_tokens=None, n_cache_tokens=None, n_output_tokens=None, metadata=None)
 
         # when
@@ -180,7 +223,61 @@ class AgentTest(unittest.TestCase):
         self.assertEqual(env["OPENAI_MODEL"], "accounts/fireworks/models/kimi-k3")
         self.assertEqual(env["OPENAI_API_KEY"], "runta-secret-stub")
         self.assertEqual(env["ANNIE_TOKEN_BUDGET"], "3000000")
+        self.assertEqual(env["ANNIE_TIME_LIMIT"], "5100")
+        self.assertEqual(env["ANNIE_CACHE_TTL"], "1h")
+        self.assertEqual(env["ANNIE_FALLBACK_MODEL"], "claude-opus-5")
         self.assertEqual(env["HTTPS_PROXY"], "http://agent:token@pier-egress-proxy:8080")
+
+    def test_runs_annie_under_the_constitution_given_on_the_runner_host(self):
+        # given
+        constitution = Path(tempfile.mkdtemp()) / "constitution.md"
+        constitution.write_text("Delegate.")
+        environment = FakeEnvironment()
+        agent = Agent(Path(tempfile.mkdtemp()), {"FIREWORKS_API_KEY": "stub", "ANNIE_CONSTITUTION": str(constitution)})
+        context = SimpleNamespace(n_input_tokens=None, n_cache_tokens=None, n_output_tokens=None, metadata=None)
+
+        # when
+        asyncio.run(agent.run("Fix the failing test.", environment, context))
+
+        # then
+        self.assertIn((b"Delegate.", "/installed-agent/constitution.md"), environment.uploads)
+        _, env, _ = environment.commands[-1]
+        self.assertEqual(env["ANNIE_CONSTITUTION"], "/installed-agent/constitution.md")
+
+    def test_runs_annie_against_claude_for_an_anthropic_route(self):
+        # given
+        environment = FakeEnvironment()
+        agent = Agent(Path(tempfile.mkdtemp()), {"ANTHROPIC_API_KEY": "sk-ant-test"})
+        agent.model_name = "anthropic/claude-sonnet-5-5"
+        context = SimpleNamespace(n_input_tokens=None, n_cache_tokens=None, n_output_tokens=None, metadata=None)
+
+        # when
+        asyncio.run(agent.run("Fix the failing test.", environment, context))
+
+        # then
+        _, env, _ = environment.commands[-1]
+        self.assertEqual(env["ANTHROPIC_MODEL"], "claude-sonnet-5-5")
+        self.assertEqual(env["ANTHROPIC_API_KEY"], "sk-ant-test")
+        self.assertEqual(env["ANTHROPIC_BASE_URL"], "https://api.anthropic.com")
+        self.assertNotIn("OPENAI_MODEL", env)
+        self.assertNotIn("OPENAI_API_KEY", env)
+
+    def test_records_the_usage_of_annie_timed_out_by_the_runner(self):
+        # given
+        logs_dir = Path(tempfile.mkdtemp())
+        (logs_dir / "cogitations").symlink_to(recording(), target_is_directory=True)
+        agent = Agent(logs_dir, {"FIREWORKS_API_KEY": "stub"})
+        context = SimpleNamespace(n_input_tokens=None, n_cache_tokens=None, n_output_tokens=None, metadata=None)
+
+        async def timed_out():
+            await asyncio.wait_for(agent.run("Fix it.", FakeEnvironment(hangs=True), context), timeout=0.5)
+
+        # when
+        with self.assertRaises(TimeoutError):
+            asyncio.run(timed_out())
+
+        # then what the trial spent before the runner cancelled it is reported, rather than nothing
+        self.assertEqual(context.n_input_tokens, 3310)
 
     def test_raises_when_annie_crashes(self):
         # given
@@ -227,6 +324,37 @@ class AgentTest(unittest.TestCase):
         delete = command.index("keytool -delete -cacerts -storepass changeit -alias runta-egress")
         self.assertLess(delete, command.index("keytool -importcert"))
         self.assertIn("|| true", command[delete:command.index("keytool -importcert")])
+
+    def test_prepares_the_python_of_the_intents_with_the_jep_of_the_distribution(self):
+        # when
+        command = adapter.python_install_command()
+
+        # then
+        self.assertIn(f"python3 -m venv {adapter.PYTHON_VENV}", command)
+        self.assertIn(f"{adapter.PYTHON_VENV}/bin/pip install", command)
+        self.assertIn(f"jep=={adapter.JEP_VERSION}", command)
+        # the version of the org.ninia:jep library of the distribution
+        versions = (Path(__file__).parents[2] / "gradle" / "libs.versions.toml").read_text()
+        self.assertIn(f'jep = "{adapter.JEP_VERSION}"', versions)
+
+    def test_prepares_the_python_of_the_intents_purging_only_the_packages_it_installed(self):
+        # when
+        command = adapter.python_install_command()
+
+        # then the packages of the task image stay, e.g. never removed by autoremove
+        self.assertNotIn("autoremove", command)
+        self.assertLess(command.index("dpkg-query"), command.index("apt-get install"))
+        self.assertLess(command.index("apt-get install"), command.index("apt-get purge"))
+
+    def test_runs_annie_with_the_python_prepared_at_build_time(self):
+        # given
+        agent = Agent(Path(tempfile.mkdtemp()), {"FIREWORKS_API_KEY": "key"})
+
+        # when
+        env = agent.process_env(FakeEnvironment())
+
+        # then
+        self.assertEqual(env["ANNIE_PYTHON_VENV"], adapter.PYTHON_VENV)
 
 
 if __name__ == "__main__":
