@@ -154,53 +154,6 @@ class TurnsTest {
     }
 
     @Test
-    fun `should replay several intents of an inference as its tool calls, each perceiving its own result, in their order`() {
-        // given
-        val first = Phenomenon.Intent("agency.enunciate(\"so far\")", id = "call_1")
-        val second = Phenomenon.Intent("6 * 7", id = "call_2")
-        val third = Phenomenon.Intent("6 * 8", id = "call_3")
-        val cogitation = Cogitation(
-            constitution = emptyList(),
-            harness = "",
-            enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
-                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(Phenomenon.Text("Parts."), first, second, third)),
-                // the output enunciated by the first intent, then the responses to the first and the second
-                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(Phenomenon.Text("so far"))),
-                Enunciation(actant = computer, initiated = initiated, respondsTo = first.id, phenomena = listOf(Phenomenon.Text("one"))),
-                Enunciation(actant = computer, initiated = initiated, respondsTo = second.id, phenomena = listOf(Phenomenon.Text("42"))),
-                // the third never executed, e.g. interrupted
-                Enunciation(actant = Actant(type = Actant.Type.HUMAN, name = "user"), initiated = initiated, phenomena = listOf(Phenomenon.Text("stop")))
-            )
-        )
-
-        // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
-
-        // then
-        assert(turns.size == 3)
-        assert((turns[1] as Turn.Assistant).parts == listOf("Parts.", first.script, second.script, third.script))
-        assert((turns[2] as Turn.User).parts == listOf(
-            Perceived.Result("call_1", listOf(Perceived.Text("""
-                <annie:actant type="self" name="self" initiated="2026-10-24T10:15:30Z"/>
-                so far
-
-                <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
-                one
-            """.trimIndent()))),
-            Perceived.Result("call_2", listOf(Perceived.Text("""
-                <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
-                42
-            """.trimIndent()))),
-            Perceived.Result("call_3", listOf(Perceived.Text(NOT_EXECUTED))),
-            Perceived.Text("""
-                <annie:actant type="human" name="user" initiated="2026-10-24T10:15:30Z"/>
-                stop
-            """.trimIndent())
-        ))
-    }
-
-    @Test
     fun `should perceive image responding to intent within result of its tool call`() {
         // given
         val intent = Phenomenon.Intent("render()", id = "call_1")

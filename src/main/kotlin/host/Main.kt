@@ -55,8 +55,6 @@ import kotlin.time.Duration.Companion.seconds
  * inferring at most `ANNIE_MAX_TOKENS` tokens at a time, when set.
  * Claude caches what it reads for `ANNIE_CACHE_TTL`, `5m` by default, or `1h`, see [ClaudeInference],
  * and infers after a refused inference by `ANNIE_FALLBACK_MODEL`, `claude-opus-5-5` by default, or by its own model when `none`.
- * An inference may express several intents, executed in their order, when `ANNIE_PARALLEL_INTENTS` is `true`,
- * the constitution telling so, see [constitution], rather than a single one.
  * The Python of the intents runs in the virtual environment of `VIRTUAL_ENV`, or of `ANNIE_PYTHON_VENV`,
  * created with `ANNIE_PYTHON` when it does not exist, see [PythonVenv].
  */
@@ -69,11 +67,6 @@ fun main(args: Array<String>) {
     val parallelism = System.getenv("ANNIE_PARALLELISM")?.toInt()
     val effort = System.getenv("ANNIE_EFFORT")?.let { Effort.valueOf(it.uppercase()) }
     val maxTokens = System.getenv("ANNIE_MAX_TOKENS")?.toLong()
-    val parallel = when (val parallel = System.getenv("ANNIE_PARALLEL_INTENTS")) {
-        null, "false" -> false
-        "true" -> true
-        else -> error("ANNIE_PARALLEL_INTENTS is either true or false, not $parallel")
-    }
     val claudeModel = System.getenv("ANTHROPIC_MODEL")
     val model = claudeModel ?: System.getenv("OPENAI_MODEL") ?: error("Neither ANTHROPIC_MODEL nor OPENAI_MODEL is set")
     val client: AutoCloseable
@@ -104,20 +97,18 @@ fun main(args: Array<String>) {
         cognizer = if (maxTokens != null) {
             ClaudeInference(
                 claude, claudeModel, maxTokens = maxTokens, effort = effort, visibility = MonologueVisibility.SUMMARY,
-                cache = cache, fallback = fallback, parallel = parallel
+                cache = cache, fallback = fallback
             )
         } else {
-            ClaudeInference(
-                claude, claudeModel, effort = effort, visibility = MonologueVisibility.SUMMARY, cache = cache, fallback = fallback, parallel = parallel
-            )
+            ClaudeInference(claude, claudeModel, effort = effort, visibility = MonologueVisibility.SUMMARY, cache = cache, fallback = fallback)
         }
     } else {
         val openAI = openAIClient()
         client = AutoCloseable(openAI::close)
         cognizer = if (maxTokens != null) {
-            OpenAIInference(openAI, model, provider = openAIProvider, maxTokens = maxTokens, effort = effort, parallel = parallel)
+            OpenAIInference(openAI, model, provider = openAIProvider, maxTokens = maxTokens, effort = effort)
         } else {
-            OpenAIInference(openAI, model, provider = openAIProvider, effort = effort, parallel = parallel)
+            OpenAIInference(openAI, model, provider = openAIProvider, effort = effort)
         }
     }
     client.use {
@@ -125,7 +116,7 @@ fun main(args: Array<String>) {
             val output = HarnessHost(
                 cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism
             ).cognize(Cogitation(
-                constitution = listOf(constitution(harness, constitutionTemplate(model, constitutionFile), parallelIntents = parallel)),
+                constitution = listOf(constitution(harness, constitutionTemplate(model, constitutionFile))),
                 harness = harness,
                 enunciations = listOf(Enunciation(
                     actant = Actant(

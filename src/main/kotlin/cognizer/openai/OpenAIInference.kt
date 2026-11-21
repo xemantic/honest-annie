@@ -91,7 +91,6 @@ private val logger = KotlinLogging.logger {}
  * @param effort how much effort is put into the monologue and the response, the default of the model when `null`.
  * @param visibility how much of the monologue is returned, only through the Responses API.
  * @param monologues keeping the exact form of the monologues, see [MonologueStore].
- * @param parallel whether an inference may call the tool several times, each call an intent, executed in their order, see `DefaultHarness`.
  */
 class OpenAIInference(
     private val client: OpenAIClient,
@@ -102,8 +101,7 @@ class OpenAIInference(
     private val maxTokens: Long = 128_000,
     private val effort: Effort? = null,
     private val visibility: MonologueVisibility = MonologueVisibility.HIDDEN,
-    private val monologues: MonologueStore = InMemoryMonologueStore(),
-    private val parallel: Boolean = false
+    private val monologues: MonologueStore = InMemoryMonologueStore()
 ) : Cognizer {
 
     override suspend fun cognize(cogitation: Cogitation): Cognized = if (responses) {
@@ -128,7 +126,7 @@ class OpenAIInference(
                 .build())
             // never forced: a completion calling no tool answers with its content
             .toolChoice(ChatCompletionToolChoiceOption.Auto.AUTO)
-            .parallelToolCalls(parallel)
+            .parallelToolCalls(false)
             .apply { cogitation.systemPrompt?.let { addSystemMessage(it) } }
             .apply {
                 cogitation
@@ -137,15 +135,15 @@ class OpenAIInference(
                     .forEach { turn ->
                         when (turn) {
                             is Turn.User -> {
-                                val results = turn.results
-                                results.forEach { result ->
+                                val result = turn.parts.firstOrNull() as? Perceived.Result
+                                if (result != null) {
                                     addMessage(ChatCompletionToolMessageParam.builder()
                                         .toolCallId(result.intent)
                                         .content(result.text)
                                         .build())
                                 }
-                                // a tool result is only text, the attachments of the results follow them
-                                val parts = results.flatMap { it.attachments } + turn.parts.drop(results.size)
+                                // a tool result is only text, the attachments of the result follow it
+                                val parts = if (result == null) turn.parts else result.attachments + turn.parts.drop(1)
                                 when (val part = parts.singleOrNull()) {
                                     null if parts.isEmpty() -> {}
                                     is Perceived.Text -> addUserMessage(part.text)
@@ -183,7 +181,7 @@ class OpenAIInference(
             .strict(false)
             .build())
         .toolChoice(ToolChoiceOptions.AUTO)
-        .parallelToolCalls(parallel)
+        .parallelToolCalls(false)
         .apply { cogitation.systemPrompt?.let { instructions(it) } }
         .reasoning(Reasoning.builder()
             .apply { effort?.let { effort(it.openAIEffort) } }
@@ -212,15 +210,16 @@ class OpenAIInference(
                 .flatMap { turn ->
                     when (turn) {
                         is Turn.User -> {
-                            val results = turn.results
-                            // a function call output is only text, the attachments of the results follow them
-                            val parts = results.flatMap { it.attachments } + turn.parts.drop(results.size)
-                            results.map {
-                                ResponseInputItem.ofFunctionCallOutput(ResponseInputItem.FunctionCallOutput.builder()
-                                    .callId(it.intent)
-                                    .output(it.text)
-                                    .build())
-                            } + listOfNotNull(
+                            val result = turn.parts.firstOrNull() as? Perceived.Result
+                            // a function call output is only text, the attachments of the result follow it
+                            val parts = if (result == null) turn.parts else result.attachments + turn.parts.drop(1)
+                            listOfNotNull(
+                                result?.let {
+                                    ResponseInputItem.ofFunctionCallOutput(ResponseInputItem.FunctionCallOutput.builder()
+                                        .callId(it.intent)
+                                        .output(it.text)
+                                        .build())
+                                },
                                 parts.takeIf { it.isNotEmpty() }?.let { ResponseInputItem.ofEasyInputMessage(Turn.User(it).message()) }
                             )
                         }
@@ -314,7 +313,6 @@ class OpenAIInference(
 
     /**
      * The reasoning becomes a monologue, the content a text, and the first call of a tool the intent,
-     * or each call an intent, when parallel calls are allowed, see [parallel],
      * or an impediment, when it calls another tool, or carries no script, see [IntentTool.intent].
      */
     internal fun phenomena(completion: ChatCompletion): List<Phenomenon> {
@@ -323,31 +321,27 @@ class OpenAIInference(
         val reasoning = message._allProperties().let { it["reasoning_content"] ?: it["reasoning"] }
             ?.asString()?.orElse(null)
         val content = message.content().orElse(null)?.takeIf { it.isNotBlank() }
-        // every call only when parallel calls are allowed, see [parallel], the first one otherwise
-        val intents = message.toolCalls().orElse(emptyList()).take(if (parallel) Int.MAX_VALUE else 1)
-            .mapNotNull { it.function().orElse(null) }
-            .map { IntentTool.intent(it.function().name(), it.function().arguments()) }
-        if (content == null && intents.isEmpty()) {
+        val intent = message.toolCalls().orElse(emptyList()).firstOrNull()?.function()?.orElse(null)?.let {
+            IntentTool.intent(it.function().name(), it.function().arguments())
+        }
+        if (content == null && intent == null) {
             // what the output tokens were spent on is not perceived, e.g. a field of the endpoint's own
             logger.warn { "Chat completion with neither content nor tool calls: ${jsonMapper().writeValueAsString(message)}" }
         }
         return listOfNotNull(
             reasoning?.takeIf { it.isNotEmpty() }?.let { Monologue(it) },
-            content?.let { Phenomenon.Text(it) }
-        ) + intents
+            content?.let { Phenomenon.Text(it) },
+            intent
+        )
     }
 
     /**
      * Reasoning items become monologues, output texts texts, and the first function call the intent,
-     * or each function call an intent, when parallel calls are allowed, see [parallel],
-     * whatever else follows the first one not being perceived, as the model continues as if it perceived the result of the intent.
+     * whatever follows it not being perceived, as the model continues as if it perceived the result of the intent.
      */
     internal fun phenomena(response: Response): List<Phenomenon> {
         val phenomena = mutableListOf<Phenomenon>()
-        // whether a function call was perceived, after which only further ones are, when parallel calls are allowed
-        var called = false
         for (item in response.output()) {
-            if (called && !item.isFunctionCall()) continue
             when {
                 item.isReasoning() -> item.asReasoning().let { reasoning ->
                     val summary = reasoning.summary().map { it.text() }.filter { it.isNotEmpty() }
@@ -368,8 +362,7 @@ class OpenAIInference(
                 item.isFunctionCall() -> {
                     val call = item.asFunctionCall()
                     phenomena += IntentTool.intent(call.name(), call.arguments())
-                    called = true
-                    if (!parallel) break
+                    break
                 }
                 else -> {}
             }
@@ -391,9 +384,6 @@ private val Phenomenon.Intent.arguments: String get() = jsonMapper().writeValueA
 /** The texts among these parts of an assistant turn, as a single text, `null` when none. */
 private fun List<Phenomenon>.text(): String? =
     filterIsInstance<Phenomenon.Text>().joinToString(separator = "\n") { it.text }.takeIf { it.isNotEmpty() }
-
-/** The results of the tool calls heading this user turn, one for each intent of the inference before it, in their order. */
-private val Turn.User.results: List<Perceived.Result> get() = parts.takeWhile { it is Perceived.Result }.map { it as Perceived.Result }
 
 /** The text of a tool result, which an OpenAI API accepts only as text. */
 private val Perceived.Result.text: String get() =
