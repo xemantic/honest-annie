@@ -18,8 +18,8 @@
 
 package com.xemantic.ai.annie
 
-// The default harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
-// The host executes it again for the next inference, unless the cogitation rests, or awaits invocations.
+// The harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
+// The host calls it again for the next inference, unless the cogitation rests, or awaits invocations.
 //
 // The edits of files an intent carries, see `Edit`, are applied before its script, all of them or none,
 // the response telling where, or which edit failed, the script then not being executed.
@@ -54,11 +54,11 @@ import com.xemantic.ai.annie.cognizer.Cognizer
 import kotlin.time.Clock
 
 /**
- * Unfolds the cogitation of the [agency] by a single step, the parameters being the properties provided to a harness,
- * see [Cogitation]. The script of the default harness is this source, followed by the call of this function.
+ * Unfolds the cogitation of the [agency] by a single step, see [Cogitation]:
+ * an inference of the [cognizer], and the intent it expresses, executed by the [executor].
+ * This source is part of every constitution, see `generateConstitution`, so that the cognizer knows how it is unfolded.
  */
-@Suppress("unused") // only called by the script
-private suspend fun unfold(
+internal suspend fun unfold(
     cognizer: Cognizer,
     executor: ScriptExecutor,
     agency: Agency

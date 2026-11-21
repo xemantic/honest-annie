@@ -21,42 +21,36 @@ package com.xemantic.ai.annie
 import java.nio.file.Path
 import kotlin.io.path.readText
 
-/** The default constitution, with the placeholder of its `{{harness}}`, see `constitution.md`. */
-val constitutionTemplate: String = checkNotNull(
+/** The default constitution, see `constitution.md`, generated with the sources it embeds, see `generateConstitution`. */
+val defaultConstitution: String = checkNotNull(
     constitutionResource("/constitution.md")
 ) { "No constitution on the classpath" }
 
 /**
- * The constitution of the [model], with the placeholder of its `{{harness}}`:
- * the one of the closest family of the model, see `constitutions`, the default [constitutionTemplate] when there is none.
+ * The constitution of the [model]:
+ * the one of the closest family of the model, see `constitutions`, the [defaultConstitution] when there is none.
  *
  * A family is named by the name of the model in lowercase, e.g. of `moonshotai/Kimi-K3`, without what precedes its last `/`,
  * or by what is left of it when cut at a `-`, the longest one winning:
  * `deepseek-v4_1-flash` is constituted by `constitutions/deepseek-v4_1-flash.md`,
  * then `constitutions/deepseek-v4_1.md`, then `constitutions/deepseek.md`.
  */
-fun constitutionTemplate(model: String): String {
+fun constitution(model: String): String {
     val segments = model.substringAfterLast('/').lowercase().split('-')
     return segments.indices.reversed().firstNotNullOfOrNull { last ->
         val family = segments.subList(0, last + 1).joinToString("-")
         if (family.matches(familyName)) constitutionResource("/constitutions/$family.md") else null
-    } ?: constitutionTemplate
+    } ?: defaultConstitution
 }
 
 /**
- * The constitution template of the [file], e.g. a variant of a generated one, see `generateConstitution`,
- * whose API and cognition are therefore already filled in, or the one of the [model] when there is no [file].
+ * The constitution of the [file], e.g. a variant of a generated one, see `generateConstitution`,
+ * whose API, cognition and harness are therefore already filled in, or the one of the [model] when there is no [file].
  */
-fun constitutionTemplate(model: String, file: Path?): String =
-    file?.readText()?.trim() ?: constitutionTemplate(model)
+fun constitution(model: String, file: Path?): String =
+    file?.readText()?.trim() ?: constitution(model)
 
 private val familyName = Regex("""[\w.-]*\w""")
 
 private fun constitutionResource(path: String): String? =
     Agency::class.java.getResource(path)?.readText()?.trim()
-
-/** The constitution of a cogitation unfolded by the [harness], filled into the [template]. */
-fun constitution(
-    harness: String,
-    template: String = constitutionTemplate
-): String = template.replace("{{harness}}", harness)

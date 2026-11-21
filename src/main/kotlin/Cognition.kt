@@ -80,8 +80,7 @@ sealed interface Phenomenon {
     data class Invocation(
         override val id: String,
         val prompt: String,
-        val constitution: String,
-        val harness: String
+        val constitution: String
     ) : Request {
         override fun toString(): String = "Invocation(id=$id)"
     }
@@ -204,33 +203,26 @@ data class Inference(
 }
 
 /**
- * A cogitation is unfolded by its [harness], a Kotlin script executed by the host at each step,
- * in a session of its own, stateful like a Kotlin notebook, which lives as long as the cogitation,
- * so that the declarations of the previous steps stay visible. Its body is not a suspending block:
- * it calls suspend functions within `await { }`, blocking until they complete,
- * and the value of its last expression must be the unfolded [Cogitation]. These properties are provided:
+ * A cogitation is unfolded by the harness, the `unfold` function of `Harness.kt`, compiled into honest-annie,
+ * whose source is part of the [constitution], and called by the host at each step with:
  * - `agency`: [Agency] within this cogitation, its [Agency.cogitation] being the one to unfold,
- *   whose [harness] is the source of this very script,
  * - `cognizer`: `Cognizer` of the package `com.xemantic.ai.annie.cognizer`, whose
  *   `suspend fun cognize(cogitation: Cogitation): Cognized` makes a single inference, returning
  *   `data class Cognized(val phenomena: List<Phenomenon>, val inference: Inference? = null)`:
  *   the phenomena to be enunciated by [Actant.SELF], e.g. a [Phenomenon.Monologue], a [Phenomenon.Text] and a [Phenomenon.Intent],
- *   and the [Inference] expressing them,
- *   to be carried by that enunciation; only inferences made this way are recorded,
+ *   and the [Inference] expressing them, to be carried by that enunciation,
  * - `executor`: `ScriptExecutor`, whose
- *   `suspend fun execute(script: String, cogitation: Cogitation, agency: Agency): List<Phenomenon>`
- *   executes an intent expressed in the `cogitation`, in the session of the intents of this cogitation,
- *   providing it with the `agency`, whose [Agency.cogitation] is the given one, collecting the invocations made through it,
- *   and returns the result of the intent: these invocations, in their order, followed by the value
- *   of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`; when the intent fails,
- *   the [Phenomenon.Impediment] describing the failure follows the invocations instead;
- *   and whose `suspend fun execute(intent: Phenomenon.Intent, cogitation: Cogitation, agency: Agency): List<Phenomenon>`
- *   applies the edits of the `intent` first, all of them or none, returning where each one was applied as a [Phenomenon.Text],
- *   followed by the result of its script, executed as above unless blank,
- *   or only the [Phenomenon.Impediment] of the edit failing, no file being changed, and the script not executed.
+ *   `suspend fun execute(intent: Phenomenon.Intent, cogitation: Cogitation, agency: Agency): List<Phenomenon>`
+ *   executes an intent expressed in the `cogitation`: it applies the edits of the `intent` first, all of them or none,
+ *   returning where each one was applied as a [Phenomenon.Text], or only the [Phenomenon.Impediment] of the edit failing,
+ *   no file being changed, and the script not executed; then it executes the script, unless blank,
+ *   in the session of the intents of this cogitation, providing it with the `agency`, whose [Agency.cogitation] is the given one,
+ *   collecting the invocations made through it, and returns the result of the intent: these invocations, in their order,
+ *   followed by the value of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`;
+ *   when the script fails, the [Phenomenon.Impediment] describing the failure follows the invocations instead.
  *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated].
  *
- * The harness unfolds the cogitation by a single step, e.g. one inference, and is executed
+ * The harness unfolds the cogitation by a single step, one inference and the intent it expresses, and is called
  * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded,
  * or the text of an inference expressing no intent:
  * then the cogitation rests, until another interaction progresses it.
@@ -239,16 +231,13 @@ data class Inference(
  * The [output] of a cogitation is perceived by its invoker once it rests,
  * as the enunciation of [Actant.SELF] responding to the invocation.
  *
- * A harness which fails to compile, throws, evaluates to anything else than a [Cogitation],
- * or evaluates to the given cogitation, not unfolded, has its cogitation rested by the host,
+ * A step which throws, e.g. an inference failing, has its cogitation rested by the host,
  * with the reason enunciated as a [Phenomenon.Impediment].
  *
- * @property harness the source of the harness script unfolding this cogitation.
  * @property depth how deep this cogitation is in its tree: 0 for the root one, 1 for one it invokes, and so on.
  */
 data class Cogitation(
     val constitution: List<String>,
-    val harness: String,
     val enunciations: List<Enunciation>,
     val depth: Int = 0
 ) {

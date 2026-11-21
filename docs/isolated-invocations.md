@@ -30,7 +30,7 @@ Today neither is possible from within a cogitation.
 
 - A single JVM does everything:
   `HarnessHost` unfolds the cogitations, infers, records,
-  and executes both the harness scripts and the intents in-process,
+  and runs the harness and executes the intents in-process,
   with a `SessionScriptExecutor` for each cogitation.
 - `Agency` is already the only door of a script to the host.
 - An invoked cogitation shares the file system, the network and the process of its invoker.
@@ -71,7 +71,6 @@ A host which holds what is trusted, and an executor which runs the code:
 fun invoke(
     prompt: String,
     constitution: String = this.constitution,
-    harness: String = this.harness,
     environment: Environment = Environment.Inherited,
     cognizer: String? = null,
     budget: Budget? = null,
@@ -184,7 +183,7 @@ Two directions over one channel:
 
 - host to executor: execute a script in a session, close a session,
 - executor to host, while a script executes: the functions of `agency` which are not local,
-  i.e. `invoke`, `enunciate`, `impede`, the reads of `cogitation`, `constitution` and `harness`, `cogitationOf`,
+  i.e. `invoke`, `enunciate`, `impede`, the reads of `cogitation` and `constitution`, `cogitationOf`,
   and the inference of the harness.
 
 The phenomena cross the channel serialized, the bytes of `Phenomenon.Data` included.

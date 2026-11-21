@@ -55,7 +55,6 @@ class ClaudeInferenceTest {
 
     private fun cogitation(vararg enunciations: Enunciation) = Cogitation(
         constitution = listOf("constitution"),
-        harness = "harness",
         enunciations = listOf(Enunciation(
             actant = Actant(type = Actant.Type.HUMAN, name = "user"),
             initiated = initiated,
