@@ -18,7 +18,10 @@
 
 package com.xemantic.ai.annie
 
-// The default harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
+// The default harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses,
+// or the intents, when it expresses several, in their order, each responded on its own, each perceiving the responses
+// to the ones before it: when one fails, the ones after it are not executed, each responded by telling so,
+// nor is any of them when another call of the inference could not be executed, and what the cogitation spent ends the last response.
 // The host executes it again for the next inference, unless the cogitation rests, or awaits invocations.
 //
 // The edits of files an intent carries, see `Edit`, are applied before its script, all of them or none,
@@ -94,7 +97,7 @@ private suspend fun unfold(
     val inferred: Cogitation = if (firstInferred.refused) infer(cognizer, firstInferred.discardingRefused()) else firstInferred
     val phenomena: List<Phenomenon> = inferred.enunciations.last().phenomena
     val inference: Inference? = inferred.enunciations.last().inference
-    val intent = phenomena.filterIsInstance<Phenomenon.Intent>().lastOrNull()
+    val intents = phenomena.filterIsInstance<Phenomenon.Intent>()
     val stop = inference?.stop
     fun impeded(reason: String) = inferred.discardingRefused() + Enunciation(
         actant = Actant.SELF,
@@ -102,7 +105,7 @@ private suspend fun unfold(
     )
     return if (stop != null && stop.kind != Inference.Stop.Kind.COMPLETED) {
         impeded("Inference not completed, stopped by ${stop.reason}${stop.category?.let { " ($it)" } ?: ""}")
-    } else if (intent == null) {
+    } else if (intents.isEmpty()) {
         val callImpeded = phenomena.filterIsInstance<Phenomenon.Impediment>()
         if (callImpeded.isNotEmpty()) {
             // a tool call which could not be executed is responded by the computer, so that the cognizer expresses it again
@@ -117,28 +120,51 @@ private suspend fun unfold(
             impeded("Neither an intent nor an answer expressed")
         }
     } else {
-        val initiated = Clock.System.now()
-        val result = executor.execute(intent, inferred, agency)
-        val executed = Clock.System.now()
-        val output = agency.enunciated
-        val enunciated = if (output.isEmpty()) inferred else inferred + Enunciation(
-            actant = Actant.SELF,
-            initiated = initiated,
-            finalized = executed,
-            phenomena = output
-        )
-        val rests = output.isNotEmpty() && result.none { it is Phenomenon.Invocation || it is Phenomenon.Impediment }
-        if (rests) {
-            enunciated
-        } else {
-            enunciated + Enunciation(
+        // the intents are executed in their order, each perceiving the responses to the ones before it,
+        // none of them when another call of the inference could not be executed, and none after a failing one
+        val callImpeded = phenomena.filterIsInstance<Phenomenon.Impediment>()
+        var skipped: String? = if (callImpeded.isEmpty()) null else {
+            "Not executed, as another call of this inference could not be executed: ${callImpeded.joinToString("; ") { it.reason }}"
+        }
+        var enunciated = inferred
+        for ((index, intent) in intents.withIndex()) {
+            val initiated = Clock.System.now()
+            val notExecuted = skipped
+            if (notExecuted != null) {
+                enunciated += Enunciation(
+                    actant = computer,
+                    initiated = initiated,
+                    respondsTo = intent.id,
+                    phenomena = listOf(Phenomenon.Impediment(notExecuted))
+                )
+                continue
+            }
+            val enunciatedBefore = agency.enunciated.size
+            val result = executor.execute(intent, enunciated, agency)
+            val executed = Clock.System.now()
+            val output = agency.enunciated.drop(enunciatedBefore)
+            if (output.isNotEmpty()) enunciated += Enunciation(
+                actant = Actant.SELF,
+                initiated = initiated,
+                finalized = executed,
+                phenomena = output
+            )
+            // the output is the answer, the cogitation resting, and the intents after it never executed
+            if (output.isNotEmpty() && result.none { it is Phenomenon.Invocation || it is Phenomenon.Impediment }) return enunciated
+            enunciated += Enunciation(
                 actant = computer,
                 initiated = initiated,
                 finalized = executed,
                 respondsTo = intent.id,
-                phenomena = result.ifEmpty { listOf(nothingPerceived) } + spent(inferred)
+                phenomena = result.ifEmpty { listOf(nothingPerceived) }
             )
+            if (result.any { it is Phenomenon.Impediment }) {
+                skipped = "Not executed, as intent ${index + 1} of ${intents.size} of this inference failed."
+            }
         }
+        // what the cogitation spent ends the last response, the one of the inference
+        val last = enunciated.enunciations.last()
+        enunciated.copy(enunciations = enunciated.enunciations.dropLast(1) + last.copy(phenomena = last.phenomena + spent(inferred)))
     }
 }
 

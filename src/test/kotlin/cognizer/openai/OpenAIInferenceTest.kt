@@ -167,6 +167,127 @@ class OpenAIInferenceTest {
         assert(body["messages"].size() == 5)
     }
 
+    /** A cogitation whose two intents, expressed in a single inference, were both executed, each responded. */
+    private val executedTwice = Cogitation(
+        constitution = listOf("constitution"),
+        harness = "harness",
+        enunciations = listOf(
+            Enunciation(actant = Actant(type = Actant.Type.HUMAN, name = "user"), initiated = initiated, phenomena = listOf(Phenomenon.Text("test"))),
+            Enunciation(
+                actant = Actant.SELF,
+                initiated = initiated,
+                phenomena = listOf(Phenomenon.Intent("6 * 7", id = "call_1"), Phenomenon.Intent("6 * 8", id = "call_2"))
+            ),
+            Enunciation(actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"), initiated = initiated, respondsTo = "call_1",
+                phenomena = listOf(Phenomenon.Text("42"))),
+            Enunciation(actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"), initiated = initiated, respondsTo = "call_2",
+                phenomena = listOf(Phenomenon.Text("48")))
+        )
+    )
+
+    private fun computerSaid(text: String) =
+        "<annie:actant type=\"computer\" name=\"user's computer\" initiated=\"2026-10-22T10:15:30Z\"/>\n$text"
+
+    @Test
+    fun `should allow parallel tool calls in chat completion and response when asked to`() {
+        // given
+        val chat = OpenAIInference(client = client, model = "deepseek-v4_1-flash", parallel = true)
+        val responses = OpenAIInference(client = client, model = "gpt-6", responses = true, parallel = true)
+
+        // when
+        val chatBody = json(chat.chatRequest(cogitation())._body())
+        val responseBody = json(responses.responseRequest(cogitation())._body())
+
+        // then
+        assert(chatBody["parallel_tool_calls"].asBoolean())
+        assert(responseBody["parallel_tool_calls"].asBoolean())
+    }
+
+    @Test
+    fun `should replay several intents of an inference as its tool calls, each followed by its result, in chat completion`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash", parallel = true)
+
+        // when
+        val body = json(inference.chatRequest(executedTwice)._body())
+
+        // then
+        assert(body["messages"][2]["tool_calls"].map { it["id"].asText() } == listOf("call_1", "call_2"))
+        assert(body["messages"][3] == json("""{"role": "tool", "tool_call_id": "call_1", "content": ${jsonMapper().writeValueAsString(computerSaid("42"))}}"""))
+        assert(body["messages"][4] == json("""{"role": "tool", "tool_call_id": "call_2", "content": ${jsonMapper().writeValueAsString(computerSaid("48"))}}"""))
+        assert(body["messages"].size() == 5)
+    }
+
+    @Test
+    fun `should replay several intents of an inference as its function calls, each followed by its output, in response`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true, parallel = true)
+
+        // when
+        val body = json(inference.responseRequest(executedTwice)._body())
+
+        // then
+        assert(body["input"].drop(1).map { it["type"].asText() } == listOf("function_call", "function_call", "function_call_output", "function_call_output"))
+        assert(body["input"][3] == json("""{"type": "function_call_output", "call_id": "call_1", "output": ${jsonMapper().writeValueAsString(computerSaid("42"))}}"""))
+        assert(body["input"][4] == json("""{"type": "function_call_output", "call_id": "call_2", "output": ${jsonMapper().writeValueAsString(computerSaid("48"))}}"""))
+        assert(body["input"].size() == 5)
+    }
+
+    @Test
+    fun `should perceive every call of the tool of intents in chat completion as an intent when parallel calls are allowed`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash", parallel = true)
+        val completion = jsonMapper().readValue("""
+            {
+              "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": "deepseek-v4_1-flash",
+              "choices": [{
+                "index": 0, "finish_reason": "tool_calls", "logprobs": null,
+                "message": {
+                  "role": "assistant", "content": "Two parts.", "refusal": null,
+                  "tool_calls": [
+                    {"id": "call-1", "type": "function", "function": {"name": "kotlin_script", "arguments": "{\"script\": \"6 * 7\"}"}},
+                    {"id": "call-2", "type": "function", "function": {"name": "kotlin_script", "arguments": "{\"script\": \"6 * 8\"}"}}
+                  ]
+                }
+              }]
+            }
+        """, ChatCompletion::class.java)
+
+        // when
+        val phenomena = inference.phenomena(completion)
+
+        // then
+        assert(phenomena.size == 3)
+        assert(phenomena[0] == Phenomenon.Text("Two parts."))
+        assert(phenomena.drop(1).map { (it as Phenomenon.Intent).script } == listOf("6 * 7", "6 * 8"))
+    }
+
+    @Test
+    fun `should perceive every function call of response as an intent when parallel calls are allowed, but no text after the first one`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true, parallel = true)
+        val response = jsonMapper().readValue("""
+            {
+              "id": "resp_1", "object": "response", "created_at": 0, "model": "gpt-6",
+              "output": [
+                {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "kotlin_script",
+                 "arguments": "{\"script\": \"6 * 7\"}", "status": "completed"},
+                {"type": "message", "id": "msg_1", "role": "assistant", "status": "completed", "content": [
+                  {"type": "output_text", "text": "42", "annotations": []}
+                ]},
+                {"type": "function_call", "id": "fc_2", "call_id": "call_2", "name": "kotlin_script",
+                 "arguments": "{\"script\": \"6 * 8\"}", "status": "completed"}
+              ]
+            }
+        """, Response::class.java)
+
+        // when
+        val phenomena = inference.phenomena(response)
+
+        // then
+        assert(phenomena.map { (it as Phenomenon.Intent).script } == listOf("6 * 7", "6 * 8"))
+    }
+
     @Test
     fun `should request chat completion without system message when constitution is blank`() {
         // given

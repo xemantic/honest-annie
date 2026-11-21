@@ -187,4 +187,21 @@ class ConstitutionTest {
         assert(constitution == "## Harness\n\nprintln(\"harness\")")
     }
 
+    @Test
+    fun `should tell to call the tool once per inference, or several times when parallel intents are allowed`() {
+        // given
+        val templates = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3").map { constitutionTemplate(model = it) }
+
+        // when
+        val single = templates.map { constitution(harness = "", template = it) }
+        val parallel = templates.map { constitution(harness = "", template = it, parallelIntents = true) }
+
+        // then
+        assert(single.all { "Call it at most once per inference, which ends with the call." in it && "{{calls}}" !in it })
+        assert(parallel.all {
+            "Call it once per inference, or several times, e.g. once for each independent part of a change" in it &&
+                    "check(r.exitCode == 0) { r.output }" in it && "at most once" !in it
+        })
+    }
+
 }

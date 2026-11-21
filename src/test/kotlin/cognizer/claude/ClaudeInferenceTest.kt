@@ -359,6 +359,85 @@ class ClaudeInferenceTest {
     }
 
     @Test
+    fun `should allow parallel tool calls when asked to`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5", parallel = true)
+
+        // when
+        val body = inference.body(cogitation())
+
+        // then
+        assert(body["tool_choice"] == json("""{"type": "auto", "disable_parallel_tool_use": false}"""))
+    }
+
+    @Test
+    fun `should perceive every tool call as an intent when parallel calls are allowed, but no text after the first one`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5", parallel = true)
+        val message = jsonMapper().readValue("""
+            {
+              "id": "msg_1",
+              "type": "message",
+              "role": "assistant",
+              "model": "claude-opus-5-5",
+              "content": [
+                {"type": "text", "text": "Two parts."},
+                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}},
+                {"type": "text", "text": "And the other."},
+                {"type": "tool_use", "id": "toolu_2", "name": "kotlin_script", "input": {"script": "6 * 8"}}
+              ],
+              "stop_reason": "tool_use",
+              "stop_sequence": null,
+              "usage": {"input_tokens": 1, "output_tokens": 1}
+            }
+        """, Message::class.java)
+
+        // when
+        val phenomena = inference.phenomena(message)
+
+        // then
+        assert(phenomena.size == 3)
+        assert(phenomena[0] == Phenomenon.Text("Two parts."))
+        assert(phenomena.drop(1).map { (it as Phenomenon.Intent).script } == listOf("6 * 7", "6 * 8"))
+    }
+
+    @Test
+    fun `should replay several intents of an inference as its tool calls, followed by their results`() {
+        // given
+        val inference = ClaudeInference(client = client, model = "claude-opus-5-5", parallel = true)
+        val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
+        val cogitation = cogitation(
+            Enunciation(
+                actant = Actant.SELF,
+                initiated = initiated,
+                phenomena = listOf(Phenomenon.Intent("6 * 7", id = "toolu_1"), Phenomenon.Intent("6 * 8", id = "toolu_2"))
+            ),
+            Enunciation(actant = computer, initiated = initiated, respondsTo = "toolu_1", phenomena = listOf(Phenomenon.Text("42"))),
+            Enunciation(actant = computer, initiated = initiated, respondsTo = "toolu_2", phenomena = listOf(Phenomenon.Text("48")))
+        )
+
+        // when
+        val body = inference.body(cogitation)
+
+        // then
+        assert(body["messages"][1] == json("""
+            {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}},
+                {"type": "tool_use", "id": "toolu_2", "name": "kotlin_script", "input": {"script": "6 * 8"}}
+            ]}
+        """))
+        assert(body["messages"][2] == json("""
+            {"role": "user", "content": [
+              {"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+                {"type": "text", "text": "<annie:actant type=\"computer\" name=\"user's computer\" initiated=\"2026-10-22T10:15:30Z\"/>\n42"}]},
+              {"type": "tool_result", "tool_use_id": "toolu_2", "content": [
+                {"type": "text", "text": "<annie:actant type=\"computer\" name=\"user's computer\" initiated=\"2026-10-22T10:15:30Z\"/>\n48"}]}
+            ]}
+        """))
+        assert(body["messages"].size() == 3)
+    }
+
+    @Test
     fun `should perceive thinking and redacted thinking as monologues, text, and tool call as intent`() {
         // given
         val inference = ClaudeInference(

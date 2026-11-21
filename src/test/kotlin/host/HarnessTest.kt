@@ -967,4 +967,79 @@ class HarnessTest {
         assert(source.readText() == "x = 1\n")
     }
 
+
+    /** Expresses the [first] phenomena on the first inference, e.g. several intents, and answers `Done.` afterwards. */
+    private class ParallelCognizer(private val first: List<Phenomenon>) : Cognizer {
+        val perceived = mutableListOf<Cogitation>()
+        override suspend fun cognize(cogitation: Cogitation): Cognized {
+            perceived += cogitation
+            return Cognized(
+                if (perceived.size == 1) first else listOf(Phenomenon.Text("Done.")),
+                Inference(model = "scripted", provider = "test", tokens = mapOf(Inference.Tokens.INPUT to 1L))
+            )
+        }
+        val responses: List<Enunciation> get() = perceived[1].enunciations.filter { it.actant.type == Actant.Type.COMPUTER }
+    }
+
+    @Test
+    fun `should execute the intents of an inference in their order, responding to each, and infer again`() = runTest(timeout = 5.minutes) {
+        // given
+        val first = Phenomenon.Intent("val order = mutableListOf(\"first\")\norder.joinToString()")
+        // declared by the first intent, executed before it
+        val second = Phenomenon.Intent("order += \"second\"\norder.joinToString()")
+        val cognizer = ParallelCognizer(listOf(Phenomenon.Text("Two parts."), first, second))
+
+        // when
+        val output = cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("Done.")))
+        val responses = cognizer.responses
+        assert(responses.map { it.respondsTo } == listOf(first.id, second.id))
+        assert(responses[0].phenomena == listOf(Phenomenon.Text("first", Phenomenon.Text.PLAIN)))
+        // what the cogitation spent ends only the last response, the one of the inference
+        assert(responses[1].phenomena == listOf(
+            Phenomenon.Text("first, second", Phenomenon.Text.PLAIN),
+            Phenomenon.Text("Spent by this cogitation so far: 1 inference(s), 1 token(s).", Phenomenon.Text.PLAIN)
+        ))
+    }
+
+    @Test
+    fun `should not execute the intents of an inference following a failing one, telling why`() = runTest(timeout = 5.minutes) {
+        // given
+        val executed = createTempDirectory().resolve("executed")
+        val failing = Phenomenon.Intent("error(\"boom\")")
+        val following = Phenomenon.Intent("java.io.File(${'"'}$executed${'"'}).writeText(${'"'}yes${'"'})")
+        val cognizer = ParallelCognizer(listOf(failing, following))
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(!executed.exists())
+        val responses = cognizer.responses
+        assert(responses.map { it.respondsTo } == listOf(failing.id, following.id))
+        assert((responses[0].phenomena.first() as Phenomenon.Impediment).reason.contains("boom"))
+        assert(responses[1].phenomena.first() == Phenomenon.Impediment("Not executed, as intent 1 of 2 of this inference failed."))
+    }
+
+    @Test
+    fun `should execute none of the intents of an inference carrying a call it could not execute`() = runTest(timeout = 5.minutes) {
+        // given
+        val executed = createTempDirectory().resolve("executed")
+        val intent = Phenomenon.Intent("java.io.File(${'"'}$executed${'"'}).writeText(${'"'}yes${'"'})")
+        val cognizer = ParallelCognizer(listOf(intent, Phenomenon.Impediment("Your call of kotlin_script carried no script")))
+
+        // when
+        cognize(cognizer, cogitation(defaultHarness))
+
+        // then
+        assert(!executed.exists())
+        val response = cognizer.responses.single()
+        assert(response.respondsTo == intent.id)
+        assert(response.phenomena.first() == Phenomenon.Impediment(
+            "Not executed, as another call of this inference could not be executed: Your call of kotlin_script carried no script"
+        ))
+    }
+
 }

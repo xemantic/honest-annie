@@ -99,21 +99,32 @@ fun <P> Cogitation.toTurns(
         .filterIsInstance<Phenomenon.Invocation>()
         .mapTo(mutableSetOf()) { it.id }
     val turns = mutableListOf<Turn<P>>()
-    // the intent whose tool call awaits its result, and the result perceived so far
-    var called: Phenomenon.Intent? = null
-    var result: MutableList<Perceived>? = null
+    // the intents whose tool calls await their results, in their order, and the results perceived so far:
+    // an inference may express several, executed one after another, see `DefaultHarness`
+    val called = mutableListOf<Phenomenon.Intent>()
+    val results = mutableMapOf<String, MutableList<Perceived>>()
+    // the intents responded by the computer, so that what follows is executing the next one
+    val responded = mutableSetOf<String>()
     fun conclude() {
-        val intent = called ?: return
-        turns += Turn.User(listOf(Perceived.Result(intent.id, result ?: listOf(Perceived.Text(NOT_EXECUTED)))))
-        called = null
-        result = null
+        if (called.isEmpty()) return
+        turns += Turn.User(called.map { intent ->
+            Perceived.Result(intent.id, results[intent.id] ?: listOf(Perceived.Text(NOT_EXECUTED)))
+        })
+        called.clear()
+        results.clear()
+        responded.clear()
     }
+    // the result being perceived: the one of the intent this enunciation executes, `null` when it executes none
+    var result: MutableList<Perceived>? = null
     enunciations.forEach { enunciation ->
-        val calling = called
         val expressed = enunciation.isExpressed
-        if (calling != null && !expressed) {
-            if (enunciation.isExecutionOf(calling)) {
-                if (result == null) result = mutableListOf()
+        result = null
+        if (called.isNotEmpty() && !expressed) {
+            val executed = called.firstOrNull { it.id == enunciation.respondsTo }
+                ?: called.firstOrNull { it.id !in responded }?.takeIf { enunciation.isExecutionOf(it) }
+            if (executed != null) {
+                result = results.getOrPut(executed.id) { mutableListOf() }
+                if (enunciation.respondsTo == executed.id) responded += executed.id
             } else {
                 conclude()
             }
@@ -125,7 +136,7 @@ fun <P> Cogitation.toTurns(
             when (phenomenon) {
                 is Intent -> {
                     turns.appendAssistant(intent(phenomenon))
-                    called = phenomenon
+                    called += phenomenon
                 }
                 is Monologue -> monologue(phenomenon)?.let { turns.appendAssistant(it) }
                 is Phenomenon.Text if expressed -> text(phenomenon)?.let { turns.appendAssistant(it) }
@@ -142,8 +153,8 @@ fun <P> Cogitation.toTurns(
             }
         }
     }
-    // an intent awaiting its execution is the last enunciation, followed by nothing to perceive yet
-    if (result != null) conclude()
+    // intents awaiting their execution end the cogitation, followed by nothing to perceive yet
+    if (results.isNotEmpty()) conclude()
     val first = turns.indexOfFirst { it is Turn.User }
     if (first >= 0) {
         // the first user turn always starts with the text heading the enunciation of the task

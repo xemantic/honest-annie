@@ -147,12 +147,13 @@ trials() {
   mkdir -p "$run_dir/trials"
   jq -n --arg model "$MODEL" --arg base "$BASE_URL" --arg version "$(cat "$ANNIE_VERSION_FILE")" \
     --arg harbor "$(harbor --version 2>&1 | tail -1)" --arg pier "$(pier --version 2>&1 | tail -1)" \
-    --arg parallelism "${ANNIE_PARALLELISM:-}" --arg budget "${ANNIE_TOKEN_BUDGET:-}" \
+    --arg parallelism "${ANNIE_PARALLELISM:-}" --arg budget "${ANNIE_TOKEN_BUDGET:-}" --arg parallel_intents "${ANNIE_PARALLEL_INTENTS:-}" \
     --arg constitution "${ANNIE_CONSTITUTION:-}" --arg time_limit "${FIXED_TIME_LIMIT:-agent timeout - ${ANNIE_TIME_MARGIN:-300}}" \
     --arg constitution_sha "$([ -n "${ANNIE_CONSTITUTION:-}" ] && sha256sum "$ANNIE_CONSTITUTION" | cut -c1-16)" \
     '{harness:"honest-annie", runner:"local.sh", model:$model, base_url:$base, harness_version:$version,
       harbor_version:$harbor, pier_version:$pier, annie_parallelism:$parallelism, annie_token_budget:$budget,
-      annie_time_limit:$time_limit, annie_constitution:$constitution, annie_constitution_sha256:$constitution_sha}' \
+      annie_time_limit:$time_limit, annie_constitution:$constitution, annie_constitution_sha256:$constitution_sha,
+      annie_parallel_intents:$parallel_intents}' \
       > "$run_dir/manifest.json"
 
   for entry in "${entries[@]}"; do

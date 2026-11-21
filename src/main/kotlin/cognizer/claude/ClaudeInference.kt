@@ -88,6 +88,7 @@ import kotlinx.coroutines.future.await
  * the same id at the endpoint, the [model] inferring again when `null`;
  * only the inference right after the refused one is made by it, its monologue replayed only to it.
  * @param monologues keeping the exact form of the monologues, see [MonologueStore].
+ * @param parallel whether an inference may call the tool several times, each call an intent, executed in their order, see `DefaultHarness`.
  */
 class ClaudeInference(
     private val client: AnthropicClient,
@@ -99,7 +100,8 @@ class ClaudeInference(
     private val visibility: MonologueVisibility = MonologueVisibility.HIDDEN,
     private val cache: CacheControlEphemeral.Ttl = CacheControlEphemeral.Ttl.TTL_5M,
     private val fallback: String? = null,
-    private val monologues: MonologueStore = InMemoryMonologueStore()
+    private val monologues: MonologueStore = InMemoryMonologueStore(),
+    private val parallel: Boolean = false
 ) : Cognizer {
 
     override suspend fun cognize(cogitation: Cogitation): Cognized {
@@ -140,8 +142,8 @@ class ClaudeInference(
             // the arguments of a call always fit the schema
             .strict(true)
             .build())
-        // a single intent per inference, never forced: a response calling no tool answers with its text
-        .toolChoice(ToolChoiceAuto.builder().disableParallelToolUse(true).build())
+        // a single intent per inference, unless parallel calls are allowed, never forced: a response calling no tool answers with its text
+        .toolChoice(ToolChoiceAuto.builder().disableParallelToolUse(!parallel).build())
         .apply {
             effort?.let { outputConfig(OutputConfig.builder().effort(it.claudeEffort).build()) }
             if (visibility == MonologueVisibility.UPDATES) {
@@ -234,14 +236,18 @@ class ClaudeInference(
     }
 
     /**
-     * Thinking blocks become monologues, text blocks texts, and the call of the tool the intent.
-     * Whatever follows the tool call is not perceived:
+     * Thinking blocks become monologues, text blocks texts, and the call of the tool the intent,
+     * or each call an intent, when parallel calls are allowed, see [parallel].
+     * Whatever else follows the first tool call is not perceived:
      * the model continues as if it perceived the result of the intent, which is not executed yet.
      */
     internal fun phenomena(message: Message, cogitation: Cogitation? = null): List<Phenomenon> {
         val modelId = inferring(cogitation).second
         val phenomena = mutableListOf<Phenomenon>()
+        // whether a tool call was perceived, after which only further ones are, when parallel calls are allowed
+        var called = false
         for (block in message.content()) {
+            if (called && !block.isToolUse()) continue
             when {
                 block.isThinking() -> block.asThinking().let {
                     val monologue = Monologue(it.thinking())
@@ -263,7 +269,8 @@ class ClaudeInference(
                 block.isToolUse() -> {
                     val use = block.asToolUse()
                     phenomena += IntentTool.intent(use.name(), jsonMapper().writeValueAsString(use._input()))
-                    break
+                    called = true
+                    if (!parallel) break
                 }
                 else -> {}
             }
