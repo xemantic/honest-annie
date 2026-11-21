@@ -21,6 +21,8 @@ package com.xemantic.ai.annie
 // The default harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
 // The host executes it again for the next inference, unless the cogitation rests, or awaits invocations.
 //
+// The edits of files an intent carries, see `Edit`, are applied before its script, all of them or none,
+// the response telling where, or which edit failed, the script then not being executed.
 // Each intent is executed as a Kotlin script in the session of the intents of the cogitation, stateful like a Kotlin notebook,
 // so that its declarations stay visible to the next intents. Its body is not a suspending block: it calls suspend functions
 // within `await { }`, and the value of its last expression is its result. `agency` is provided: the Agency within the
@@ -37,10 +39,17 @@ package com.xemantic.ai.annie
 // An intent with an empty result, enunciating nothing, is responded with a text telling that nothing of it is perceived,
 // e.g. what it printed, instead of resting the cogitation with no output.
 // Each response ends with what the cogitation spent so far, its inferences and their tokens,
-// so that the cognizer weighs further steps against what it already knows.
-// An inference which did not complete, e.g. truncated or refused, rests the cogitation with an impediment
+// and, once a fifth or less is left of what its host limits, what its whole tree may still spend, see `Agency.allowance`,
+// so that the cognizer weighs further steps against what it already knows, and secures its result in time.
+// A refused inference is followed by inferring once more, as a refusal might be a false positive of a filter of the provider,
+// e.g. by a fallback model of the cognizer, see `ClaudeInference`: the refused inference stays in the cogitation,
+// so that what it spent is counted, and the cognizer knows it was refused, while what it expressed is discarded.
+// An inference which did not complete, e.g. truncated, or refused once more, rests the cogitation with an impediment
 // enunciated by self instead, as its intent, or its answer, might be cut short.
 // So does an inference expressing neither an intent, nor a text to answer with.
+// A tool call which could not be executed, e.g. of another tool, or without a script, is responded by the computer
+// with the impediment the cognizer perceived in it, so that the cognizer can express its intent again,
+// rather than the text along the call ending the cogitation as its answer.
 import com.xemantic.ai.annie.cognizer.Cognizer
 import kotlin.time.Clock
 
@@ -63,34 +72,53 @@ private suspend fun unfold(
     )
     fun spent(cogitation: Cogitation): Phenomenon.Text {
         val inferences = cogitation.enunciations.mapNotNull { it.inference }
+        val allowance = agency.allowance
+        val tokensLeft = allowance.tokensLeft
+        val timeLeft = allowance.timeLeft
+        val left = listOfNotNull(
+            tokensLeft?.let { "$it of ${allowance.tokens} token(s)" },
+            timeLeft?.let { "${it.inWholeMinutes} of ${allowance.time?.inWholeMinutes} min" }
+        )
+        val little = (tokensLeft != null && tokensLeft * 5 <= allowance.tokens!!)
+                || (timeLeft != null && timeLeft * 5 <= allowance.time!!)
         return Phenomenon.Text(
-            "Spent by this cogitation so far: ${inferences.size} inference(s), ${inferences.sumOf { it.total }} token(s).",
+            "Spent by this cogitation so far: ${inferences.size} inference(s), ${inferences.sumOf { it.total }} token(s)." +
+                    // told only once little is left: a model told a large allowance at every step spends more of it
+                    (if (!little) "" else " Left to the whole tree of cogitations: ${left.joinToString(", ")}." +
+                            " A fifth or less of what you may spend is left: " +
+                            "secure the result the task asks for before anything else, e.g. by saving or committing it."),
             Phenomenon.Text.PLAIN
         )
     }
-    val inferenceInitiated = Clock.System.now()
-    val (phenomena, inference) = cognizer.cognize(cogitation)
-    val inferred = cogitation + Enunciation(
-        actant = Actant.SELF,
-        initiated = inferenceInitiated,
-        finalized = Clock.System.now(),
-        phenomena = phenomena,
-        inference = inference
-    )
+    val firstInferred: Cogitation = infer(cognizer, cogitation)
+    val inferred: Cogitation = if (firstInferred.refused) infer(cognizer, firstInferred.discardingRefused()) else firstInferred
+    val phenomena: List<Phenomenon> = inferred.enunciations.last().phenomena
+    val inference: Inference? = inferred.enunciations.last().inference
     val intent = phenomena.filterIsInstance<Phenomenon.Intent>().lastOrNull()
     val stop = inference?.stop
-    fun impeded(reason: String) = inferred + Enunciation(
+    fun impeded(reason: String) = inferred.discardingRefused() + Enunciation(
         actant = Actant.SELF,
         phenomena = listOf(Phenomenon.Impediment(reason))
     )
     return if (stop != null && stop.kind != Inference.Stop.Kind.COMPLETED) {
-        impeded("Inference not completed, stopped by ${stop.reason}")
+        impeded("Inference not completed, stopped by ${stop.reason}${stop.category?.let { " ($it)" } ?: ""}")
     } else if (intent == null) {
-        // the text of an inference expressing no intent is the answer, enunciated by self last, so the cogitation rests
-        if (phenomena.any { it is Phenomenon.Text }) inferred else impeded("Neither an intent nor an answer expressed")
+        val callImpeded = phenomena.filterIsInstance<Phenomenon.Impediment>()
+        if (callImpeded.isNotEmpty()) {
+            // a tool call which could not be executed is responded by the computer, so that the cognizer expresses it again
+            inferred + Enunciation(
+                actant = computer,
+                phenomena = callImpeded + spent(inferred)
+            )
+        } else if (phenomena.any { it is Phenomenon.Text }) {
+            // the text of an inference expressing no intent is the answer, enunciated by self last, so the cogitation rests
+            inferred
+        } else {
+            impeded("Neither an intent nor an answer expressed")
+        }
     } else {
         val initiated = Clock.System.now()
-        val result = executor.execute(intent.script, inferred, agency)
+        val result = executor.execute(intent, inferred, agency)
         val executed = Clock.System.now()
         val output = agency.enunciated
         val enunciated = if (output.isEmpty()) inferred else inferred + Enunciation(
@@ -113,3 +141,24 @@ private suspend fun unfold(
         }
     }
 }
+
+/** The [cogitation] followed by the enunciation of self expressing what the [cognizer] inferred from it. */
+private suspend fun infer(cognizer: Cognizer, cogitation: Cogitation): Cogitation {
+    val initiated = Clock.System.now()
+    val cognized = cognizer.cognize(cogitation)
+    return cogitation + Enunciation(
+        actant = Actant.SELF,
+        initiated = initiated,
+        finalized = Clock.System.now(),
+        phenomena = cognized.phenomena,
+        inference = cognized.inference
+    )
+}
+
+/** Whether the last inference of this cogitation was refused. */
+private val Cogitation.refused: Boolean get() = enunciations.last().inference?.stop?.kind == Inference.Stop.Kind.REFUSED
+
+/** This cogitation keeping its refused last inference, for what it spent, and discarding what it expressed, being cut short. */
+private fun Cogitation.discardingRefused(): Cogitation = if (!refused) this else copy(
+    enunciations = enunciations.dropLast(1) + enunciations.last().copy(phenomena = emptyList())
+)

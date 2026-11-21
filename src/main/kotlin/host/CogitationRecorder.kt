@@ -19,9 +19,13 @@
 package com.xemantic.ai.annie.host
 
 import com.xemantic.ai.annie.Cogitation
+import com.xemantic.ai.annie.Edit
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
+import com.xemantic.ai.annie.cost
+import com.xemantic.ai.money.Money
+import com.xemantic.ai.money.ZERO
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -39,6 +43,7 @@ import kotlinx.coroutines.withContext
  * enunciation, e.g. `2026-10-14T15-02-02.543893Z`. Each phenomenon becomes a file named after
  * its enunciation number, its position within the enunciation, actant type and kind,
  * e.g. `001-1-human-text.md`, `002-1-self-monologue.md`, `002-2-self-intent.kts`, the script of an intent,
+ * followed by `002-2-self-edits.json`, the edits of files it carries, if any,
  * so that the files are listed in the order of their enunciation, while `cogitation.md` indexes the enunciations, `constitution.md` holds the constitution,
  * and `harness.kts` the harness unfolding the cogitation.
  *
@@ -134,8 +139,8 @@ class CogitationRecorder(
             |      "model": ${inference.model.json()},
             |      "provider": ${inference.provider.json()},
             |      "tokens": ${inference.tokens.json()},
-            |      "total": ${inference.total},
-            |      "stop": ${inference.stop?.let { "{\"kind\": \"${it.kind.name.lowercase()}\", \"reason\": ${it.reason.json()}}" } ?: "null"}
+            |      "total": ${inference.total},${inference.cost?.let { "\n            |      \"cost\": \"$it\"," } ?: ""}
+            |      "stop": ${inference.stop?.let { "{\"kind\": \"${it.kind.name.lowercase()}\", \"reason\": ${it.reason.json()}${it.category?.let { category -> ", \"category\": ${category.json()}" } ?: ""}}" } ?: "null"}
             |    }
             """.trimMargin().trimEnd()
         })
@@ -192,7 +197,12 @@ class CogitationRecorder(
             val suffix = if (count == 1) "" else "-$count"
             val file = "$position-${actant.type.name.lowercase()}-$kind.$extension"
             dir.resolve(file).writeBytes(content)
-            "[$kind$suffix]($file)"
+            val edits = (phenomenon as? Phenomenon.Intent)?.edits?.takeIf { it.isNotEmpty() }?.let { edits ->
+                val editsFile = "$position-${actant.type.name.lowercase()}-edits.json"
+                dir.resolve(editsFile).writeText(edits.json())
+                " [edits]($editsFile)"
+            } ?: ""
+            "[$kind$suffix]($file)$edits"
         }
         val responding = enunciation.respondsTo?.let { id ->
             requests[id]?.let { " ↩ $it" } ?: " ↩ `$id`"
@@ -215,7 +225,8 @@ internal fun Inference.tokensDescription(): String = tokens.description().ifEmpt
 
 /** Why this inference stopped, its kind emphasized unless completed. */
 internal fun Inference.stopDescription(): String = stop?.let {
-    if (it.kind == Inference.Stop.Kind.COMPLETED) " · `${it.reason}`" else " · **${it.kind.name.lowercase()}** `${it.reason}`"
+    (if (it.kind == Inference.Stop.Kind.COMPLETED) " · `${it.reason}`" else " · **${it.kind.name.lowercase()}** `${it.reason}`") +
+            (it.category?.let { category -> " ($category)" } ?: "")
 } ?: ""
 
 private fun Map<Inference.Tokens, Long>.description() = entries
@@ -223,25 +234,35 @@ private fun Map<Inference.Tokens, Long>.description() = entries
     .joinToString { (category, count) -> "$count ${category.name.lowercase().replace('_', ' ')}" }
 
 /** The number of [inferences], and their [tokens] summed up by category. */
+/**
+ * The totals of inferences, their [cost] in US dollars at list prices being `null`
+ * when the cost of any of them is unknown, see [Inference.cost].
+ */
 private data class Totals(
     val inferences: Int = 0,
-    val tokens: Map<Inference.Tokens, Long> = emptyMap()
+    val tokens: Map<Inference.Tokens, Long> = emptyMap(),
+    val cost: Money? = Money.ZERO
 ) {
 
     val total: Long get() = tokens.values.sum()
 
     operator fun plus(other: Totals) = Totals(
         inferences = inferences + other.inferences,
-        tokens = (tokens.keys + other.tokens.keys).associateWith { (tokens[it] ?: 0) + (other.tokens[it] ?: 0) }
+        tokens = (tokens.keys + other.tokens.keys).associateWith { (tokens[it] ?: 0) + (other.tokens[it] ?: 0) },
+        cost = other.cost?.let { cost?.plus(it) }
     )
 
-    operator fun plus(inference: Inference) = this + Totals(inferences = 1, tokens = inference.tokens)
+    operator fun plus(inference: Inference) = this + Totals(inferences = 1, tokens = inference.tokens, cost = inference.cost)
+
+    private val knownCost: Money? get() = cost.takeIf { inferences > 0 }
 
     fun describe(invoked: Int) = "**Total** of $inferences inference${if (inferences == 1) "" else "s"}" +
             (if (invoked == 0) "" else ", $invoked in invoked cogitations") +
-            ": ${tokens.description().ifEmpty { "no tokens reported" }}, $total tokens"
+            ": ${tokens.description().ifEmpty { "no tokens reported" }}, $total tokens" +
+            (knownCost?.let { ", costing $it USD at list prices" } ?: "")
 
-    fun json() = "{\"inferences\": $inferences, \"tokens\": ${tokens.json()}, \"total\": $total}"
+    fun json() = "{\"inferences\": $inferences, \"tokens\": ${tokens.json()}, \"total\": $total" +
+            (knownCost?.let { ", \"cost\": \"$it\"" } ?: "") + "}"
 
 }
 
@@ -249,11 +270,22 @@ private fun Map<Inference.Tokens, Long>.json() = entries
     .sortedBy { it.key }
     .joinToString(prefix = "{", postfix = "}") { (category, count) -> "\"${category.name.lowercase()}\": $count" }
 
+/** These edits as a JSON array, an edit on each line, with only the properties given, see [Edit]. */
+private fun List<Edit>.json() = joinToString(separator = ",\n", prefix = "[\n", postfix = "\n]\n") { edit ->
+    "  {\"path\": ${edit.path.json()}" +
+            (edit.old?.let { ", \"old\": ${it.json()}" } ?: "") +
+            ", \"new\": ${edit.new.json()}" +
+            (if (edit.all) ", \"all\": true" else "") + "}"
+}
+
 private fun String.json() = buildString {
     append('"')
     this@json.forEach { char ->
         when {
             char == '"' || char == '\\' -> append('\\').append(char)
+            char == '\n' -> append("\\n")
+            char == '\r' -> append("\\r")
+            char == '\t' -> append("\\t")
             char < ' ' -> append("\\u%04x".format(char.code))
             else -> append(char)
         }

@@ -28,6 +28,7 @@ import com.xemantic.ai.annie.Cogitation
 import com.xemantic.ai.annie.Enunciation
 import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Inference.Tokens
+import com.xemantic.ai.annie.Edit
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.Phenomenon.Monologue
 import com.xemantic.ai.annie.cognizer.Effort
@@ -62,8 +63,7 @@ class OpenAIInferenceTest {
 
     private val tool = """
         {"name": "kotlin_script", "description": ${jsonMapper().writeValueAsString(IntentTool.DESCRIPTION)},
-         "parameters": {"type": "object", "properties": {"script": {"type": "string",
-           "description": ${jsonMapper().writeValueAsString(IntentTool.SCRIPT_DESCRIPTION)}}}, "required": ["script"]}}
+         "parameters": {"type": "object", "properties": ${jsonMapper().writeValueAsString(IntentTool.properties)}}}
     """
 
     /** A cogitation whose intent, expressed after a text, was executed, responded with text and an image. */
@@ -258,7 +258,7 @@ class OpenAIInferenceTest {
     }
 
     @Test
-    fun `should perceive call of another tool in chat completion as expressing no intent`() {
+    fun `should perceive call of another tool in chat completion as an impediment`() {
         // given
         val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
         val completion = jsonMapper().readValue("""
@@ -287,11 +287,47 @@ class OpenAIInferenceTest {
         val phenomena = inference.phenomena(completion)
 
         // then
-        assert(phenomena.map { (it as Monologue).text } == listOf("Let's run."))
+        assert((phenomena.first() as Monologue).text == "Let's run.")
+        val impediment = phenomena.last() as Phenomenon.Impediment
+        assert("kotlin" in impediment.reason && "kotlin_script" in impediment.reason)
     }
 
     @Test
-    fun `should perceive call of tool of intents without script in chat completion as expressing no intent`() {
+    fun `should perceive the only text argument of a call of the tool of intents as its script, whatever its name`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val completion = jsonMapper().readValue("""
+            {
+              "id": "chatcmpl-1",
+              "object": "chat.completion",
+              "created": 0,
+              "model": "deepseek-v4_1-flash",
+              "choices": [{
+                "index": 0,
+                "finish_reason": "tool_calls",
+                "logprobs": null,
+                "message": {
+                  "role": "assistant", "content": "Found it.", "refusal": null,
+                  "tool_calls": [{
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "kotlin_script", "arguments": "{\"code\": \"6 * 7\"}"}
+                  }]
+                }
+              }]
+            }
+        """, ChatCompletion::class.java)
+
+        // when
+        val phenomena = inference.phenomena(completion)
+
+        // then
+        assert(phenomena.first() == Phenomenon.Text("Found it."))
+        assert((phenomena.last() as Phenomenon.Intent).script == "6 * 7")
+    }
+
+    @Test
+    fun `should perceive call of tool of intents without script in chat completion as an impediment`() {
         // given
         val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
         val completion = jsonMapper().readValue("""
@@ -321,6 +357,8 @@ class OpenAIInferenceTest {
 
         // then
         assert(phenomena.none { it is Phenomenon.Intent })
+        val impediment = phenomena.last() as Phenomenon.Impediment
+        assert("{\"script\": \"6 *" in impediment.reason)
     }
 
     @Test
@@ -700,6 +738,120 @@ class OpenAIInferenceTest {
                 Tokens.REASONING to 30L,
                 Tokens.OUTPUT to 20L
             )
+        ))
+    }
+
+    @Test
+    fun `should perceive edits of call of the tool of intents in chat completion, also when passed as JSON text`() {
+        // given
+        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val edits = """[{"path": "/app/g.py", "new": "x = 1\n"}]"""
+        val arguments = listOf(
+            jsonMapper().writeValueAsString(mapOf("script" to "1", "edits" to jsonMapper().readTree(edits))),
+            // some models pass an array as its JSON
+            jsonMapper().writeValueAsString(mapOf("script" to "1", "edits" to edits))
+        )
+
+        // when
+        val intents = arguments.map { IntentTool.intent("kotlin_script", it) }
+
+        // then
+        intents.forEach { intent ->
+            assert(intent is Phenomenon.Intent && intent.script == "1" && intent.edits == listOf(Edit(path = "/app/g.py", new = "x = 1\n")))
+        }
+    }
+
+    @Test
+    fun `should take the path of an edit without one from the other edits of the call naming a single file`() {
+        // given
+        // DeepSeek left out the path of edits to the file the other edits of the call named
+        val arguments = """{"script": "1", "edits": [
+            {"path": "/app/a.py", "old": "a", "new": "b"},
+            {"new": "d", "old": "c"},
+            {"path": "/app/a.py", "old": "e", "new": "f", "all": true}
+        ]}"""
+
+        // when
+        val intent = IntentTool.intent("kotlin_script", arguments)
+
+        // then
+        assert(intent is Phenomenon.Intent && intent.edits == listOf(
+            Edit(path = "/app/a.py", old = "a", new = "b"),
+            Edit(path = "/app/a.py", old = "c", new = "d"),
+            Edit(path = "/app/a.py", old = "e", new = "f", all = true)
+        ))
+    }
+
+    @Test
+    fun `should not take the path of an edit without one when the other edits of the call name several files, or none`() {
+        // when
+        val impediments = listOf(
+            """{"script": "1", "edits": [{"path": "/app/a.py", "new": "b"}, {"path": "/app/b.py", "new": "c"}, {"new": "d", "old": "c"}]}""",
+            """{"script": "1", "edits": [{"new": "d", "old": "c"}, {"new": "f", "old": "e"}]}"""
+        ).map { IntentTool.intent("kotlin_script", it) }
+
+        // then
+        assert(impediments.all { it is Phenomenon.Impediment && "had no `path`" in it.reason })
+    }
+
+    @Test
+    fun `should perceive call of the tool of intents with malformed edits as an impediment`() {
+        // when
+        val impediment = IntentTool.intent("kotlin_script", """{"script": "1", "edits": [{"file": "/app/g.py", "new": "x"}]}""")
+
+        // then
+        assert(impediment == Phenomenon.Impediment(
+            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+                    "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
+                    "but edit 1 of 1 had no `path`, being {\"file\": a text of 9 characters, \"new\": a text of 1 character}: " +
+                    "give every edit its own `path`, even one changing the file of the edit before it, or of an earlier call"
+        ))
+    }
+
+    @Test
+    fun `should tell to give every edit its path when the edits of the call name no file`() {
+        // given
+        // the shape of the malformed edits of DeepSeek: none of them naming its file, the file of an earlier call being meant
+        val arguments = """{"script": "1", "edits": [{"old": "a", "new": "b"}, {"old": "c", "new": "d"}]}"""
+
+        // when
+        val impediment = IntentTool.intent("kotlin_script", arguments)
+
+        // then
+        assert(impediment == Phenomenon.Impediment(
+            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+                    "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
+                    "but edit 1 of 2 had no `path`, being {\"old\": a text of 1 character, \"new\": a text of 1 character}, " +
+                    "and edit 2 of 2 had no `path`, being {\"old\": a text of 1 character, \"new\": a text of 1 character}: " +
+                    "give every edit its own `path`, even one changing the file of the edit before it, or of an earlier call"
+        ))
+    }
+
+    @Test
+    fun `should name what a malformed edit among long ones has, rather than cutting its text`() {
+        // given
+        // the shape of the edits of DeepSeek which a cut text hid: a long `new` text, written first
+        val long = "    \"\"\"Docstring.\"\"\"\n".repeat(50)
+        val arguments = jsonMapper().writeValueAsString(mapOf(
+            "script" to "1",
+            "edits" to listOf(
+                mapOf("path" to "/app/a.py", "old" to "a", "new" to "b"),
+                mapOf("new" to long, "old" to "c", "all" to "yes"),
+                "/app/c.py"
+            )
+        ))
+
+        // when
+        val impediment = IntentTool.intent("kotlin_script", arguments)
+
+        // then
+        assert(impediment == Phenomenon.Impediment(
+            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+                    "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
+                    // its path taken from the other edit, as the edits name a single file
+                    "but edit 2 of 3 had `all` being a text, being " +
+                    "{\"new\": a text of ${long.length} characters, \"old\": a text of 1 character, \"all\": a text of 3 characters}, " +
+                    "and edit 3 of 3 was not an object, but a text of 9 characters"
         ))
     }
 

@@ -23,6 +23,7 @@ import shlex
 import sys
 import tempfile
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -36,6 +37,13 @@ DEFAULT_EGRESS_CA = "/usr/local/share/ca-certificates/runta-egress.crt"
 RUNTA_SECRET_STUB = "runta-secret-stub"
 
 INSTALL_DIR = "/installed-agent/honest-annie"
+# The Python of the intents, prepared when the image of the task is built, while the network is open,
+# out of the INSTALL_DIR replaced at setup, see python_install_command.
+PYTHON_VENV = "/opt/honest-annie/python-venv"
+# Of the org.ninia:jep library of the distribution, see gradle/libs.versions.toml.
+JEP_VERSION = "4.3.2"
+# Where the constitution of ANNIE_CONSTITUTION on the runner host is uploaded, when given, see host/Main.kt.
+CONSTITUTION_PATH = "/installed-agent/constitution.md"
 AGENT_LOGS_DIR = "/logs/agent"
 COGITATIONS_DIR = f"{AGENT_LOGS_DIR}/cogitations"
 # Per-call usage, in the format of the hermes parser of the eval's usage_details.py.
@@ -44,9 +52,12 @@ CALLS_FILE = "honest-annie-calls.jsonl"
 # The settings of honest-annie passed on from the environment of the runner, see host/Main.kt.
 PASSED_ON = (
     "ANNIE_TOKEN_BUDGET",
+    "ANNIE_TIME_LIMIT",
     "ANNIE_PARALLELISM",
     "ANNIE_REINFERENCES",
     "ANNIE_EFFORT",
+    "ANNIE_CACHE_TTL",
+    "ANNIE_FALLBACK_MODEL",
     "ANNIE_MAX_TOKENS",
     "ANNIE_HARNESS",
     "JAVA_OPTS",
@@ -62,11 +73,16 @@ PROVIDERS: dict[str, tuple[str, str]] = {
 }
 
 
+ANTHROPIC = ("anthropic", "https://api.anthropic.com", "ANTHROPIC_API_KEY")
+
+
 @dataclass(frozen=True)
 class Endpoint:
     base_url: str
     model: str
     key_env: str
+    # the Claude API, which honest-annie reaches natively, instead of an OpenAI-compatible one
+    anthropic: bool = False
 
     @property
     def host(self) -> str:
@@ -76,6 +92,9 @@ class Endpoint:
 def resolve_endpoint(route: str | None, env: Mapping[str, str]) -> Endpoint:
     """The endpoint serving the model of a LiteLLM route, each part overridable with `ANNIE_OPENAI_*`."""
     provider, _, model = (route or "").partition("/")
+    if provider == ANTHROPIC[0]:
+        return Endpoint(base_url=env.get("ANTHROPIC_BASE_URL") or ANTHROPIC[1], model=model,
+                        key_env=ANTHROPIC[2], anthropic=True)
     base_url, key_env = PROVIDERS.get(provider, (None, None))
     if base_url is None:
         # an unknown prefix, e.g. `openai/` of a custom gateway, or a bare model id
@@ -118,6 +137,8 @@ def read_calls(cogitations_dir: Path) -> list[dict[str, Any]]:
                 # the reasoning is output too, reported apart when the provider does
                 "output_tokens": int(tokens.get("output") or 0) + int(tokens.get("reasoning") or 0),
                 "reasoning_tokens": int(tokens.get("reasoning") or 0),
+                # in US dollars at list prices, exact as a decimal string, absent when honest-annie knows no prices
+                "cost": inference.get("cost"),
                 "stop": inference.get("stop"),
             })
     calls.sort(key=lambda call: call["initiated"])
@@ -149,6 +170,9 @@ def populate(context: Any, calls: list[dict[str, Any]]) -> None:
     context.n_input_tokens = totals["n_input_tokens"]
     context.n_cache_tokens = totals["n_cache_tokens"]
     context.n_output_tokens = totals["n_output_tokens"]
+    # a partial sum would understate the cost
+    if all(call["cost"] is not None for call in calls):
+        context.cost_usd = float(sum(Decimal(call["cost"]) for call in calls))
     if hasattr(context, "n_agent_steps"):  # only in the context of Pier
         context.n_agent_steps = totals["calls"]
     metadata = dict(context.metadata or {})
@@ -192,6 +216,32 @@ def install_command(archive: str, ca: str | None) -> str:
         f"{INSTALL_DIR}/runtime/bin/java -version 2>&1 | head -1",
     ]
     return " && ".join(steps)
+
+
+def python_install_command() -> str:
+    """Prepares the Python of the intents in the image of a Debian or Ubuntu task, as root, at build time:
+    the jep package, having no wheel, is built against the Python of the task, with the C compiler of the image, and a JDK for its headers,
+    as PyPI is out of reach of the egress of the run.
+    The packages installed to build it are purged afterwards, and only them, so that the task image stays as it was.
+    A failure leaves the image without it, the Python of the intents then being unavailable, as it was before."""
+    venv = shlex.quote(PYTHON_VENV)
+    steps = [
+        "command -v python3 > /dev/null",
+        "command -v apt-get > /dev/null",
+        "before=$(dpkg-query -W -f='${Package}\\n' | sort)",
+        "apt-get update -qq",
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends default-jdk-headless > /dev/null",
+        "java_home=$(dirname \"$(dirname \"$(readlink -f \"$(command -v javac)\")\")\")",
+        f"python3 -m venv {venv}",
+        f"JAVA_HOME=\"$java_home\" {venv}/bin/pip install --quiet --disable-pip-version-check jep=={JEP_VERSION}",
+        "added=$(comm -13 <(echo \"$before\") <(dpkg-query -W -f='${Package}\\n' | sort))",
+        "{ [ -z \"$added\" ] || DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq $added > /dev/null; }",
+        f"chmod -R a+rX {shlex.quote(str(Path(PYTHON_VENV).parent))}",
+    ]
+    return (
+        "{ " + " && ".join(steps) + "; } "
+        "|| echo 'honest-annie: the Python of the intents is not prepared' >&2"
+    )
 
 
 class HonestAnnieAgent:
@@ -263,16 +313,20 @@ class HonestAnnieAgent:
             key = RUNTA_SECRET_STUB
         if not key:
             raise RuntimeError(f"{endpoint.key_env} is not set for the model {self.model_name}")
+        # a stub inside Runta, the egress proxy putting the real key in place
+        api = "ANTHROPIC" if endpoint.anthropic else "OPENAI"
         process_env = {
-            "OPENAI_BASE_URL": endpoint.base_url,
-            "OPENAI_MODEL": endpoint.model,
-            # a stub inside Runta, the egress proxy putting the real key in place
-            "OPENAI_API_KEY": key,
+            f"{api}_BASE_URL": endpoint.base_url,
+            f"{api}_MODEL": endpoint.model,
+            f"{api}_API_KEY": key,
             "ANNIE_COGITATIONS_DIR": COGITATIONS_DIR,
             # the Python of the intents gets its own virtual environment, out of the task's files
-            "ANNIE_PYTHON_VENV": f"{INSTALL_DIR}/python-venv",
+            "ANNIE_PYTHON_VENV": PYTHON_VENV,
         }
         process_env.update({name: env[name] for name in PASSED_ON if env.get(name)})
+        if env.get("ANNIE_CONSTITUTION"):
+            # a path on the runner host, uploaded by run
+            process_env["ANNIE_CONSTITUTION"] = CONSTITUTION_PATH
         # Pier scopes its egress proxy variables to the commands of the agent
         scope = getattr(environment, "agent_process_env", None)
         if scope is None:
@@ -285,9 +339,17 @@ class HonestAnnieAgent:
             instruction_file.write_text(instruction)
             instruction_path = "/installed-agent/instruction.md"
             await environment.upload_file(instruction_file, instruction_path)
-        await self._checked(environment, f"chmod a+r {instruction_path}", user="root")
-        result = await environment.exec(command=run_command(instruction_path), env=self.process_env(environment))
-        await self._collect(environment, context)
+        readable = [instruction_path]
+        constitution = self._env().get("ANNIE_CONSTITUTION")
+        if constitution:
+            await environment.upload_file(Path(constitution), CONSTITUTION_PATH)
+            readable.append(CONSTITUTION_PATH)
+        await self._checked(environment, f"chmod a+r {' '.join(readable)}", user="root")
+        try:
+            result = await environment.exec(command=run_command(instruction_path), env=self.process_env(environment))
+        finally:
+            # also when the runner cancels the run on its timeout, so that what the trial spent is reported
+            await self._collect(environment, context)
         if result.return_code != 0:
             # a crash of the harness, not a wrong answer, which exits with 0
             raise RuntimeError(

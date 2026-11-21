@@ -73,6 +73,41 @@ class TurnsTest {
     }
 
     @Test
+    fun `should perceive impediment of a tool call it could not execute only as the response of the computer`() {
+        // given
+        val inference = Inference(model = "m", provider = "p", tokens = emptyMap())
+        val impediment = Phenomenon.Impediment("Your call carried no script")
+        val cogitation = Cogitation(
+            constitution = emptyList(),
+            harness = "",
+            enunciations = listOf(
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
+                Enunciation(
+                    actant = Actant.SELF,
+                    initiated = initiated,
+                    phenomena = listOf(Phenomenon.Text("Found it."), impediment),
+                    inference = inference
+                ),
+                Enunciation(actant = computer, initiated = initiated, phenomena = listOf(impediment))
+            )
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+
+        // then
+        assert(turns.size == 3)
+        assert((turns[1] as Turn.Assistant).parts == listOf("Found it."))
+        assert((turns[2] as Turn.User).parts == listOf(Perceived.Text("""
+            <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
+            <annie:impediment/>
+            Your call carried no script
+        """.trimIndent())))
+        // nor is the text along the call the output of the cogitation
+        assert(cogitation.output.isEmpty())
+    }
+
+    @Test
     fun `should perceive output enunciated by intent and response to it as result of its tool call, and later outcomes after it`() {
         // given
         val intent = Phenomenon.Intent("agency.invoke(\"judge\")", id = "call_1")

@@ -23,19 +23,38 @@ import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Instant
 
+/**
+ * A change of the file at the [path], carried by an intent, see [Phenomenon.Intent.edits]:
+ * passed along the call of the tool, rather than written in its script, so that the code
+ * of any language is written as it is, never escaped for a Kotlin string,
+ * the only occurrence of the [old] text replaced by the [new] one, or each of its occurrences when [all],
+ * or, without [old] text, the [new] text written as the whole file, created with its directories when absent.
+ * It is the record of an edit, read in a cogitation, e.g. of the parent one, to learn what its intents changed:
+ * an edit created in a script changes no file.
+ */
+data class Edit(
+    val path: String,
+    val new: String,
+    val old: String? = null,
+    val all: Boolean = false
+)
+
 sealed interface Phenomenon {
     /** Phenomenon awaiting a response, an [Enunciation] whose [Enunciation.respondsTo] is its [id]. */
     sealed interface Request : Phenomenon {
         val id: String
     }
     /**
-     * Request to execute the Kotlin [script], responded by its result, unless it produced no phenomena, see [Cogitation].
+     * Request to apply the [edits] of files, and then to execute the Kotlin [script], unless blank,
+     * responded by where the edits were applied, followed by the result of the script, unless it produced no phenomena, see [Cogitation].
+     * When an edit fails, no file is changed, nor the script executed.
      * A [Text] the cognizer expresses along it, in the same enunciation, is its commentary, not an output.
      * The cognizer expresses it by calling the only tool it is offered, whose result is the response,
      * the call being replayed with the [id] of the intent, rather than the one the cognizer gave it.
      */
     data class Intent(
         val script: String,
+        val edits: List<Edit> = emptyList(),
         override val id: String = randomId()
     ) : Request
     /**
@@ -123,10 +142,12 @@ data class Enunciation(
     /**
      * Whether this is the output of its cogitation, addressed to its invoker, see [Cogitation.output]:
      * enunciated by [Actant.SELF], not responding to a request, and expressing no intent, but something else than a monologue,
-     * e.g. what an intent enunciates through its agency, or the text of an inference answering without an intent.
+     * e.g. what an intent enunciates through its agency, or the text of an inference answering without an intent,
+     * unless the inference also expressed a tool call which could not be executed, as an impediment, see `IntentTool`.
      */
     val isOutput: Boolean get() = actant == Actant.SELF && respondsTo == null
             && phenomena.none { it is Phenomenon.Intent } && phenomena.any { it !is Phenomenon.Monologue }
+            && (inference == null || phenomena.none { it is Phenomenon.Impediment })
 }
 
 /**
@@ -166,8 +187,9 @@ data class Inference(
      * Why the inference stopped, the same for every provider.
      *
      * @property reason as reported by the provider, e.g. `end_turn` of Claude, or `length` of Chat Completions.
+     * @property category of a refusal, as reported by the provider, e.g. `cyber` of Claude, `null` when not reported.
      */
-    data class Stop(val kind: Kind, val reason: String) {
+    data class Stop(val kind: Kind, val reason: String, val category: String? = null) {
         enum class Kind {
             /** The model completed what it expressed. */
             COMPLETED,
@@ -201,7 +223,11 @@ data class Inference(
  *   providing it with the `agency`, whose [Agency.cogitation] is the given one, collecting the invocations made through it,
  *   and returns the result of the intent: these invocations, in their order, followed by the value
  *   of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`; when the intent fails,
- *   the [Phenomenon.Impediment] describing the failure follows the invocations instead.
+ *   the [Phenomenon.Impediment] describing the failure follows the invocations instead;
+ *   and whose `suspend fun execute(intent: Phenomenon.Intent, cogitation: Cogitation, agency: Agency): List<Phenomenon>`
+ *   applies the edits of the `intent` first, all of them or none, returning where each one was applied as a [Phenomenon.Text],
+ *   followed by the result of its script, executed as above unless blank,
+ *   or only the [Phenomenon.Impediment] of the edit failing, no file being changed, and the script not executed.
  *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated].
  *
  * The harness unfolds the cogitation by a single step, e.g. one inference, and is executed
