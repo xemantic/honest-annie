@@ -57,6 +57,28 @@ interface ScriptExecutor {
         cogitation: Cogitation,
         agency: Agency
     ): List<Phenomenon>
+
+    /**
+     * Executes the [intent] expressed in the [cogitation], e.g. `executor.execute(intent, inferred, agency)`:
+     * its edits applied first, all of them or none, see [Phenomenon.Intent.edits],
+     * then its script, as by the [execute] of a script, unless an edit failed, or the script is blank.
+     *
+     * @return the report of the edits, if any, as a [Phenomenon.Text] telling where each one was applied,
+     * followed by the result of the script,
+     * or only the [Phenomenon.Impediment] of the edit failing, no file being changed, and the script not executed.
+     */
+    suspend fun execute(
+        intent: Phenomenon.Intent,
+        cogitation: Cogitation,
+        agency: Agency
+    ): List<Phenomenon> {
+        val edited: Phenomenon? = if (intent.edits.isEmpty()) null else try {
+            Phenomenon.Text(applyEdits(intent.edits), Phenomenon.Text.PLAIN)
+        } catch (e: Exception) {
+            return listOf(Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed."))
+        }
+        return listOfNotNull(edited) + if (intent.script.isBlank()) emptyList() else execute(intent.script, cogitation, agency)
+    }
 }
 
 /**
@@ -277,8 +299,19 @@ private const val MAX_ERRORS_LENGTH = 4000
  * This digest of the errors of a failed script with a hint at the cause of an error it is known to be misread by models,
  * so that the next intent fixes it rather than repeating it.
  */
-private fun String.hinted(): String =
-    if ("error: Unsupported escape sequence." in this) "$this\n  $UNSUPPORTED_ESCAPE_HINT" else this
+private fun String.hinted(): String = when {
+    "error: Unsupported escape sequence." in this -> "$this\n  $UNSUPPORTED_ESCAPE_HINT"
+    "applyEdits" in this -> "$this\n  $EDITS_OF_SCRIPT_HINT"
+    else -> this
+}
+
+/**
+ * The hint at the edits of a script, as models seeing the harness apply the edits of the intent, in their constitution,
+ * called `applyEdits`, internal to the executor, from their scripts, escaping the code they changed for a Kotlin string.
+ */
+internal const val EDITS_OF_SCRIPT_HINT: String =
+    "Files are changed by the `edits` of your call, applied before its script, never from the script: " +
+        "give them as the `edits` of the call, their texts the code as it is, never escaped for a Kotlin string."
 
 /**
  * The hint at a backslash escaping for a shell or a regex, e.g. `\|` of `grep`, within a plain string,

@@ -29,7 +29,9 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.Path
+import kotlin.io.path.createTempFile
 import kotlin.io.path.readText
+import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.time.Duration
@@ -310,6 +312,63 @@ class ScriptExecutorTest {
         val reason = (phenomena.single() as Phenomenon.Impediment).reason
         assert("error: Unsupported escape sequence." in reason)
         assert(reason.endsWith(UNSUPPORTED_ESCAPE_HINT))
+    }
+
+    @Test
+    fun `should apply the edits of an intent, then execute its script`() = runTest(timeout = 5.minutes) {
+        // given
+        val file = createTempFile(suffix = ".ts").apply { writeText("a\n") }
+        val intent = Phenomenon.Intent(script = "Path(\"$file\").readText()", edits = listOf(Edit(path = file.toString(), old = "a", new = "b")))
+
+        // when
+        val phenomena = executor.execute(intent, cogitation, TestAgency())
+
+        // then
+        assert(phenomena == listOf(
+            Phenomenon.Text("Edited $file at line 1, as:\n     1\tb", Phenomenon.Text.PLAIN),
+            Phenomenon.Text("b\n", Phenomenon.Text.PLAIN)
+        ))
+    }
+
+    @Test
+    fun `should not execute the script of an intent whose edits failed, changing no file`() = runTest(timeout = 5.minutes) {
+        // given
+        val file = createTempFile(suffix = ".ts").apply { writeText("a\n") }
+        val intent = Phenomenon.Intent(
+            script = "Path(\"$file\").writeText(\"script\")",
+            edits = listOf(Edit(path = file.toString(), old = "a", new = "b"), Edit(path = file.toString(), old = "x", new = "y"))
+        )
+
+        // when
+        val phenomena = executor.execute(intent, cogitation, TestAgency())
+
+        // then
+        assert(file.readText() == "a\n")
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert(reason.startsWith("Edit 2 of 2 failed:") && reason.endsWith("No file was changed, and the script was not executed."))
+    }
+
+    @Test
+    fun `should not let the script of an intent apply edits, telling to give them as the edits of the call`() = runTest(timeout = 5.minutes) {
+        // given
+        // DeepSeek saw the harness, in its constitution, applying the edits of the intent, and applied its own from the script,
+        // escaping the code it changed for a Kotlin string
+        val file = createTempFile(suffix = ".ts").apply { writeText("a\n") }
+
+        // when
+        val phenomena = executor.execute(
+            "applyEdits(listOf(Edit(path = \"$file\", old = \"a\", new = \"b\")))",
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(file.readText() == "a\n")
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert(reason.endsWith(
+            "Files are changed by the `edits` of your call, applied before its script, never from the script: " +
+                    "give them as the `edits` of the call, their texts the code as it is, never escaped for a Kotlin string."
+        ))
     }
 
     @Test

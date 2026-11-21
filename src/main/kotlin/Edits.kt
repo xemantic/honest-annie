@@ -25,7 +25,8 @@ import kotlin.io.path.readText
 import kotlin.io.path.writeText
 
 /*
- * The edits of an intent, applied by the harness before its script, see [Phenomenon.Intent.edits].
+ * The edits of an intent, applied by the executor before its script, see [ScriptExecutor.execute] and [Phenomenon.Intent.edits],
+ * internal, so that the scripts of intents, compiled apart, cannot call it.
  * Kept out of the API pasted into the constitutions, see `generateConstitution`:
  * models seeing a function changing files called it from their scripts,
  * escaping the code they changed for a Kotlin string, instead of passing it as it is by the edits of the call.
@@ -42,7 +43,7 @@ import kotlin.io.path.writeText
  * also showing the lines where the old text occurs with other whitespace, e.g. indented otherwise, to copy them exactly,
  * or the file around the occurrences of an old text occurring more than once, to extend it to the one meant.
  */
-fun applyEdits(edits: List<Edit>): String {
+internal fun applyEdits(edits: List<Edit>): String {
     val texts = linkedMapOf<java.nio.file.Path, String>()
     val reports = edits.mapIndexed { index, edit ->
         fun fail(reason: String): Nothing = throw IllegalArgumentException("Edit ${index + 1} of ${edits.size} failed: $reason")

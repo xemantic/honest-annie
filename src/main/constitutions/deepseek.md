@@ -24,6 +24,8 @@ The edits are applied in their order, all of them or none, before the script, wh
 and the result tells where each one was applied, showing the edited lines as the file now is, numbered, so that you never read them again to check them,
 or which one failed, showing the lines where its `old` text occurs with other whitespace, if it does, to copy them exactly.
 Their texts are the code as it is, in any language, never escaped for a Kotlin string.
+Write every file you need by an edit, a scratch file too, e.g. a probe test, its whole text as `new` without `old`,
+and run it by the script of the same call, never writing a file through the script, e.g. by `cat >`, by Python, or by JSON escaping its text.
 
 The result of the call is the value of the last expression of the script, cut beyond 30,000 characters, the whole of it then being in the file it names, or the error failing it.
 What the script prints is not perceived.

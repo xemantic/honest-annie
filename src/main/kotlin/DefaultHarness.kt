@@ -118,16 +118,7 @@ private suspend fun unfold(
         }
     } else {
         val initiated = Clock.System.now()
-        val edited: Phenomenon? = if (intent.edits.isEmpty()) null else try {
-            Phenomenon.Text(applyEdits(intent.edits), Phenomenon.Text.PLAIN)
-        } catch (e: Exception) {
-            Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed.")
-        }
-        val result = when {
-            edited is Phenomenon.Impediment -> listOf(edited)
-            intent.script.isBlank() -> listOfNotNull(edited)
-            else -> listOfNotNull(edited) + executor.execute(intent.script, inferred, agency)
-        }
+        val result = executor.execute(intent, inferred, agency)
         val executed = Clock.System.now()
         val output = agency.enunciated
         val enunciated = if (output.isEmpty()) inferred else inferred + Enunciation(

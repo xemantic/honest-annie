@@ -136,6 +136,16 @@ class ConstitutionTest {
     }
 
     @Test
+    fun `should tell DeepSeek and Kimi to write every file by an edit, a scratch file too, run in the same call`() {
+        // when
+        val templates = listOf("deepseek-v4_1-flash", "kimi-k3").map { constitutionTemplate(model = it) }
+
+        // then
+        // DeepSeek wrote probe tests by JSON-escaping them in the script, writing the JSON by `cat >`, and Python writing the file from it
+        assert(templates.all { "Write every file you need by an edit, a scratch file too, e.g. a probe test" in it })
+    }
+
+    @Test
     fun `should load the default constitution for a model without one of its own`() {
         // when
         val template = constitutionTemplate(model = "claude-opus-5-5")

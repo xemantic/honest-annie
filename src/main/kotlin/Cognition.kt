@@ -223,7 +223,11 @@ data class Inference(
  *   providing it with the `agency`, whose [Agency.cogitation] is the given one, collecting the invocations made through it,
  *   and returns the result of the intent: these invocations, in their order, followed by the value
  *   of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`; when the intent fails,
- *   the [Phenomenon.Impediment] describing the failure follows the invocations instead.
+ *   the [Phenomenon.Impediment] describing the failure follows the invocations instead;
+ *   and whose `suspend fun execute(intent: Phenomenon.Intent, cogitation: Cogitation, agency: Agency): List<Phenomenon>`
+ *   applies the edits of the `intent` first, all of them or none, returning where each one was applied as a [Phenomenon.Text],
+ *   followed by the result of its script, executed as above unless blank,
+ *   or only the [Phenomenon.Impediment] of the edit failing, no file being changed, and the script not executed.
  *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated].
  *
  * The harness unfolds the cogitation by a single step, e.g. one inference, and is executed
