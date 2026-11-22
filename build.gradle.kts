@@ -159,18 +159,18 @@ val generatePythonProperties = tasks.register("generatePythonProperties") {
     }
 }
 
-// Fills the constitution templates with the API and cognition sources, as resources:
-// constitution.md, the default one, and constitutions/<family>.md, the ones of model families, see Constitution.kt,
-// leaving the {{harness}} placeholder to the runtime, since the harness can differ in each invocation.
+// Fills the constitution templates with the API, cognition and harness sources, as resources:
+// constitution.md, the default one, and constitutions/<family>.md, the ones of model families, see Constitution.kt.
 val generateConstitution = tasks.register("generateConstitution") {
     group = "annie"
-    description = "Generates the constitution resources from their templates and the API and cognition sources"
+    description = "Generates the constitution resources from their templates and the API, cognition and harness sources"
     val default = layout.projectDirectory.file("src/main/constitution.md")
     val families = layout.projectDirectory.dir("src/main/constitutions")
     val sourceDir = layout.projectDirectory.dir("src/main/kotlin")
     val sources = mapOf(
         "api" to sourceDir.file("Api.kt"),
-        "cognition" to sourceDir.file("Cognition.kt")
+        "cognition" to sourceDir.file("Cognition.kt"),
+        "harness" to sourceDir.file("Harness.kt")
     )
     val outputDir = layout.buildDirectory.dir("generated/constitution/resources")
     inputs.file(default)
@@ -194,37 +194,8 @@ val generateConstitution = tasks.register("generateConstitution") {
     }
 }
 
-// Turns the compiled source of the default harness into its script: the source without its package,
-// which is imported instead, followed by the call of the suspending `unfold` function with the properties of the script.
-// The source belongs to the package the script imports, an import the IDE would remove from the source as redundant.
-val generateDefaultHarness = tasks.register("generateDefaultHarness") {
-    group = "annie"
-    description = "Generates the default harness script from DefaultHarness.kt as the harness.kts resource"
-    val source = layout.projectDirectory.file("src/main/kotlin/DefaultHarness.kt")
-    val outputDir = layout.buildDirectory.dir("generated/harness/resources")
-    inputs.file(source)
-    outputs.dir(outputDir)
-    doLast {
-        val lines = source.asFile.readLines()
-        val packageLine = lines.indexOfFirst { it.startsWith("package ") }
-        val firstImport = lines.indexOfFirst { it.startsWith("import ") }
-        check(packageLine != -1 && firstImport > packageLine) { "No package followed by imports in $source" }
-        val script = buildList {
-            addAll(lines.subList(packageLine + 1, firstImport).dropWhile { it.isBlank() })
-            add(lines[packageLine].replaceFirst("package ", "import ") + ".*")
-            addAll(lines.subList(firstImport, lines.size).dropLastWhile { it.isBlank() })
-            add("")
-            add("await { unfold(cognizer, executor, agency) }")
-        }
-        val output = outputDir.get().file("harness.kts").asFile
-        output.parentFile.mkdirs()
-        output.writeText(script.joinToString("\n") + "\n")
-    }
-}
-
 sourceSets.main {
     resources.srcDir(generateConstitution)
-    resources.srcDir(generateDefaultHarness)
     resources.srcDir(generatePythonProperties)
 }
 

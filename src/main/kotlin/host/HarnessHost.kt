@@ -29,12 +29,10 @@ import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.ScriptExecutor
 import com.xemantic.ai.annie.Python
 import com.xemantic.ai.annie.SessionScriptExecutor
-import com.xemantic.ai.annie.SwitchedAgency
 import com.xemantic.ai.annie.cognizer.Cognizer
 import com.xemantic.ai.annie.randomId
+import com.xemantic.ai.annie.unfold
 import com.xemantic.kotlin.introspection.KotlinIntrospector
-import com.xemantic.kotlin.script.ScriptResult
-import com.xemantic.kotlin.script.ScriptSession
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.HttpClient
 import java.nio.file.Path
@@ -51,20 +49,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 
-/** The harness unfolding cogitations unless another one is given, see `harness.kts`. */
-val defaultHarness: String = checkNotNull(
-    HarnessHost::class.java.getResource("/harness.kts")
-) { "No default harness on the classpath" }.readText()
-
 private val logger = KotlinLogging.logger {}
 
 private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
 
 /**
- * Hosts harness scripts unfolding cogitations, see [Cogitation].
+ * Hosts the harness unfolding cogitations, see [Cogitation] and [unfold].
  *
- * Unfoldings ready for the next step are queued, and pulled from the queue to execute their
- * harness, the [Cogitation.harness] given to the invocation, by default the one of the invoker.
+ * Unfoldings ready for the next step are queued, and pulled from the queue to be unfolded by the harness.
  * After each step a cogitation is queued again, unless it awaits invocations, or rests:
  * [Actant.SELF] enunciated last.
  *
@@ -74,15 +66,14 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * are answered, the invoking cogitation is queued again. The state of every unfolding is kept
  * in the [store] at each step.
  *
- * Each cogitation has two script sessions, see [ScriptSession], created on its first step:
- * one executing its harness at each step, the other executing its intents, see [SessionScriptExecutor],
- * so that the declarations of both stay visible across the steps, until the cogitation rests,
- * when both sessions are closed, together with the ones of all the cogitations it invoked,
+ * Each cogitation has a script session of its own, executing its intents, see [SessionScriptExecutor],
+ * so that their declarations stay visible across the steps, until the cogitation rests,
+ * when the session is closed, together with the ones of all the cogitations it invoked,
  * the coroutines launched in them being cancelled.
  * Likewise, each cogitation has a Python interpreter of its own, see [Agency.python], started when first used.
  *
  * Recording is done here and not by the harness: every inference of the cognizer provided to it is recorded,
- * and so is the cogitation each execution of the harness evaluates to, preceded by the inferences
+ * and so is the cogitation each step of the harness unfolds, preceded by the inferences
  * the harness discarded, not enunciating them, e.g. to infer again, see [CogitationRecorder.record].
  * What the host does is logged, without the content of the phenomena, which is recorded instead.
  *
@@ -124,10 +115,8 @@ class HarnessHost(
      * @property queue of the ids of unfoldings ready for the next step, shared by the whole tree of cogitations.
      * @property spent the tokens inferred so far, shared by the whole tree of cogitations.
      * @property started when the whole tree of cogitations started unfolding.
-     * @property agency provided to the harness, acting as the agency of its current execution.
      * @property executor of the intents, in a session of their own, see [ScriptExecutor].
-     * @property inferred by the current execution of the harness, see [recordingCognizer].
-     * @property session of the harness, stateful across the steps of the cogitation, created on the first one.
+     * @property inferred by the current step of the harness, see [recordingCognizer].
      */
     private class Runtime(
         val recorder: CogitationRecorder?,
@@ -142,15 +131,12 @@ class HarnessHost(
         val mutex = Mutex()
         val scope = CoroutineScope(job + handler)
         val invoked = CopyOnWriteArrayList<Runtime>()
-        val agency = SwitchedAgency()
         val executor = SessionScriptExecutor(preparePython)
         @Volatile
         var inferred: MutableList<Enunciation> = CopyOnWriteArrayList()
-        var session: ScriptSession? = null
 
-        /** Releases the sessions of this runtime, and of all its [invoked] runtimes, and theirs. */
+        /** Releases the session of this runtime, and of all its [invoked] runtimes, and theirs. */
         fun close() {
-            session?.close()
             executor.close()
             invoked.forEach { it.close() }
         }
@@ -201,7 +187,7 @@ class HarnessHost(
         }
     }
 
-    /** Executes the harness of the unfolding [id] for a single step. */
+    /** Unfolds the unfolding [id] by a single step of the harness, see [unfold]. */
     private suspend fun step(id: String) {
         val runtime = runtimes.getValue(id)
         runtime.mutex.withLock {
@@ -217,7 +203,7 @@ class HarnessHost(
                 return
             }
             val cogitation = unfolding.cogitation
-            logger.info { "[$id] Executing harness on ${cogitation.enunciations.size} enunciation(s)" }
+            logger.info { "[$id] Unfolding ${cogitation.enunciations.size} enunciation(s)" }
             val started = Clock.System.now()
             val agency = HostedAgency(
                 unfolding = unfolding,
@@ -227,27 +213,18 @@ class HarnessHost(
             )
             val inferred = CopyOnWriteArrayList<Enunciation>()
             runtime.inferred = inferred
-            runtime.agency.current = agency
-            val session = runtime.session ?: ScriptSession {
-                provide<Cognizer>("cognizer", recordingCognizer(id, runtime))
-                provide<ScriptExecutor>("executor", runtime.executor)
-                provide<Agency>("agency", runtime.agency)
-            }.also { runtime.session = it }
-            val result = session.execute(cogitation.harness)
-            agency.seal()
-            logger.debug { "[$id] Harness executed in ${Clock.System.now() - started}" }
-            val failure = when (result) {
-                is ScriptResult.Error -> "Harness failed to unfold the cogitation:\n${result.message}"
-                is ScriptResult.Value -> when (val unfolded = result.value) {
-                    is Cogitation -> if (unfolded == cogitation) {
-                        "Harness did not unfold the cogitation"
-                    } else {
-                        unfolding = unfolding.copy(cogitation = unfolded)
-                        null
-                    }
-                    else -> "Harness evaluated to $unfolded instead of the unfolded Cogitation"
-                }
+            val failure = try {
+                unfolding = unfolding.copy(cogitation = unfold(recordingCognizer(id, runtime), runtime.executor, agency))
+                null
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // e.g. an inference failing: the cogitation rests, telling why, rather than failing its whole tree
+                "Harness failed to unfold the cogitation:\n${e.described()}"
+            } finally {
+                agency.seal()
             }
+            logger.debug { "[$id] Unfolded in ${Clock.System.now() - started}" }
             val unfolded = unfolding.cogitation.enunciations.drop(cogitation.enunciations.size)
             val discarded = inferred.filter { inference ->
                 unfolded.none { it.phenomena == inference.phenomena && it.inference == inference.inference }
@@ -264,7 +241,7 @@ class HarnessHost(
     }
 
     /**
-     * Rests the cogitation of the [unfolding] on behalf of its failing harness, enunciating the impediment,
+     * Rests the cogitation of the [unfolding] on behalf of its failing step, enunciating the impediment,
      * which follows the output of the cogitation, recording the [discarded] inferences before it.
      */
     private suspend fun impede(
@@ -316,16 +293,12 @@ class HarnessHost(
                     preparePython = preparePython
                 )
                 runtime.invoked += invoked
-                logger.info {
-                    "[${unfolding.id}] Dispatching invocation ${invocation.id}" +
-                            if (invocation.harness == unfolding.cogitation.harness) "" else ", with another harness"
-                }
+                logger.info { "[${unfolding.id}] Dispatching invocation ${invocation.id}" }
                 invoked.scope.launch {
                     val child = store.load(invocation.id) ?: Unfolding(
                         id = invocation.id,
                         cogitation = Cogitation(
                             constitution = listOf(invocation.constitution),
-                            harness = invocation.harness,
                             enunciations = listOf(Enunciation(
                                 actant = Actant.INVOKER,
                                 phenomena = listOf(Phenomenon.Text(invocation.prompt))
@@ -397,7 +370,7 @@ class HarnessHost(
 
     /**
      * The [cognizer] recording and logging each inference of the unfolding [id],
-     * collecting them as the enunciations [Runtime.inferred] by the current execution of the harness,
+     * collecting them as the enunciations [Runtime.inferred] by the current step of the harness,
      * to tell the ones the harness discards.
      */
     private fun recordingCognizer(
@@ -428,7 +401,7 @@ class HarnessHost(
         }
     }
 
-    /** [Agency] of a single execution of the harness of the [unfolding], see [seal]. */
+    /** [Agency] of a single step of the harness unfolding the [unfolding], see [seal]. */
     private inner class HostedAgency(
         private val unfolding: Unfolding,
         override val parentCogitation: Cogitation?,
@@ -445,8 +418,6 @@ class HarnessHost(
 
         override val constitution: String = unfolding.cogitation.constitution.joinToString(separator = "\n\n")
 
-        override val harness: String = unfolding.cogitation.harness
-
         override val depth: Int = unfolding.cogitation.depth
 
         override val invocations = CopyOnWriteArrayList<Phenomenon.Invocation>()
@@ -457,26 +428,24 @@ class HarnessHost(
 
         override val enunciated = CopyOnWriteArrayList<Phenomenon>()
 
-        /** Seals this agency once the harness has evaluated. */
+        /** Seals this agency once the step of the harness is over. */
         fun seal(): Unit = synchronized(lock) {
             sealed = true
         }
 
         private fun checkNotSealed() {
-            check(!sealed) { "The harness has already evaluated, its agency cannot be used anymore" }
+            check(!sealed) { "The step of the harness is over, its agency cannot be used anymore" }
         }
 
         override fun invoke(
             prompt: String,
-            constitution: String,
-            harness: String,
+            constitution: String
         ): Phenomenon.Invocation {
             checkNotSealed()
             return Phenomenon.Invocation(
                 id = randomId(),
                 prompt = prompt,
-                constitution = constitution,
-                harness = harness,
+                constitution = constitution
             ).also {
                 logger.info { "[${unfolding.id}] Intent invoked ${it.id}" }
                 invocations += it
@@ -535,5 +504,9 @@ class HarnessHost(
     }
 
 }
+/** This exception and its causes, each by its class and message, e.g. of an inference failing, as the stack tells nothing to a cognizer. */
+private fun Throwable.described(): String =
+    generateSequence(this) { it.cause }.take(5).joinToString("\nCaused by: ") { it.toString() }
+
 /** The kinds of these phenomena, e.g. `[monologue, intent]`. */
 private fun List<Phenomenon>.kinds(): String = joinToString(prefix = "[", postfix = "]") { it.kind }

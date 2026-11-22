@@ -35,20 +35,17 @@ import com.xemantic.ai.annie.cognizer.openai.OpenAIInference
 import com.xemantic.ai.annie.cognizer.openai.openAIClient
 import com.xemantic.ai.annie.cognizer.openai.openAIProvider
 import com.xemantic.ai.annie.constitution
-import com.xemantic.ai.annie.constitutionTemplate
 import kotlin.io.path.Path
-import kotlin.io.path.readText
 import kotlinx.coroutines.runBlocking
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * A single cognizer unfolds every cogitation: Claude when `ANTHROPIC_MODEL` is set,
  * the `OPENAI_MODEL` served by the OpenAI-compatible endpoint at `OPENAI_BASE_URL` otherwise,
- * under the constitution of the family of its model, see [constitutionTemplate],
+ * under the constitution of the family of its model, see [constitution],
  * or the one at the `ANNIE_CONSTITUTION` path, when set, e.g. a variant of a generated one to compare against.
  *
  * Cogitations are recorded in `ANNIE_COGITATIONS_DIR`, `cogitations` by default, and unfolded
- * by the harness script at the `ANNIE_HARNESS` path, the [defaultHarness] when not set,
  * spending at most `ANNIE_TOKEN_BUDGET` tokens within `ANNIE_TIME_LIMIT` seconds, and stepping at most `ANNIE_PARALLELISM` cogitations
  * at a time, when set, see [HarnessHost].
  * The cognizer reasons with the `ANNIE_EFFORT`, e.g. `xhigh`, see [Effort], the default of its model when not set,
@@ -60,7 +57,6 @@ import kotlin.time.Duration.Companion.seconds
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")
-    val harness = System.getenv("ANNIE_HARNESS")?.let { Path(it).readText() } ?: defaultHarness
     val constitutionFile = System.getenv("ANNIE_CONSTITUTION")?.let { Path(it) }
     val tokenBudget = System.getenv("ANNIE_TOKEN_BUDGET")?.toLong()
     val timeLimit = System.getenv("ANNIE_TIME_LIMIT")?.toLong()?.seconds
@@ -116,8 +112,7 @@ fun main(args: Array<String>) {
             val output = HarnessHost(
                 cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism
             ).cognize(Cogitation(
-                constitution = listOf(constitution(harness, constitutionTemplate(model, constitutionFile))),
-                harness = harness,
+                constitution = listOf(constitution(model, constitutionFile)),
                 enunciations = listOf(Enunciation(
                     actant = Actant(
                         type = Actant.Type.HUMAN,

@@ -37,8 +37,8 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 /**
- * The agency within the current cogitation: how its harness, and the intents it executes, act within it,
- * provided to both as `agency`, see [Cogitation], always acting within the current execution of the harness.
+ * The agency within the current cogitation: how the harness, and the intents it executes, act within it,
+ * provided to both as `agency`, see [Cogitation], always acting within the current step of the harness.
  * None of its functions suspends: each one is called directly, e.g. `agency.enunciate(answer)`,
  * the ones which wait, e.g. [execute], blocking the thread calling them.
  */
@@ -50,28 +50,25 @@ interface Agency {
     val cogitation: Cogitation
     /**
      * The constitution of the current cogitation, its parts joined as the cognizer perceives them,
-     * see [Cogitation.constitution]. It embeds the source of this [harness].
+     * see [Cogitation.constitution]. It embeds the source of the harness.
      */
     val constitution: String
-    /** The source of the harness unfolding the current cogitation, see [Cogitation.harness]. */
-    val harness: String
     /** [Cogitation] which invoked the current one, `null` for the root one. */
     val parentCogitation: Cogitation?
     /** How deep the current cogitation is in its tree, see [Cogitation.depth]. */
     val depth: Int
-    /** Invocations made during this execution of the harness, e.g. by the intent it executes. */
+    /** Invocations made during this step of the harness, e.g. by the intent it executes. */
     val invocations: List<Phenomenon.Invocation>
     /** What the whole tree of the current cogitation may still spend, unlimited unless its host limits it. */
     val allowance: Allowance get() = Allowance()
     /**
-     * Output enunciated during this execution of the harness, e.g. by the intent it executes,
+     * Output enunciated during this step of the harness, e.g. by the intent it executes,
      * to be enunciated by the harness in the cogitation it unfolds, see [Enunciation.isOutput].
      */
     val enunciated: List<Phenomenon>
     /**
-     * Invokes a cogitation under the [constitution], by default this [Agency.constitution],
-     * unfolded by the [harness] script, which can be a different one, e.g. a modification of this [Agency.harness].
-     * The invoked cogitation is unfolded by the same cognizer, starting with the [prompt]
+     * Invokes a cogitation under the [constitution], by default this [Agency.constitution].
+     * The invoked cogitation is unfolded by the same harness and cognizer, starting with the [prompt]
      * enunciated by [Actant.INVOKER].
      *
      * Returns immediately: the returned [Phenomenon.Invocation] is enunciated in the result
@@ -80,8 +77,7 @@ interface Agency {
      */
     fun invoke(
         prompt: String,
-        constitution: String = this.constitution,
-        harness: String = this.harness,
+        constitution: String = this.constitution
     ): Phenomenon.Invocation
     /**
      * Enunciates a [Phenomenon.Text] as the output of the current cogitation, see [enunciated],

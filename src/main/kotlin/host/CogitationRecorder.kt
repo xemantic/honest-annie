@@ -44,8 +44,8 @@ import kotlinx.coroutines.withContext
  * its enunciation number, its position within the enunciation, actant type and kind,
  * e.g. `001-1-human-text.md`, `002-1-self-monologue.md`, `002-2-self-intent.kts`, the script of an intent,
  * followed by `002-2-self-edits.json`, the edits of files it carries, if any,
- * so that the files are listed in the order of their enunciation, while `cogitation.md` indexes the enunciations, `constitution.md` holds the constitution,
- * and `harness.kts` the harness unfolding the cogitation.
+ * so that the files are listed in the order of their enunciation, while `cogitation.md` indexes the enunciations, and `constitution.md` holds the constitution,
+ * which embeds the source of the harness unfolding the cogitation.
  *
  * Inferences discarded by the harness, not enunciated in the cogitation, are recorded too, for inspection,
  * numbered after the enunciation following them, and by their order, e.g. `002-discarded-1-1-self-intent.kts`,
@@ -176,8 +176,7 @@ class CogitationRecorder(
             cogitation.constitution.joinToString(separator = "\n\n")
         )
         index.append("# Cogitation started at ${started ?: "-"}\n\n")
-        dir.resolve("harness.kts").writeText(cogitation.harness)
-        index.append("[constitution](constitution.md) · [harness](harness.kts)\n\n")
+        index.append("[constitution](constitution.md)\n\n")
         index.append("| # | actant | initiated | duration | phenomena | inference |\n")
         index.append("|---|--------|-----------|----------|-----------|-----------|\n")
         return dir

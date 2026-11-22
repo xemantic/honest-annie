@@ -42,7 +42,7 @@ class ScriptExecutorTest {
 
     private val executor = SessionScriptExecutor()
 
-    private val cogitation = Cogitation(constitution = emptyList(), harness = "", enunciations = emptyList())
+    private val cogitation = Cogitation(constitution = emptyList(), enunciations = emptyList())
 
     @AfterTest
     fun closeExecutor() {
@@ -51,18 +51,16 @@ class ScriptExecutorTest {
 
     /** [Agency] keeping everything enunciated, and invoking nothing for real. */
     private class TestAgency : Agency {
-        override val cogitation = Cogitation(constitution = emptyList(), harness = "", enunciations = emptyList())
+        override val cogitation = Cogitation(constitution = emptyList(), enunciations = emptyList())
         override val constitution = ""
-        override val harness = ""
         override val parentCogitation: Cogitation? = null
         override val depth = 0
         override val invocations = mutableListOf<Phenomenon.Invocation>()
         override val enunciated = mutableListOf<Phenomenon>()
-        override fun invoke(prompt: String, constitution: String, harness: String) = Phenomenon.Invocation(
+        override fun invoke(prompt: String, constitution: String) = Phenomenon.Invocation(
             id = "invocation-${invocations.size + 1}",
             prompt = prompt,
-            constitution = constitution,
-            harness = harness
+            constitution = constitution
         ).also { invocations += it }
         override fun enunciate(text: String, contentType: String) {
             enunciated += Phenomenon.Text(text, contentType)
@@ -421,18 +419,18 @@ class ScriptExecutorTest {
         // given
         val first = TestAgency()
         val second = TestAgency()
-        val expressed = cogitation.copy(harness = "expressed")
+        val expressed = cogitation.copy(depth = 7)
         executor.execute("agency.enunciate(\"first\")", cogitation, first)
 
         // when
         val phenomena = executor.execute(
-            "agency.enunciate(\"second\")\nagency.cogitation.harness",
+            "agency.enunciate(\"second\")\nagency.cogitation.depth",
             expressed,
             second
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("expressed", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("7", Phenomenon.Text.PLAIN)))
         assert(first.enunciated == listOf(Phenomenon.Text("first")))
         assert(second.enunciated == listOf(Phenomenon.Text("second")))
     }

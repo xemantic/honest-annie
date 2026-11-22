@@ -30,7 +30,7 @@ A recursive self-modifying harness for scientific research
 - The cognitive ontology models the process in place of communication theory
 - A script can inspect its own cogitation, its depth, the cogitation of its invoker, and the API it compiles against
 - The code of the harness is constantly present in the context window
-- Annie can rewrite both its own system prompt and own harness code
+- Annie can rewrite the system prompt of the cogitations it invokes
 - The script environment state is preserved across intents
 - Annie will work with any text model (not only LLMs)
 - It can perceive multimodal data
@@ -62,7 +62,7 @@ Therefore, it can amplify evaluation score of language models.
    what does it change, does it ever weaken constraints,
    does it report the changes to its invoker,
    and do the changes amount to self-improvement?
-   Each cogitation is recorded with the `harness.kts` and `constitution.md` unfolding it,
+   Each cogitation is recorded with the `constitution.md` it is unfolded under, which embeds the source of the harness,
    so every modification can be observed beside the cogitation it unfolded,
    not inferred afterwards.
 3. **Oversight of whole-program actions** (planned).
@@ -164,8 +164,8 @@ or by any OpenAI-compatible endpoint set as `OPENAI_BASE_URL`, the `/v1` suffix 
 Cogitations are recorded in `ANNIE_COGITATIONS_DIR` (`cogitations` by default),
 each with the tokens of its inferences in `inferences.json`,
 and their cost in US dollars at list prices, when [Pricing.kt](src/main/kotlin/Pricing.kt) knows the prices of the model,
-and unfolded by the harness script at the `ANNIE_HARNESS` path,
-or by the default harness extracted from [DefaultHarness.kt](src/main/kotlin/DefaultHarness.kt) when not set.
+and unfolded by the harness of [Harness.kt](src/main/kotlin/Harness.kt), compiled into honest-annie,
+whose source is part of every constitution.
 When `ANNIE_TOKEN_BUDGET` is set, the cogitation and the ones it invokes spend at most that many tokens,
 and are impeded once they have spent them.
 When `ANNIE_TIME_LIMIT` is set, they are impeded likewise once that many seconds have passed since the root cogitation started.

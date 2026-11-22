@@ -200,7 +200,7 @@ A cogitation, and the harness unfolding it, are made of:
 
 ## Harness
 
-The script will be executed by this harness, itself a Kotlin script, see `Cogitation`:
+The script will be executed by this harness, compiled into honest-annie, see `Cogitation`:
 
 ````kotlin
 {{harness}}

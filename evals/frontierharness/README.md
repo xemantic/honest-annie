@@ -41,7 +41,7 @@ whatever the provider names it, e.g. `kimi-k3` or `moonshotai/Kimi-K3`,
 so the evaluated commit carries the constitution of its runs.
 
 To compare a variant against it, on this host, by [local.sh](local.sh),
-copy the generated constitution, whose API and cognition are filled in,
+copy the generated constitution, whose API, cognition and harness are filled in,
 change the copy, and run the same tasks with each, under runs of their own:
 
 ```shell

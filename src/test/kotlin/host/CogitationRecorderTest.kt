@@ -37,9 +37,9 @@ class CogitationRecorderTest {
 
     private val computer = Actant(type = Actant.Type.COMPUTER, name = "computer")
 
-    private val invocation = Phenomenon.Invocation(id = "sub", prompt = "sub", constitution = "", harness = "")
+    private val invocation = Phenomenon.Invocation(id = "sub", prompt = "sub", constitution = "")
 
-    private val another = Phenomenon.Invocation(id = "another", prompt = "another", constitution = "", harness = "")
+    private val another = Phenomenon.Invocation(id = "another", prompt = "another", constitution = "")
 
     @Test
     fun `should list recorded phenomena in the order of their enunciation`() = runTest {
@@ -48,7 +48,6 @@ class CogitationRecorderTest {
         val recorder = CogitationRecorder(recordingDir)
         val cogitation = Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant(type = Actant.Type.HUMAN, name = "user"),
@@ -70,7 +69,6 @@ class CogitationRecorderTest {
         recorder.record(cogitation)
         recorder.invoked(invocation).record(Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(Enunciation(
                 actant = Actant.SELF,
                 initiated = Instant.parse("2026-10-23T13:14:59Z"),
@@ -81,7 +79,7 @@ class CogitationRecorderTest {
         // then
         val root = recordingDir.listDirectoryEntries().single()
         val files = root.listDirectoryEntries().map { it.name }.sorted() - setOf(
-            "cogitation.md", "constitution.md", "harness.kts", "inferences.json"
+            "cogitation.md", "constitution.md", "inferences.json"
         )
         assert(files == listOf(
             "001-1-human-text.md",
@@ -100,7 +98,6 @@ class CogitationRecorderTest {
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(
                 Enunciation(
                     actant = computer,
@@ -128,7 +125,6 @@ class CogitationRecorderTest {
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant.SELF,
@@ -175,7 +171,6 @@ class CogitationRecorderTest {
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(
                 inferred(mapOf(
                     Inference.Tokens.OUTPUT to 40L,
@@ -219,7 +214,6 @@ class CogitationRecorderTest {
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(
                 inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)).let {
                     it.copy(inference = it.inference!!.copy(model = "deepseek-v4_1-flash", provider = "llm.example.com"))
@@ -243,7 +237,6 @@ class CogitationRecorderTest {
         val recorder = CogitationRecorder(recordingDir)
         recorder.record(Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(
                 inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.CACHE_WRITE_1H to 1000L)),
                 Enunciation(actant = computer, phenomena = listOf(invocation))
@@ -254,7 +247,6 @@ class CogitationRecorderTest {
         // when
         invoked.record(Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant.INVOKER,
@@ -291,7 +283,7 @@ class CogitationRecorderTest {
             initiated = Instant.parse("2026-10-23T13:14:39Z"),
             phenomena = listOf(Phenomenon.Text("question"))
         )
-        recorder.record(Cogitation(constitution = emptyList(), harness = "", enunciations = listOf(question)))
+        recorder.record(Cogitation(constitution = emptyList(), enunciations = listOf(question)))
         val discarded = inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L))
             .copy(phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent("<invoke name=\"fetch\">")))
 
@@ -299,7 +291,6 @@ class CogitationRecorderTest {
         recorder.record(
             Cogitation(
                 constitution = emptyList(),
-                harness = "",
                 enunciations = listOf(question, inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 2L)))
             ),
             discarded = listOf(discarded)
@@ -308,7 +299,7 @@ class CogitationRecorderTest {
         // then
         val root = recordingDir.listDirectoryEntries().single()
         val files = root.listDirectoryEntries().map { it.name }.sorted() - setOf(
-            "cogitation.md", "constitution.md", "harness.kts", "inferences.json"
+            "cogitation.md", "constitution.md", "inferences.json"
         )
         assert(files == listOf(
             "001-1-human-text.md",
@@ -331,7 +322,6 @@ class CogitationRecorderTest {
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(
                 inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)),
                 inferred(
@@ -360,7 +350,6 @@ class CogitationRecorderTest {
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
             constitution = emptyList(),
-            harness = "",
             enunciations = listOf(Enunciation(
                 actant = Actant.SELF,
                 initiated = Instant.parse("2026-10-23T13:14:39Z"),

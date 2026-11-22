@@ -69,7 +69,6 @@ class OpenAIInferenceTest {
     /** A cogitation whose intent, expressed after a text, was executed, responded with text and an image. */
     private val executed = Cogitation(
         constitution = listOf("constitution"),
-        harness = "harness",
         enunciations = listOf(
             Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),
@@ -98,7 +97,6 @@ class OpenAIInferenceTest {
 
     private fun cogitation(vararg phenomena: Phenomenon) = Cogitation(
         constitution = listOf("constitution"),
-        harness = "harness",
         enunciations = listOf(
             Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),

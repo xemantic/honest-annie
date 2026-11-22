@@ -30,14 +30,14 @@ import kotlin.io.path.writeText
 import kotlin.time.Duration
 
 /**
- * Executes the intents of a cogitation, provided to its harness as `executor`, see [Cogitation].
+ * Executes the intents of a cogitation, provided to the harness as `executor`, see [Cogitation].
  *
  * The intents are executed one after another in a session of their own, which is stateful, like a Kotlin notebook:
  * what an intent declares, e.g. a `val`, a function or a class, stays visible to the intents executed after it.
  */
 interface ScriptExecutor {
     /**
-     * Executes the [script] of an intent expressed in the [cogitation], given the [agency] of the current execution
+     * Executes the [script] of an intent expressed in the [cogitation], given the [agency] of the current step
      * of the harness, provided to the script as `agency`, with this [cogitation] as its [Agency.cogitation],
      * and collecting the invocations made through it, e.g. `executor.execute(intent.script, inferred, agency)`.
      *
@@ -338,9 +338,8 @@ private class CollectingAgency(
 
     override fun invoke(
         prompt: String,
-        constitution: String,
-        harness: String
-    ): Phenomenon.Invocation = agency.invoke(prompt, constitution, harness).also { collected += it }
+        constitution: String
+    ): Phenomenon.Invocation = agency.invoke(prompt, constitution).also { collected += it }
 
 }
 
@@ -355,7 +354,6 @@ internal class SwitchedAgency : Agency {
 
     override val cogitation: Cogitation get() = current.cogitation
     override val constitution: String get() = current.constitution
-    override val harness: String get() = current.harness
     override val parentCogitation: Cogitation? get() = current.parentCogitation
     override val depth: Int get() = current.depth
     override val invocations: List<Phenomenon.Invocation> get() = current.invocations
@@ -364,8 +362,7 @@ internal class SwitchedAgency : Agency {
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http
 
-    override fun invoke(prompt: String, constitution: String, harness: String) =
-        current.invoke(prompt, constitution, harness)
+    override fun invoke(prompt: String, constitution: String) = current.invoke(prompt, constitution)
 
     override fun enunciate(text: String, contentType: String) = current.enunciate(text, contentType)
 
