@@ -60,3 +60,4 @@ bin/
 __pycache__/
 # the Python virtual environment of the tests, created by Gradle
 /.venv/
+key.txt

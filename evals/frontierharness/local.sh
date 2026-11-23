@@ -14,6 +14,8 @@
 #   OPENAI_BASE_URL, OPENAI_MODEL, OPENAI_API_KEY   the endpoint and model, required
 #   ANTHROPIC_MODEL, ANTHROPIC_API_KEY              Claude instead, when the model is set
 #   ANNIE_PARALLELISM, ANNIE_TOKEN_BUDGET, ...      passed on to Annie, see honest_annie_adapter.py
+#   ANNIE_EFFORT        the reasoning effort, the default of the model when not set, but medium for Claude Fable;
+#                       recorded in the manifest of the run, empty for the default, as runs of different efforts do not compare
 #   ANNIE_CONSTITUTION  a constitution template on this host, uploaded into each task, e.g. a variant to compare
 #   ANNIE_TIME_LIMIT    seconds Annie may spend on each task, by default the agent timeout of a DeepSWE task
 #                       less ANNIE_TIME_MARGIN (300), so that she is told how much is left before the runner kills her
@@ -138,6 +140,9 @@ trials() {
   # shellcheck disable=SC1091
   . "$HERE/annie.env"
   set +a
+  # Claude Fable reasons about 4 times more at its default effort than at medium, doubling the cost of a task
+  # with no more of them passed, so medium unless ANNIE_EFFORT says otherwise
+  case "$MODEL" in claude-fable*) export ANNIE_EFFORT=${ANNIE_EFFORT:-medium} ;; esac
   export ANNIE_DIST="$DATA/honest-annie/honest-annie-runtime.tar.gz"
   export ANNIE_VERSION_FILE="$DATA/honest-annie/version.txt"
   export ANNIE_EGRESS_CA=/nonexistent
@@ -147,11 +152,11 @@ trials() {
   mkdir -p "$run_dir/trials"
   jq -n --arg model "$MODEL" --arg base "$BASE_URL" --arg version "$(cat "$ANNIE_VERSION_FILE")" \
     --arg harbor "$(harbor --version 2>&1 | tail -1)" --arg pier "$(pier --version 2>&1 | tail -1)" \
-    --arg parallelism "${ANNIE_PARALLELISM:-}" --arg budget "${ANNIE_TOKEN_BUDGET:-}" \
+    --arg effort "${ANNIE_EFFORT:-}" --arg parallelism "${ANNIE_PARALLELISM:-}" --arg budget "${ANNIE_TOKEN_BUDGET:-}" \
     --arg constitution "${ANNIE_CONSTITUTION:-}" --arg time_limit "${FIXED_TIME_LIMIT:-agent timeout - ${ANNIE_TIME_MARGIN:-300}}" \
     --arg constitution_sha "$([ -n "${ANNIE_CONSTITUTION:-}" ] && sha256sum "$ANNIE_CONSTITUTION" | cut -c1-16)" \
     '{harness:"honest-annie", runner:"local.sh", model:$model, base_url:$base, harness_version:$version,
-      harbor_version:$harbor, pier_version:$pier, annie_parallelism:$parallelism, annie_token_budget:$budget,
+      harbor_version:$harbor, pier_version:$pier, annie_effort:$effort, annie_parallelism:$parallelism, annie_token_budget:$budget,
       annie_time_limit:$time_limit, annie_constitution:$constitution, annie_constitution_sha256:$constitution_sha}' \
       > "$run_dir/manifest.json"
 
@@ -212,5 +217,5 @@ case "$command" in
   smoke) trials "${RUN_ID:-$(default_run_id -smoke)}" "$WORKSPACE/skills/frontierharness-eval/smoke-tasks.txt" ;;
   run) trials "${RUN_ID:-$(default_run_id "")}" "${1:-$WORKSPACE/tasks}" ;;
   summary) summary "$@" ;;
-  *) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac
