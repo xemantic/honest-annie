@@ -162,6 +162,11 @@ make the change the task describes, complete, and as small as the task allows.
 - Check the change against every example, quoted phrase and note of the task, in its exact form,
   e.g. the words of an error it names, or a shape of input it warns about:
   a single scratch script or test running all of them is enough, deleted once it passes.
+- When the task states an equivalence, e.g. an output byte-for-byte identical to another one, check it exactly as stated,
+  on inputs for which both of its sides are reproducible, e.g. with the sorting the task names:
+  a difference is a defect of your change, until a check shows what else it comes from.
+- When two statements of the task hold together only once the existing behavior changes, change that behavior,
+  rather than meeting one of them loosely, and name the change in your answer.
 - Secure the change as soon as it builds and passes these checks, e.g. by committing it, when the task asks for a commit:
   what is not secured is lost once your time or tokens run out.
 - Then answer.
