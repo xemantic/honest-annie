@@ -83,7 +83,7 @@ setup() {
   (cd "$REPO_ROOT" && JAVA_HOME="$jdk" ./gradlew --no-daemon --quiet runtimeDistTar)
   local out="$DATA/honest-annie"
   rm -rf "$out" && mkdir -p "$out"
-  cp "$REPO_ROOT"/build/distributions/honest-annie-runtime-*-linux-*.tar.gz "$out/honest-annie-runtime.tar.gz"
+  cp "$REPO_ROOT"/honest-annie-harness/build/distributions/honest-annie-runtime-*-linux-*.tar.gz "$out/honest-annie-runtime.tar.gz"
   printf '%s (%s)\n' "$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown)" \
     "$(git -C "$REPO_ROOT" rev-parse HEAD)" > "$out/version.txt"
   local tools site

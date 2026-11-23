@@ -53,7 +53,7 @@ import kotlin.time.Duration.Companion.seconds
  * Claude caches what it reads for `ANNIE_CACHE_TTL`, `5m` by default, or `1h`, see [ClaudeInference],
  * and infers after a refused inference by `ANNIE_FALLBACK_MODEL`, `claude-opus-5-5` by default, or by its own model when `none`.
  * The Python of the intents runs in the virtual environment of `VIRTUAL_ENV`, or of `ANNIE_PYTHON_VENV`,
- * created with `ANNIE_PYTHON` when it does not exist, see [PythonVenv].
+ * created with `ANNIE_PYTHON` when it does not exist, see `PythonVenv` of the executor.
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")

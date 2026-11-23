@@ -28,8 +28,12 @@ import com.xemantic.ai.annie.Inference
 import com.xemantic.ai.annie.Phenomenon
 import com.xemantic.ai.annie.ScriptExecutor
 import com.xemantic.ai.annie.Python
-import com.xemantic.ai.annie.SessionScriptExecutor
 import com.xemantic.ai.annie.cognizer.Cognizer
+import com.xemantic.ai.annie.executor.PythonVenv
+import com.xemantic.ai.annie.executor.SessionScriptExecutor
+import com.xemantic.ai.annie.executor.annieHttpClient
+import com.xemantic.ai.annie.executor.executeProcess
+import com.xemantic.ai.annie.executor.lazyKotlinIntrospector
 import com.xemantic.ai.annie.randomId
 import com.xemantic.ai.annie.unfold
 import com.xemantic.kotlin.introspection.KotlinIntrospector

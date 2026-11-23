@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.host
+package com.xemantic.ai.annie.executor
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO

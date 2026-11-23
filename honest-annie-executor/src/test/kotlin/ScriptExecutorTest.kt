@@ -16,11 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie
+package com.xemantic.ai.annie.executor
 
 import com.sun.net.httpserver.HttpHandler
 import com.sun.net.httpserver.HttpServer
-import com.xemantic.ai.annie.host.annieHttpClient
+import com.xemantic.ai.annie.*
 import com.xemantic.kotlin.test.assert
 import java.net.InetAddress
 import java.net.InetSocketAddress

@@ -36,12 +36,12 @@ xemantic-kotlin-script = { module = "com.xemantic.kotlin:xemantic-kotlin-script"
 xemantic-kotlin-script-python = { module = "com.xemantic.kotlin:xemantic-kotlin-script-python", version.ref = "xemanticKotlinScriptPython" }
 xemantic-ai-file-magic = { module = "com.xemantic.ai:xemantic-ai-file-magic", version.ref = "xemanticAiFileMagic" }
 xemantic-ai-money = { module = "com.xemantic.ai:xemantic-ai-money", version.ref = "xemanticAiMoney" }
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+kotlin-power-assert = { module = "org.jetbrains.kotlin:kotlin-power-assert", version.ref = "kotlin" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 xemantic-kotlin-test = { module = "com.xemantic.kotlin:xemantic-kotlin-test", version.ref = "xemanticKotlinTest" }
 
 [plugins]
-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
-kotlin-plugin-power-assert = { id = "org.jetbrains.kotlin.plugin.power-assert", version.ref = "kotlin" }
 version-catalog-update = { id = "nl.littlerobots.version-catalog-update", version.ref = "versionCatalogUpdatePlugin" }
 xemantic-conventions = { id = "com.xemantic.gradle.xemantic-conventions", version.ref = "xemanticConventionsPlugin" }

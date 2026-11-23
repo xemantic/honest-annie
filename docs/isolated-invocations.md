@@ -168,11 +168,13 @@ and its counting of tokens a reading of its inferences.
 
 | Module | Holds | Depends on |
 |---|---|---|
-| `api` | `Api.kt` and `Cognition.kt`, what scripts compile against, serializable | nothing |
-| `executor` | the sessions of scripts, Python, processes, `RemoteAgency`, a `main` speaking the protocol | `api` |
+| `honest-annie-api` | `Api.kt` and `Cognition.kt`, what scripts compile against, serializable, and `ScriptExecutor` | nothing |
+| `honest-annie-executor` | the sessions of scripts, Python, processes, `RemoteAgency`, a `main` speaking the protocol | `api` |
 | `executor-image` | the OCI image of the executor | `executor` |
-| `host` | `HarnessHost`, the cognizers, the recorder, the environments, the server of the protocol | `api` |
-| `app` | `Main` | `host` |
+| `honest-annie-harness` | `HarnessHost`, the cognizers, the recorder, the environments, the server of the protocol, and `Main` | `api` |
+
+The first three exist, the executor still running in the JVM of the harness, which depends on it until the protocol replaces it;
+`RemoteAgency`, the protocol, the environments and the image do not exist yet.
 
 Without a container runtime, the executor runs as a process of the host, speaking the same protocol,
 so that there is a single code path.

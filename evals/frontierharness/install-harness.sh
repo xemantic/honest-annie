@@ -54,7 +54,7 @@ echo "building the runtime distribution" >&2
 export GRADLE_USER_HOME=${GRADLE_USER_HOME:-$(mktemp -d)}
 ./gradlew --no-daemon --quiet runtimeDistTar
 unset JAVA_TOOL_OPTIONS
-dist=$(ls build/distributions/honest-annie-runtime-*-linux-*.tar.gz)
+dist=$(ls honest-annie-harness/build/distributions/honest-annie-runtime-*-linux-*.tar.gz)
 
 rm -rf "$OUT"
 mkdir -p "$OUT"

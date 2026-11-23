@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.host
+package com.xemantic.ai.annie.executor
 
 import com.xemantic.kotlin.introspection.KotlinIntrospector
 
