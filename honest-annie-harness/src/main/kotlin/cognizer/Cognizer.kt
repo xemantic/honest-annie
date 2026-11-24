@@ -16,16 +16,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer
+package com.xemantic.annie.harness.cognizer
 
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Inference
-import com.xemantic.ai.annie.Phenomenon
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Phenomenon
 
 /**
  * The cognizer unfolding every cogitation, e.g. by inferring with a model through its API.
  * Hidden from intents, together with the specificity of its model, it cognizes
- * only through the harness, provided to it as `cognizer`, see [com.xemantic.ai.annie.Cogitation].
+ * only through the harness, provided to it as `cognizer`, see [com.xemantic.annie.Cogitation].
  */
 fun interface Cognizer {
 

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.buildlogic
+package com.xemantic.annie.buildlogic
 
 import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin

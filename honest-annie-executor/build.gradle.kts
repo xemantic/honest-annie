@@ -1,4 +1,4 @@
-import com.xemantic.ai.annie.buildlogic.usePythonVenvOfTests
+import com.xemantic.annie.buildlogic.usePythonVenvOfTests
 
 // The executor of the scripts of intents: Kotlin script sessions, the embedded Python of Jep, and processes.
 plugins {

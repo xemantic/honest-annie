@@ -16,13 +16,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer
+package com.xemantic.annie.harness.cognizer
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import com.xemantic.ai.annie.Edit
-import com.xemantic.ai.annie.Phenomenon
+import com.xemantic.annie.Edit
+import com.xemantic.annie.Phenomenon
 import io.github.oshai.kotlinlogging.KotlinLogging
 
 private val logger = KotlinLogging.logger {}

@@ -33,7 +33,7 @@ gradlePlugin {
     plugins {
         register("AnnieConventionPlugin") {
             id = "annie.convention"
-            implementationClass = "com.xemantic.ai.annie.buildlogic.AnnieConventionPlugin"
+            implementationClass = "com.xemantic.annie.buildlogic.AnnieConventionPlugin"
         }
     }
 }

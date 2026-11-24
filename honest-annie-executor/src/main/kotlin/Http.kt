@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.executor
+package com.xemantic.annie.executor
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -28,7 +28,7 @@ import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 /**
- * The HTTP client of every cogitation of the JVM, see [com.xemantic.ai.annie.Agency.http],
+ * The HTTP client of every cogitation of the JVM, see [com.xemantic.annie.Agency.http],
  * created on first use, and shared, as a client is safe to use concurrently, and keeps its connections for reuse.
  * It is never closed, its threads being daemons not keeping the JVM alive.
  */

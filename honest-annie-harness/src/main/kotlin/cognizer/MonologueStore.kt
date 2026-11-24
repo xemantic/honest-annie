@@ -16,9 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer
+package com.xemantic.annie.harness.cognizer
 
-import com.xemantic.ai.annie.Phenomenon
+import com.xemantic.annie.Phenomenon
 import java.util.concurrent.ConcurrentHashMap
 
 /**

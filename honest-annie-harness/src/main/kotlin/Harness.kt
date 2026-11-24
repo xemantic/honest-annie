@@ -16,8 +16,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie
+package com.xemantic.annie.harness
 
+import com.xemantic.annie.Actant
+import com.xemantic.annie.Agency
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.ScriptExecutor
 // The harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
 // The host calls it again for the next inference, unless the cogitation rests, or awaits invocations.
 //
@@ -50,7 +57,7 @@ package com.xemantic.ai.annie
 // A tool call which could not be executed, e.g. of another tool, or without a script, is responded by the computer
 // with the impediment the cognizer perceived in it, so that the cognizer can express its intent again,
 // rather than the text along the call ending the cogitation as its answer.
-import com.xemantic.ai.annie.cognizer.Cognizer
+import com.xemantic.annie.harness.cognizer.Cognizer
 import kotlin.time.Clock
 
 /**

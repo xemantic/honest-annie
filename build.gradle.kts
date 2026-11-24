@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.xemantic.conventions)
 }
 
-group = "com.xemantic.ai"
+group = "com.xemantic.annie"
 
 xemantic {
     description = "A recursive harness for cognizers acting through Kotlin scripts"
@@ -12,7 +12,7 @@ xemantic {
 }
 
 allprojects {
-    group = "com.xemantic.ai"
+    group = "com.xemantic.annie"
 }
 
 // The Python virtual environment of the tests, with only the jep package matching the org.ninia:jep library,

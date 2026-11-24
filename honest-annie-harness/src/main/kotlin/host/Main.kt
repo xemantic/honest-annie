@@ -16,25 +16,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.host
+package com.xemantic.annie.harness.host
 
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.models.messages.CacheControlEphemeral
 import com.anthropic.core.http.ProxyAuthenticator
-import com.xemantic.ai.annie.cognizer.httpsProxy
+import com.xemantic.annie.harness.cognizer.httpsProxy
 import java.net.URI
-import com.xemantic.ai.annie.Actant
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Enunciation
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.cognizer.Cognizer
-import com.xemantic.ai.annie.cognizer.Effort
-import com.xemantic.ai.annie.cognizer.MonologueVisibility
-import com.xemantic.ai.annie.cognizer.claude.ClaudeInference
-import com.xemantic.ai.annie.cognizer.openai.OpenAIInference
-import com.xemantic.ai.annie.cognizer.openai.openAIClient
-import com.xemantic.ai.annie.cognizer.openai.openAIProvider
-import com.xemantic.ai.annie.constitution
+import com.xemantic.annie.Actant
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.harness.cognizer.Cognizer
+import com.xemantic.annie.harness.cognizer.Effort
+import com.xemantic.annie.harness.cognizer.MonologueVisibility
+import com.xemantic.annie.harness.cognizer.claude.ClaudeInference
+import com.xemantic.annie.harness.cognizer.openai.OpenAIInference
+import com.xemantic.annie.harness.cognizer.openai.openAIClient
+import com.xemantic.annie.harness.cognizer.openai.openAIProvider
+import com.xemantic.annie.harness.constitution
 import kotlin.io.path.Path
 import kotlinx.coroutines.runBlocking
 import kotlin.time.Duration.Companion.seconds

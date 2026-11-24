@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.executor
+package com.xemantic.annie.executor
 
 import com.xemantic.kotlin.script.python.PythonEnvironment
 import java.nio.file.Path
@@ -33,7 +33,7 @@ val jepVersion: String = Properties().apply {
 }.getProperty("jep.version")
 
 /**
- * The Python of the intents, see [com.xemantic.ai.annie.Agency.python], embedded through Jep,
+ * The Python of the intents, see [com.xemantic.annie.Agency.python], embedded through Jep,
  * needs the `jep` package of the version of the library installed in its Python environment.
  *
  * Unless `VIRTUAL_ENV` tells the virtual environment to use, e.g. the one of the build,

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.executor
+package com.xemantic.annie.executor
 
 import com.xemantic.kotlin.test.assert
 import kotlin.concurrent.thread

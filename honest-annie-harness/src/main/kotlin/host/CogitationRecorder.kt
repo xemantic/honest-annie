@@ -16,14 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.host
+package com.xemantic.annie.harness.host
 
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Edit
-import com.xemantic.ai.annie.Enunciation
-import com.xemantic.ai.annie.Inference
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.cost
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Edit
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.harness.cost
 import com.xemantic.ai.money.Money
 import com.xemantic.ai.money.ZERO
 import java.nio.file.FileAlreadyExistsException

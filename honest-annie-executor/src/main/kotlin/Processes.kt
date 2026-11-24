@@ -16,19 +16,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.executor
+package com.xemantic.annie.executor
 
-import com.xemantic.ai.annie.Execution
+import com.xemantic.annie.Execution
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit.NANOSECONDS
 import kotlin.concurrent.thread
 import kotlin.time.Duration
 
 /**
- * Executes the [command] as a process, see [com.xemantic.ai.annie.Agency.execute],
+ * Executes the [command] as a process, see [com.xemantic.annie.Agency.execute],
  * blocking the current thread until it exits, and its outputs are read, or the [timeout] elapses,
  * or the thread is interrupted, e.g. as the intent executing it is cancelled, which throws [InterruptedException].
  * In every case the process is destroyed, together with its descendants, once this function returns.

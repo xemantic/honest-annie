@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer.openai
+package com.xemantic.annie.harness.cognizer.openai
 
 import com.openai.client.OpenAIClient
 import com.openai.core.JsonField
@@ -49,23 +49,23 @@ import com.openai.models.responses.ResponseInputText
 import com.openai.models.responses.ResponseReasoningItem
 import com.openai.models.responses.ToolChoiceOptions
 import com.openai.models.Reasoning
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Inference
-import com.xemantic.ai.annie.Inference.Tokens
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.Phenomenon.Monologue
-import com.xemantic.ai.annie.cognizer.Cognized
-import com.xemantic.ai.annie.cognizer.Cognizer
-import com.xemantic.ai.annie.cognizer.Effort
-import com.xemantic.ai.annie.cognizer.InMemoryMonologueStore
-import com.xemantic.ai.annie.cognizer.IntentTool
-import com.xemantic.ai.annie.cognizer.MonologueStore
-import com.xemantic.ai.annie.cognizer.MonologueTrace
-import com.xemantic.ai.annie.cognizer.MonologueVisibility
-import com.xemantic.ai.annie.cognizer.Perceived
-import com.xemantic.ai.annie.cognizer.Turn
-import com.xemantic.ai.annie.cognizer.systemPrompt
-import com.xemantic.ai.annie.cognizer.toTurns
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Inference.Tokens
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.Phenomenon.Monologue
+import com.xemantic.annie.harness.cognizer.Cognized
+import com.xemantic.annie.harness.cognizer.Cognizer
+import com.xemantic.annie.harness.cognizer.Effort
+import com.xemantic.annie.harness.cognizer.InMemoryMonologueStore
+import com.xemantic.annie.harness.cognizer.IntentTool
+import com.xemantic.annie.harness.cognizer.MonologueStore
+import com.xemantic.annie.harness.cognizer.MonologueTrace
+import com.xemantic.annie.harness.cognizer.MonologueVisibility
+import com.xemantic.annie.harness.cognizer.Perceived
+import com.xemantic.annie.harness.cognizer.Turn
+import com.xemantic.annie.harness.cognizer.systemPrompt
+import com.xemantic.annie.harness.cognizer.toTurns
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.future.await
 

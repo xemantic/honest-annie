@@ -1,5 +1,5 @@
-import com.xemantic.ai.annie.buildlogic.annieJvmArgs
-import com.xemantic.ai.annie.buildlogic.usePythonVenvOfTests
+import com.xemantic.annie.buildlogic.annieJvmArgs
+import com.xemantic.annie.buildlogic.usePythonVenvOfTests
 
 // The harness: the host unfolding cogitations, inferring by the cognizers of the providers' APIs,
 // and storing and recording the cogitations, the intents being executed by the executor.
@@ -33,7 +33,7 @@ val appName = rootProject.name
 
 application {
     applicationName = appName
-    mainClass = "com.xemantic.ai.annie.host.MainKt"
+    mainClass = "com.xemantic.annie.harness.host.MainKt"
     applicationDefaultJvmArgs = annieJvmArgs
 }
 
@@ -172,6 +172,6 @@ tasks.register<JavaExec>("listModels") {
     group = "annie"
     description = "Lists models exposed by the OpenAI-compatible endpoint at OPENAI_BASE_URL"
     classpath = sourceSets.main.get().runtimeClasspath
-    mainClass = "com.xemantic.ai.annie.cognizer.openai.ListModelsKt"
+    mainClass = "com.xemantic.annie.harness.cognizer.openai.ListModelsKt"
     args = (findProperty("prompt") as String?)?.let { listOf(it) } ?: emptyList()
 }

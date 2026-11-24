@@ -16,10 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.host
+package com.xemantic.annie.harness.host
 
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Phenomenon
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Phenomenon
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
 import kotlin.time.Instant

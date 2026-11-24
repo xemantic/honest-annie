@@ -16,29 +16,29 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer.openai
+package com.xemantic.annie.harness.cognizer.openai
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.core.jsonMapper
 import com.openai.models.chat.completions.ChatCompletion
 import com.openai.models.responses.Response
-import com.xemantic.ai.annie.Actant
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Enunciation
-import com.xemantic.ai.annie.Inference
-import com.xemantic.ai.annie.Inference.Tokens
-import com.xemantic.ai.annie.Edit
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.Phenomenon.Monologue
-import com.xemantic.ai.annie.cognizer.Effort
-import com.xemantic.ai.annie.cognizer.InMemoryMonologueStore
-import com.xemantic.ai.annie.cognizer.MonologueTrace
-import com.xemantic.ai.annie.cognizer.MonologueVisibility
-import com.xemantic.ai.annie.cognizer.IntentTool
-import com.xemantic.ai.annie.cognizer.minimalPdf
-import com.xemantic.ai.annie.cognizer.redPixelPng
-import com.xemantic.ai.annie.cognizer.redPixelPngBase64
+import com.xemantic.annie.Actant
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Inference.Tokens
+import com.xemantic.annie.Edit
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.Phenomenon.Monologue
+import com.xemantic.annie.harness.cognizer.Effort
+import com.xemantic.annie.harness.cognizer.InMemoryMonologueStore
+import com.xemantic.annie.harness.cognizer.MonologueTrace
+import com.xemantic.annie.harness.cognizer.MonologueVisibility
+import com.xemantic.annie.harness.cognizer.IntentTool
+import com.xemantic.annie.harness.cognizer.minimalPdf
+import com.xemantic.annie.harness.cognizer.redPixelPng
+import com.xemantic.annie.harness.cognizer.redPixelPngBase64
 import com.xemantic.kotlin.test.assert
 import kotlin.io.encoding.Base64
 import kotlin.test.Test

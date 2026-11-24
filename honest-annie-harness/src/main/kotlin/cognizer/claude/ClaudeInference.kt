@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer.claude
+package com.xemantic.annie.harness.cognizer.claude
 
 import com.anthropic.client.AnthropicClient
 import com.anthropic.core.JsonValue
@@ -39,23 +39,23 @@ import com.anthropic.models.messages.Tool
 import com.anthropic.models.messages.ToolChoiceAuto
 import com.anthropic.models.messages.ToolResultBlockParam
 import com.anthropic.models.messages.ToolUseBlockParam
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Inference
-import com.xemantic.ai.annie.Inference.Tokens
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.Phenomenon.Monologue
-import com.xemantic.ai.annie.cognizer.Cognized
-import com.xemantic.ai.annie.cognizer.Cognizer
-import com.xemantic.ai.annie.cognizer.Effort
-import com.xemantic.ai.annie.cognizer.InMemoryMonologueStore
-import com.xemantic.ai.annie.cognizer.IntentTool
-import com.xemantic.ai.annie.cognizer.MonologueStore
-import com.xemantic.ai.annie.cognizer.MonologueTrace
-import com.xemantic.ai.annie.cognizer.MonologueVisibility
-import com.xemantic.ai.annie.cognizer.Perceived
-import com.xemantic.ai.annie.cognizer.Turn
-import com.xemantic.ai.annie.cognizer.systemPrompt
-import com.xemantic.ai.annie.cognizer.toTurns
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Inference.Tokens
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.Phenomenon.Monologue
+import com.xemantic.annie.harness.cognizer.Cognized
+import com.xemantic.annie.harness.cognizer.Cognizer
+import com.xemantic.annie.harness.cognizer.Effort
+import com.xemantic.annie.harness.cognizer.InMemoryMonologueStore
+import com.xemantic.annie.harness.cognizer.IntentTool
+import com.xemantic.annie.harness.cognizer.MonologueStore
+import com.xemantic.annie.harness.cognizer.MonologueTrace
+import com.xemantic.annie.harness.cognizer.MonologueVisibility
+import com.xemantic.annie.harness.cognizer.Perceived
+import com.xemantic.annie.harness.cognizer.Turn
+import com.xemantic.annie.harness.cognizer.systemPrompt
+import com.xemantic.annie.harness.cognizer.toTurns
 import kotlinx.coroutines.future.await
 
 /**
@@ -84,7 +84,7 @@ import kotlinx.coroutines.future.await
  * a 1-hour cache only doubles the price of writing it, instead of 1.25 times the input,
  * paying off when the same constitution is inferred again 5 to 60 minutes later, e.g. by the next task of a batch.
  * @param fallback the canonical id of the model inferring after a refused inference, e.g. one of a safety classifier,
- * which might be a false positive, see [com.xemantic.ai.annie.Inference.Stop.Kind.REFUSED],
+ * which might be a false positive, see [com.xemantic.annie.Inference.Stop.Kind.REFUSED],
  * the same id at the endpoint, the [model] inferring again when `null`;
  * only the inference right after the refused one is made by it, its monologue replayed only to it.
  * @param monologues keeping the exact form of the monologues, see [MonologueStore].

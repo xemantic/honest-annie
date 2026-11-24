@@ -16,9 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie
+package com.xemantic.annie.harness
 
-import com.xemantic.ai.annie.Inference.Tokens
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Inference.Tokens
 import com.xemantic.ai.money.Money
 import com.xemantic.kotlin.test.assert
 import kotlin.test.Test

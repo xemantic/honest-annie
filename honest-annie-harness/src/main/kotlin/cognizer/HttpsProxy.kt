@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer
+package com.xemantic.annie.harness.cognizer
 
 import java.net.InetSocketAddress
 import java.net.Proxy

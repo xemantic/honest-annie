@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie
+package com.xemantic.annie
 
 import kotlinx.io.buffered
 import kotlinx.io.files.Path

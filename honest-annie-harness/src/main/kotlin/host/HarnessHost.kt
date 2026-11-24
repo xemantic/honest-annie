@@ -16,26 +16,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.host
+package com.xemantic.annie.harness.host
 
-import com.xemantic.ai.annie.Actant
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Enunciation
-import com.xemantic.ai.annie.Execution
-import com.xemantic.ai.annie.Agency
-import com.xemantic.ai.annie.Allowance
-import com.xemantic.ai.annie.Inference
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.ScriptExecutor
-import com.xemantic.ai.annie.Python
-import com.xemantic.ai.annie.cognizer.Cognizer
-import com.xemantic.ai.annie.executor.PythonVenv
-import com.xemantic.ai.annie.executor.SessionScriptExecutor
-import com.xemantic.ai.annie.executor.annieHttpClient
-import com.xemantic.ai.annie.executor.executeProcess
-import com.xemantic.ai.annie.executor.lazyKotlinIntrospector
-import com.xemantic.ai.annie.randomId
-import com.xemantic.ai.annie.unfold
+import com.xemantic.annie.Actant
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.Execution
+import com.xemantic.annie.Agency
+import com.xemantic.annie.Allowance
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.ScriptExecutor
+import com.xemantic.annie.Python
+import com.xemantic.annie.harness.cognizer.Cognizer
+import com.xemantic.annie.executor.PythonVenv
+import com.xemantic.annie.executor.SessionScriptExecutor
+import com.xemantic.annie.executor.annieHttpClient
+import com.xemantic.annie.executor.executeProcess
+import com.xemantic.annie.executor.lazyKotlinIntrospector
+import com.xemantic.annie.randomId
+import com.xemantic.annie.harness.unfold
 import com.xemantic.kotlin.introspection.KotlinIntrospector
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.HttpClient

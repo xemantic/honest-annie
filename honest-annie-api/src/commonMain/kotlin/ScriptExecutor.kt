@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie
+package com.xemantic.annie
 
 /**
  * Executes the intents of a cogitation, provided to the harness as `executor`, see [Cogitation].

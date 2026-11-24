@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie
+package com.xemantic.annie
 
 import kotlin.uuid.Uuid
 import kotlin.time.Clock
@@ -201,7 +201,7 @@ data class Inference(
  * A cogitation is unfolded by the harness, the `unfold` function of `Harness.kt`, compiled into honest-annie,
  * whose source is part of the [constitution], and called by the host at each step with:
  * - `agency`: [Agency] within this cogitation, its [Agency.cogitation] being the one to unfold,
- * - `cognizer`: `Cognizer` of the package `com.xemantic.ai.annie.cognizer`, whose
+ * - `cognizer`: `Cognizer` of the package `com.xemantic.annie.harness.cognizer`, whose
  *   `suspend fun cognize(cogitation: Cogitation): Cognized` makes a single inference, returning
  *   `data class Cognized(val phenomena: List<Phenomenon>, val inference: Inference? = null)`:
  *   the phenomena to be enunciated by [Actant.SELF], e.g. a [Phenomenon.Monologue], a [Phenomenon.Text] and a [Phenomenon.Intent],

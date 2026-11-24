@@ -16,8 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie
+package com.xemantic.annie.harness
 
+import com.xemantic.annie.Agency
 import java.nio.file.Path
 import kotlin.io.path.readText
 

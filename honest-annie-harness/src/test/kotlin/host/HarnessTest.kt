@@ -16,17 +16,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.host
+package com.xemantic.annie.harness.host
 
-import com.xemantic.ai.annie.Actant
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Edit
-import com.xemantic.ai.annie.Enunciation
-import com.xemantic.ai.annie.Inference
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.cognizer.Cognized
-import com.xemantic.ai.annie.cognizer.Cognizer
-import com.xemantic.ai.annie.responseId
+import com.xemantic.annie.Actant
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Edit
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.Inference
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.harness.cognizer.Cognized
+import com.xemantic.annie.harness.cognizer.Cognizer
+import com.xemantic.annie.responseId
 import com.xemantic.kotlin.test.assert
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
@@ -94,7 +94,7 @@ class HarnessTest {
 
     /** Intent enunciating the texts of all the responses to the invocations of the cogitation. */
     private val respondedIntent = """
-        import com.xemantic.ai.annie.*
+        import com.xemantic.annie.*
         val invocations = agency.cogitation.enunciations.flatMap { it.phenomena }
             .filterIsInstance<Phenomenon.Invocation>().map { it.id }
         agency.cogitation.enunciations.filter { it.respondsTo in invocations }.forEach { response ->
@@ -107,7 +107,7 @@ class HarnessTest {
         // given
         val cognizer = ScriptedCognizer(
             """
-            import com.xemantic.ai.annie.*
+            import com.xemantic.annie.*
             agency.enunciate("answer is 42")
             agency.enunciate(byteArrayOf(4, 2), "application/octet-stream")
             "ignored value"
@@ -488,7 +488,7 @@ class HarnessTest {
     fun `should resolve declarations through agency of intent`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
-            "agency.enunciate(agency.resolveDeclaration(\"com.xemantic.ai.annie.Agency\") ?: \"not found\")"
+            "agency.enunciate(agency.resolveDeclaration(\"com.xemantic.annie.Agency\") ?: \"not found\")"
         )
 
         // when
@@ -505,7 +505,7 @@ class HarnessTest {
         // given
         val cognizer = ScriptedCognizer(
             """
-            import com.xemantic.ai.annie.*
+            import com.xemantic.annie.*
             agency.enunciate(agency.bash("echo hello").output, "text/plain")
             """.trimIndent()
         )

@@ -16,13 +16,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer
+package com.xemantic.annie.harness.cognizer
 
-import com.xemantic.ai.annie.Actant
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Enunciation
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.Phenomenon.Monologue
+import com.xemantic.annie.Actant
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.Phenomenon.Monologue
 import com.xemantic.ai.file.magic.MediaType
 import com.xemantic.ai.file.magic.detectMediaType
 import kotlin.io.encoding.Base64

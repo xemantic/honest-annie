@@ -16,12 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.cognizer.openai
+package com.xemantic.annie.harness.cognizer.openai
 
 import com.openai.client.OpenAIClient
 import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.core.http.ProxyAuthenticator
-import com.xemantic.ai.annie.cognizer.httpsProxy
+import com.xemantic.annie.harness.cognizer.httpsProxy
 import com.openai.models.chat.completions.ChatCompletionCreateParams
 import java.net.URI
 

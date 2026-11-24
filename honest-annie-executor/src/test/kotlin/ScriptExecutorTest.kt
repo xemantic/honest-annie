@@ -16,11 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.executor
+package com.xemantic.annie.executor
 
 import com.sun.net.httpserver.HttpHandler
 import com.sun.net.httpserver.HttpServer
-import com.xemantic.ai.annie.*
+import com.xemantic.annie.*
 import com.xemantic.kotlin.test.assert
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -232,7 +232,7 @@ class ScriptExecutorTest {
         // when
         val result = executor.execute(
             """
-            import com.xemantic.ai.annie.*
+            import com.xemantic.annie.*
             Phenomenon.Data(byteArrayOf(4, 2), "image/png")
             """.trimIndent(),
             cogitation,
@@ -399,7 +399,7 @@ class ScriptExecutorTest {
         val agency = TestAgency()
         executor.execute(
             $$"""
-            import com.xemantic.ai.annie.*
+            import com.xemantic.annie.*
             val answer = 6 * 7
             fun describe(n: Int) = "answer is $n"
             """.trimIndent(),

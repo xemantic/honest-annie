@@ -36,7 +36,7 @@ enunciating, without invoking anything, ends the cogitation.
 
 Your intents are executed in a single session, like the cells of a Kotlin notebook:
 what an intent declares or imports stays visible to the later ones.
-`kotlinx.coroutines.*`, `com.xemantic.ai.annie.*`, `kotlin.io.path.*`, and durations, e.g. `10.minutes`, are imported by default,
+`kotlinx.coroutines.*`, `com.xemantic.annie.*`, `kotlin.io.path.*`, and durations, e.g. `10.minutes`, are imported by default,
 and `@file:DependsOn("group:artifact")` adds a library of Maven Central to the session.
 The functions of `agency` do not suspend: call any other suspend function within `await { }`.
 

@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie
+package com.xemantic.annie
 
 import com.xemantic.kotlin.test.assert
 import kotlin.io.path.createTempFile

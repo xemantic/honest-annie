@@ -16,14 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.executor
+package com.xemantic.annie.executor
 
-import com.xemantic.ai.annie.Agency
-import com.xemantic.ai.annie.Allowance
-import com.xemantic.ai.annie.Cogitation
-import com.xemantic.ai.annie.Phenomenon
-import com.xemantic.ai.annie.Python
-import com.xemantic.ai.annie.ScriptExecutor
+import com.xemantic.annie.Agency
+import com.xemantic.annie.Allowance
+import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.Python
+import com.xemantic.annie.ScriptExecutor
 import com.xemantic.kotlin.script.ScriptResult
 import io.ktor.client.HttpClient
 import com.xemantic.kotlin.script.ScriptSession
@@ -223,7 +223,7 @@ private const val MAX_RESULT_LENGTH = 30_000
  * whose missing imports failed whole intents of edits, to be sent again.
  */
 private const val DEFAULT_IMPORTS = """
-import com.xemantic.ai.annie.*
+import com.xemantic.annie.*
 import kotlin.io.path.*
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes

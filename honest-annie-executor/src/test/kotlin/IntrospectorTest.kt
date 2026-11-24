@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.ai.annie.executor
+package com.xemantic.annie.executor
 
 import com.xemantic.kotlin.test.assert
 import kotlin.test.Test
@@ -36,7 +36,7 @@ class IntrospectorTest {
         // when
         val resolved = (1..8).map {
             async(Dispatchers.Default) {
-                introspector.resolve("com.xemantic.ai.annie.Agency")
+                introspector.resolve("com.xemantic.annie.Agency")
             }
         }.awaitAll()
 
@@ -54,7 +54,7 @@ class IntrospectorTest {
         val found = introspector.search("SessionScriptExecutor")
 
         // then
-        assert(found != null && "com.xemantic.ai.annie.executor.SessionScriptExecutor" in found)
+        assert(found != null && "com.xemantic.annie.executor.SessionScriptExecutor" in found)
     }
 
 }
