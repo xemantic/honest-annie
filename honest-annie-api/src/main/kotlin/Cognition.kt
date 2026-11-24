@@ -61,12 +61,7 @@ sealed interface Phenomenon {
      * Text, e.g. the prompt of a task, the value of an intent, or what the cognizer says:
      * an inference expressing text, and no [Intent], answers with it, which is the output of its cogitation.
      */
-    data class Text(val text: String, val contentType: String = MARKDOWN) : Phenomenon {
-        companion object {
-            const val MARKDOWN = "text/markdown"
-            const val PLAIN = "text/plain"
-        }
-    }
+    data class Text(val text: String, val contentType: String = "text/markdown") : Phenomenon
     class Data(val bytes: ByteArray, val contentType: String? = null) : Phenomenon {
         override fun equals(other: Any?): Boolean = other is Data
                 && contentType == other.contentType && bytes.contentEquals(other.bytes)

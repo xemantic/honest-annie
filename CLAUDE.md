@@ -71,4 +71,6 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 
 ## Anti-patterns to avoid
 
+- Do not wrap literal values of the API, like content types (`"text/plain"`, `"text/markdown"`), in named constants: the scripts are mostly written by LLMs, which read and write the plain string more reliably than a symbol they have to look up.
+
 - Do not add content to this file that is already discoverable by reading the source or build scripts — that inflates context without adding signal, reducing AI agent task success rates (see [arxiv 2602.11988](https://arxiv.org/abs/2602.11988)).

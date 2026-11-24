@@ -104,14 +104,14 @@ class SessionScriptExecutor(
                             is Phenomenon.Data -> value
                             // already in the result, e.g. `prompts.map { agency.invoke(it) }`
                             is Iterable<*> if value.any() && value.all { it is Phenomenon.Invocation } -> null
-                            else -> Phenomenon.Text(value.toString().digest(VALUE_OMISSION), Phenomenon.Text.PLAIN)
+                            else -> Phenomenon.Text(value.toString().digest(VALUE_OMISSION), "text/plain")
                         },
                         result.resolvedVersions.takeIf { it.isNotEmpty() }?.let { versions ->
                             Phenomenon.Text(
                                 versions.entries.joinToString(prefix = "Resolved dependency versions: ") { (dependency, version) ->
                                     "$dependency:$version"
                                 },
-                                Phenomenon.Text.PLAIN
+                                "text/plain"
                             )
                         }
                     )
@@ -194,7 +194,7 @@ private fun Interpreter.printed(): Phenomenon.Text? {
             "(__import__('sys').annie_output[__import__('threading').get_ident()])"
     ).trimEnd()
     if (printed.isEmpty()) return null
-    return Phenomenon.Text("Printed by Python:\n${printed.digest("")}", Phenomenon.Text.PLAIN)
+    return Phenomenon.Text("Printed by Python:\n${printed.digest("")}", "text/plain")
 }
 
 /**

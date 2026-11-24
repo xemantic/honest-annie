@@ -62,7 +62,7 @@ interface ScriptExecutor {
         agency: Agency
     ): List<Phenomenon> {
         val edited: Phenomenon? = if (intent.edits.isEmpty()) null else try {
-            Phenomenon.Text(applyEdits(intent.edits), Phenomenon.Text.PLAIN)
+            Phenomenon.Text(applyEdits(intent.edits), "text/plain")
         } catch (e: Exception) {
             return listOf(Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed."))
         }

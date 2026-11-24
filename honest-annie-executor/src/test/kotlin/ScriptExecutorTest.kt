@@ -107,7 +107,7 @@ class ScriptExecutorTest {
         // then
         assert(phenomena == listOf(
             agency.invocations.single(),
-            Phenomenon.Text("42", Phenomenon.Text.PLAIN)
+            Phenomenon.Text("42", "text/plain")
         ))
         assert(agency.enunciated == listOf(
             Phenomenon.Text("first"),
@@ -123,8 +123,8 @@ class ScriptExecutorTest {
         val string = executor.execute("\"*answer*\"", cogitation, TestAgency())
 
         // then
-        assert(number == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
-        assert(string == listOf(Phenomenon.Text("*answer*", Phenomenon.Text.PLAIN)))
+        assert(number == listOf(Phenomenon.Text("42", "text/plain")))
+        assert(string == listOf(Phenomenon.Text("*answer*", "text/plain")))
     }
 
     @Test
@@ -138,7 +138,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("no import needed", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("no import needed", "text/plain")))
     }
 
     @Test
@@ -156,7 +156,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("10m edited", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("10m edited", "text/plain")))
     }
 
     @Test
@@ -174,7 +174,7 @@ class ScriptExecutorTest {
         // then
         assert(phenomena == listOf(Phenomenon.Text(
             "def f():\n    ${q}Docstring.$q\nprice = \"$\" + $q + \"$$\" + $q",
-            Phenomenon.Text.PLAIN
+            "text/plain"
         )))
     }
 
@@ -184,7 +184,7 @@ class ScriptExecutorTest {
         val phenomena = executor.execute("\"a\".repeat(30_000)", cogitation, TestAgency())
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("a".repeat(30_000), Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("a".repeat(30_000), "text/plain")))
     }
 
     @Test
@@ -211,7 +211,7 @@ class ScriptExecutorTest {
         val result = executor.execute(intent, cogitation, TestAgency())
 
         // then
-        assert(result == listOf(Phenomenon.Text("""for c in a b; do echo "${'$'}c 42"; done""", Phenomenon.Text.PLAIN)))
+        assert(result == listOf(Phenomenon.Text("""for c in a b; do echo "${'$'}c 42"; done""", "text/plain")))
     }
 
     @Test
@@ -224,7 +224,7 @@ class ScriptExecutorTest {
 
         // then
         val python = "def f(\$x):\n    \"\"\"Doc.\"\"\""
-        assert(result == listOf(Phenomenon.Text(python, Phenomenon.Text.PLAIN)))
+        assert(result == listOf(Phenomenon.Text(python, "text/plain")))
     }
 
     @Test
@@ -323,8 +323,8 @@ class ScriptExecutorTest {
 
         // then
         assert(phenomena == listOf(
-            Phenomenon.Text("Edited $file at line 1, as:\n     1\tb", Phenomenon.Text.PLAIN),
-            Phenomenon.Text("b\n", Phenomenon.Text.PLAIN)
+            Phenomenon.Text("Edited $file at line 1, as:\n     1\tb", "text/plain"),
+            Phenomenon.Text("b\n", "text/plain")
         ))
     }
 
@@ -411,7 +411,7 @@ class ScriptExecutorTest {
         val phenomena = executor.execute("Phenomenon.Text(describe(answer))", cogitation, agency)
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("Text(text=answer is 42, contentType=text/markdown)", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("Text(text=answer is 42, contentType=text/markdown)", "text/plain")))
     }
 
     @Test
@@ -430,7 +430,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("7", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("7", "text/plain")))
         assert(first.enunciated == listOf(Phenomenon.Text("first")))
         assert(second.enunciated == listOf(Phenomenon.Text("second")))
     }
@@ -451,7 +451,7 @@ class ScriptExecutorTest {
         val phenomena = executor.execute("await { job.join(); started.await() }", cogitation, TestAgency())
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("launched", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("launched", "text/plain")))
     }
 
     // The constitution tells to declare a suspend function rather than calling `await` within a function,
@@ -469,7 +469,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
     }
 
     // A function or class of inferred types, used in the intent declaring it, can still refer to what an earlier intent
@@ -493,7 +493,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("gat-aca", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("gat-aca", "text/plain")))
     }
 
     // The constitution tells to declare the types of a function used in the intent declaring it,
@@ -515,7 +515,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("gat", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("gat", "text/plain")))
     }
 
     @Test
@@ -557,7 +557,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("aca", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("aca", "text/plain")))
     }
 
     @Test
@@ -591,7 +591,7 @@ class ScriptExecutorTest {
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("MKSIY", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("MKSIY", "text/plain")))
     }
 
     /** Serves the [handler] on a free port of the loopback address, until stopped. */
@@ -643,7 +643,7 @@ class ScriptExecutorTest {
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("POST ultimate: 42", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("POST ultimate: 42", "text/plain")))
     }
 
     @Test
@@ -680,7 +680,7 @@ class ScriptExecutorTest {
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("ultimate: 42", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("ultimate: 42", "text/plain")))
     }
 
     @Test
@@ -714,7 +714,7 @@ class ScriptExecutorTest {
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("GCG: T2 P2", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("GCG: T2 P2", "text/plain")))
     }
 
     @Test
@@ -763,7 +763,7 @@ class ScriptExecutorTest {
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("a, b, c", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("a, b, c", "text/plain")))
     }
 
     @Test
@@ -782,7 +782,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("dog: 180 aa\ncow: 180 aa\n", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("dog: 180 aa\ncow: 180 aa\n", "text/plain")))
     }
 
     @Test
@@ -799,7 +799,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("dog: 180 aa\ncow: 180 aa\n", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("dog: 180 aa\ncow: 180 aa\n", "text/plain")))
     }
 
     @Test
@@ -819,7 +819,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("DOG: GCG: present\nGLP1R: present\n", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("DOG: GCG: present\nGLP1R: present\n", "text/plain")))
     }
 
     @Test
@@ -857,7 +857,7 @@ class ScriptExecutorTest {
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("served", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("served", "text/plain")))
         assert(requests.get() == 2)
     }
 
@@ -896,7 +896,7 @@ class ScriptExecutorTest {
         }
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("honest annie: 3 in stock, price 4.2\n- kotlin\n- agent\n", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("honest annie: 3 in stock, price 4.2\n- kotlin\n- agent\n", "text/plain")))
     }
 
     @Test
@@ -969,7 +969,7 @@ class ScriptExecutorTest {
         val phenomena = executor.execute("agency.python(\"math.prod([factor, 7])\")", cogitation, TestAgency())
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("42", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
     }
 
     @Test
@@ -986,7 +986,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("1, 4, 9", Phenomenon.Text.PLAIN)))
+        assert(phenomena == listOf(Phenomenon.Text("1, 4, 9", "text/plain")))
     }
 
     @Test
@@ -1000,8 +1000,8 @@ class ScriptExecutorTest {
 
         // then
         assert(phenomena == listOf(
-            Phenomenon.Text("Printed by Python:\nhello\nwarning", Phenomenon.Text.PLAIN),
-            Phenomenon.Text("42", Phenomenon.Text.PLAIN)
+            Phenomenon.Text("Printed by Python:\nhello\nwarning", "text/plain"),
+            Phenomenon.Text("42", "text/plain")
         ))
     }
 
@@ -1016,7 +1016,7 @@ class ScriptExecutorTest {
 
         // then
         assert(phenomena.size == 2)
-        assert(phenomena.first() == Phenomenon.Text("Printed by Python:\nbefore", Phenomenon.Text.PLAIN))
+        assert(phenomena.first() == Phenomenon.Text("Printed by Python:\nbefore", "text/plain"))
         assert((phenomena.last() as Phenomenon.Impediment).reason.contains("ValueError"))
         assert((phenomena.last() as Phenomenon.Impediment).reason.contains("boom"))
     }
@@ -1033,8 +1033,8 @@ class ScriptExecutorTest {
             val nothing = executor.execute("agency.python(\"x\")", cogitation, TestAgency())
 
             // then
-            assert(printed == listOf(Phenomenon.Text("Printed by Python:\n1", Phenomenon.Text.PLAIN)))
-            assert(nothing == listOf(Phenomenon.Text("2", Phenomenon.Text.PLAIN)))
+            assert(printed == listOf(Phenomenon.Text("Printed by Python:\n1", "text/plain")))
+            assert(nothing == listOf(Phenomenon.Text("2", "text/plain")))
         }
     }
 

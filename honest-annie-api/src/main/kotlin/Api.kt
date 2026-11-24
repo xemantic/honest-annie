@@ -85,7 +85,7 @@ interface Agency {
      * Enunciated by an intent, it is not part of the result of the intent, but precedes it in the cogitation:
      * what the intent needs to perceive in the response to it is the value of its last expression.
      */
-    fun enunciate(text: String, contentType: String = Phenomenon.Text.MARKDOWN)
+    fun enunciate(text: String, contentType: String = "text/markdown")
     /** Enunciates a [Phenomenon.Data] as the output of the current cogitation, like the text [enunciate]. */
     fun enunciate(bytes: ByteArray, contentType: String? = null)
     /** Enunciates a [Phenomenon.Impediment] as the output of the current cogitation, like the text [enunciate]. */

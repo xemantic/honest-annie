@@ -231,7 +231,7 @@ private fun String.xmlEscaped(): String = this
 
 private fun Phenomenon.toText(): String = when (this) {
     is Intent -> script
-    is Text -> if (contentType == Phenomenon.Text.MARKDOWN) text else {
+    is Text -> if (contentType == "text/markdown") text else {
         "<annie:text content-type=\"${contentType.xmlEscaped()}\"/>\n$text"
     }
     // an image or a PDF document is perceived after this markup, see `toAttachment`

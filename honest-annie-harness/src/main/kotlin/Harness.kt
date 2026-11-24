@@ -68,7 +68,7 @@ internal suspend fun unfold(
     val nothingPerceived = Phenomenon.Text(
         "The intent evaluated to nothing, and enunciated nothing, so that nothing of it is perceived, " +
                 "e.g. what it printed: evaluate to what you need to know, or enunciate your answer.",
-        Phenomenon.Text.PLAIN
+        "text/plain"
     )
     fun spent(cogitation: Cogitation): Phenomenon.Text {
         val inferences = cogitation.enunciations.mapNotNull { it.inference }
@@ -87,7 +87,7 @@ internal suspend fun unfold(
                     (if (!little) "" else " Left to the whole tree of cogitations: ${left.joinToString(", ")}." +
                             " A fifth or less of what you may spend is left: " +
                             "secure the result the task asks for before anything else, e.g. by saving or committing it."),
-            Phenomenon.Text.PLAIN
+            "text/plain"
         )
     }
     val firstInferred: Cogitation = infer(cognizer, cogitation)

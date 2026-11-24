@@ -184,7 +184,7 @@ class HarnessTest {
         val response = perceived.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
         assert(response.respondsTo == intent.id)
-        assert(response.phenomena.first() == Phenomenon.Text("42", Phenomenon.Text.PLAIN))
+        assert(response.phenomena.first() == Phenomenon.Text("42", "text/plain"))
     }
 
     @Test
@@ -506,7 +506,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer(
             """
             import com.xemantic.ai.annie.*
-            agency.enunciate(agency.bash("echo hello").output, Phenomenon.Text.PLAIN)
+            agency.enunciate(agency.bash("echo hello").output, "text/plain")
             """.trimIndent()
         )
 
@@ -514,7 +514,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("hello\n", Phenomenon.Text.PLAIN)))
+        assert(output.phenomena == listOf(Phenomenon.Text("hello\n", "text/plain")))
     }
 
     @Test
@@ -610,8 +610,8 @@ class HarnessTest {
         // each inference consumes as many tokens as the enunciations it perceived: 1, then 3
         val responses = cognizer.perceived.last().enunciations.filter { it.actant.type == Actant.Type.COMPUTER }
         assert(responses.map { it.phenomena.last() } == listOf(
-            Phenomenon.Text("Spent by this cogitation so far: 1 inference(s), 1 token(s).", Phenomenon.Text.PLAIN),
-            Phenomenon.Text("Spent by this cogitation so far: 2 inference(s), 4 token(s).", Phenomenon.Text.PLAIN)
+            Phenomenon.Text("Spent by this cogitation so far: 1 inference(s), 1 token(s).", "text/plain"),
+            Phenomenon.Text("Spent by this cogitation so far: 2 inference(s), 4 token(s).", "text/plain")
         ))
     }
 
@@ -886,9 +886,9 @@ class HarnessTest {
                     "     2\t    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n" +
                     "     3\t    return 2\n" +
                     "Wrote $created, 1 lines",
-                Phenomenon.Text.PLAIN
+                "text/plain"
             ),
-            Phenomenon.Text("def f():\n    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n    return 2\n", Phenomenon.Text.PLAIN)
+            Phenomenon.Text("def f():\n    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n    return 2\n", "text/plain")
         ))
         assert(created.readText() == "notes\n")
     }
@@ -903,7 +903,7 @@ class HarnessTest {
         cognize(cognizer, cogitation())
 
         // then
-        assert(cognizer.response.first() == Phenomenon.Text("Wrote $created, 1 lines", Phenomenon.Text.PLAIN))
+        assert(cognizer.response.first() == Phenomenon.Text("Wrote $created, 1 lines", "text/plain"))
         assert(created.readText() == "notes\n")
     }
 
