@@ -4,6 +4,7 @@ import com.xemantic.ai.annie.buildlogic.usePythonVenvOfTests
 // The harness: the host unfolding cogitations, inferring by the cognizers of the providers' APIs,
 // and storing and recording the cogitations, the intents being executed by the executor.
 plugins {
+    alias(libs.plugins.kotlin.jvm)
     id("annie.convention")
     application
 }
@@ -64,7 +65,7 @@ val generateConstitution = tasks.register("generateConstitution") {
     description = "Generates the constitution resources from their templates and the API, cognition and harness sources"
     val default = layout.projectDirectory.file("src/main/constitution.md")
     val families = layout.projectDirectory.dir("src/main/constitutions")
-    val apiSourceDir = rootProject.layout.projectDirectory.dir("honest-annie-api/src/main/kotlin")
+    val apiSourceDir = rootProject.layout.projectDirectory.dir("honest-annie-api/src/commonMain/kotlin")
     val sources = mapOf(
         "api" to apiSourceDir.file("Api.kt"),
         "cognition" to apiSourceDir.file("Cognition.kt"),

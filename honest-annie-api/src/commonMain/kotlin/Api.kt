@@ -29,8 +29,10 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.longOrNull
-import kotlin.io.path.Path
-import kotlin.io.path.readText
+import kotlinx.io.buffered
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.readString
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -231,7 +233,7 @@ const val TQ: String = "\"\"\""
  * `read("fastapi/routing.py", 1..60, 420..610) + read("fastapi/applications.py", 900..1100)`.
  */
 fun read(path: String, vararg lines: IntRange): String {
-    val text = Path(path).readText()
+    val text = SystemFileSystem.source(Path(path)).buffered().use { it.readString() }
     return text.numbered(lines.toList().ifEmpty { listOf(1..Int.MAX_VALUE) }, context = 0, spanLines = Int.MAX_VALUE)
 }
 

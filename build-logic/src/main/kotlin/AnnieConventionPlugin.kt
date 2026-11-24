@@ -23,19 +23,26 @@ import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.artifacts.VersionCatalogsExtension
 import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.testing.Test
 import org.gradle.kotlin.dsl.*
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinCommonCompilerOptions
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompilerOptions
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
+import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import org.jetbrains.kotlin.gradle.targets.jvm.KotlinJvmTarget
 import org.jetbrains.kotlin.powerassert.gradle.PowerAssertGradleExtension
 import org.jetbrains.kotlin.powerassert.gradle.PowerAssertGradlePlugin
 import java.io.File
 
 /**
- * The conventions of every module of honest-annie: Kotlin/JVM compiled for the targets of the version catalog,
- * power-assert, and JUnit tests run with the JVM arguments of the harness, see [annieJvmArgs].
+ * The conventions of every module of honest-annie, configuring the Kotlin plugin the module applies itself,
+ * `kotlin("multiplatform")`, e.g. the API, or `kotlin("jvm")`, e.g. the executor:
+ * compiled for the targets of the version catalog, power-assert,
+ * and JUnit tests run with the JVM arguments of the harness, see [annieJvmArgs].
  */
 @Suppress("unused") // used by gradle
 class AnnieConventionPlugin : Plugin<Project> {
@@ -56,41 +63,56 @@ val annieJvmArgs: List<String> = (
     else emptyList()
 ) + "--enable-native-access=ALL-UNNAMED"
 
-@OptIn(ExperimentalKotlinGradlePluginApi::class)
 private fun Project.doApply() {
 
     val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
     val javaTarget = libs.findVersion("javaTarget").get().toString()
     val kotlinTarget = KotlinVersion.fromVersion(libs.findVersion("kotlinTarget").get().toString())
 
-    plugins.apply("org.jetbrains.kotlin.jvm")
+    fun KotlinCommonCompilerOptions.configureCommon() {
+        apiVersion.set(kotlinTarget)
+        languageVersion.set(kotlinTarget)
+        freeCompilerArgs.add("-Xcontext-sensitive-resolution")
+        extraWarnings.set(true)
+        progressiveMode.set(true)
+    }
 
     // set up according to https://jakewharton.com/gradle-toolchains-are-rarely-a-good-idea/
-    extensions.configure<KotlinJvmProjectExtension> {
-        compilerOptions {
-            apiVersion.set(kotlinTarget)
-            languageVersion.set(kotlinTarget)
-            jvmTarget.set(JvmTarget.fromTarget(javaTarget))
-            freeCompilerArgs.addAll(
-                "-Xjdk-release=$javaTarget",
-                "-Xcontext-sensitive-resolution"
-            )
-            extraWarnings.set(true)
-            progressiveMode.set(true)
+    fun KotlinJvmCompilerOptions.configureJvm() {
+        jvmTarget.set(JvmTarget.fromTarget(javaTarget))
+        freeCompilerArgs.add("-Xjdk-release=$javaTarget")
+    }
+
+    pluginManager.withPlugin("org.jetbrains.kotlin.jvm") {
+        extensions.configure<KotlinJvmProjectExtension> {
+            compilerOptions {
+                configureCommon()
+                configureJvm()
+            }
         }
+        extensions.configure<JavaPluginExtension> {
+            sourceCompatibility = JavaVersion.toVersion(javaTarget)
+            targetCompatibility = JavaVersion.toVersion(javaTarget)
+        }
+        applyPowerAssert()
     }
 
-    extensions.configure<JavaPluginExtension> {
-        sourceCompatibility = JavaVersion.toVersion(javaTarget)
-        targetCompatibility = JavaVersion.toVersion(javaTarget)
+    pluginManager.withPlugin("org.jetbrains.kotlin.multiplatform") {
+        extensions.configure<KotlinMultiplatformExtension> {
+            compilerOptions {
+                configureCommon()
+            }
+            targets.withType(KotlinJvmTarget::class.java).configureEach {
+                compilerOptions {
+                    configureJvm()
+                }
+            }
+        }
+        applyPowerAssert()
     }
 
-    plugins.apply(PowerAssertGradlePlugin::class.java)
-    extensions.configure<PowerAssertGradleExtension> {
-        functions.set(listOf(
-            "com.xemantic.kotlin.test.assert",
-            "com.xemantic.kotlin.test.have"
-        ))
+    tasks.withType<JavaCompile>().configureEach {
+        options.release.set(javaTarget.toInt())
     }
 
     repositories {
@@ -111,6 +133,17 @@ private fun Project.doApply() {
         jvmArgs(annieJvmArgs)
     }
 
+}
+
+private fun Project.applyPowerAssert() {
+    plugins.apply(PowerAssertGradlePlugin::class.java)
+    @OptIn(ExperimentalKotlinGradlePluginApi::class)
+    extensions.configure<PowerAssertGradleExtension> {
+        functions.set(listOf(
+            "com.xemantic.kotlin.test.assert",
+            "com.xemantic.kotlin.test.have"
+        ))
+    }
 }
 
 /**

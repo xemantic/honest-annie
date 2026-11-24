@@ -134,7 +134,7 @@ class JsonNavigationTest {
     }
 
     @Test
-    fun `should read 1 and 0 as booleans, as Ensembl encodes them`() {
+    fun `should read 1 and 0 as booleans as Ensembl encodes them`() {
         // given
         val transcript = Json.parseToJsonElement("""{"is_canonical": 1, "is_obsolete": 0}""")
 

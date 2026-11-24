@@ -2,6 +2,7 @@ import com.xemantic.ai.annie.buildlogic.usePythonVenvOfTests
 
 // The executor of the scripts of intents: Kotlin script sessions, the embedded Python of Jep, and processes.
 plugins {
+    alias(libs.plugins.kotlin.jvm)
     id("annie.convention")
 }
 

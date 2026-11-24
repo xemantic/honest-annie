@@ -18,11 +18,11 @@
 
 package com.xemantic.ai.annie
 
-import kotlin.io.path.Path
-import kotlin.io.path.createDirectories
-import kotlin.io.path.exists
-import kotlin.io.path.readText
-import kotlin.io.path.writeText
+import kotlinx.io.buffered
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.readString
+import kotlinx.io.writeString
 
 /*
  * The edits of an intent, applied by the executor before its script, see [ScriptExecutor.execute] and [Phenomenon.Intent.edits],
@@ -44,7 +44,7 @@ import kotlin.io.path.writeText
  * or the file around the occurrences of an old text occurring more than once, to extend it to the one meant.
  */
 internal fun applyEdits(edits: List<Edit>): String {
-    val texts = linkedMapOf<java.nio.file.Path, String>()
+    val texts = linkedMapOf<Path, String>()
     val reports = edits.mapIndexed { index, edit ->
         fun fail(reason: String): Nothing = throw IllegalArgumentException("Edit ${index + 1} of ${edits.size} failed: $reason")
         val file = Path(edit.path)
@@ -54,7 +54,7 @@ internal fun applyEdits(edits: List<Edit>): String {
             "Wrote ${edit.path}, ${edit.new.lineCount} lines"
         } else {
             if (old.isEmpty()) fail("the old text is empty: give it, or omit it to write the whole file")
-            val text = texts[file] ?: if (file.exists()) file.readText() else {
+            val text = texts[file] ?: if (SystemFileSystem.exists(file)) SystemFileSystem.source(file).buffered().use { it.readString() } else {
                 fail("no file at ${edit.path} to edit: write it whole, without the old text")
             }
             val edited = text.edited(edit.path, old, edit.new, edit.all)
@@ -65,8 +65,8 @@ internal fun applyEdits(edits: List<Edit>): String {
         }
     }
     texts.forEach { (file, text) ->
-        file.parent?.createDirectories()
-        file.writeText(text)
+        file.parent?.let { SystemFileSystem.createDirectories(it) }
+        SystemFileSystem.sink(file).buffered().use { it.writeString(text) }
     }
     return reports.joinToString("\n")
 }

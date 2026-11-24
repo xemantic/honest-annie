@@ -18,7 +18,7 @@
 
 package com.xemantic.ai.annie
 
-import java.util.UUID
+import kotlin.uuid.Uuid
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -259,4 +259,4 @@ data class Cogitation(
 /** Id of the enunciation responding to the request with [requestId], the same however many times it is enunciated. */
 fun responseId(requestId: String): String = "response-to-$requestId"
 
-fun randomId(): String = UUID.randomUUID().toString()
+fun randomId(): String = Uuid.random().toString()

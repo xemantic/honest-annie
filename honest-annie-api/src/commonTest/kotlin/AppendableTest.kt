@@ -96,13 +96,14 @@ class AppendableTest {
     @Test
     fun `should open scope of any appendable`() {
         // given
-        val writer = java.io.StringWriter()
+        val written = StringBuilder()
+        val appendable: Appendable = object : Appendable by written {}
 
         // when
-        writer { +"written" }
+        appendable { +"written" }
 
         // then
-        assert(writer.toString() == "written")
+        assert(written.toString() == "written")
     }
 
     @Test

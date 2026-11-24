@@ -132,8 +132,8 @@ and a writeup.
 ## Modules
 
 - [honest-annie-api](honest-annie-api): what the harness and the executor share:
-  the cogitation, see [Cognition.kt](honest-annie-api/src/main/kotlin/Cognition.kt),
-  the `Agency` of the scripts of intents, see [Api.kt](honest-annie-api/src/main/kotlin/Api.kt),
+  the cogitation, see [Cognition.kt](honest-annie-api/src/commonMain/kotlin/Cognition.kt),
+  the `Agency` of the scripts of intents, see [Api.kt](honest-annie-api/src/commonMain/kotlin/Api.kt),
   and the `ScriptExecutor` executing them.
 - [honest-annie-harness](honest-annie-harness): the host unfolding cogitations by the harness,
   inferring through the APIs of the providers, storing and recording every cogitation,
