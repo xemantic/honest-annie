@@ -1,4 +1,8 @@
 plugins {
+    // loaded once, by the root, as the Kotlin Gradle plugin fails on one loaded by several modules
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.kotlin.multiplatform) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.version.catalog.update)
     alias(libs.plugins.xemantic.conventions)
 }

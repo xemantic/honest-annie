@@ -38,3 +38,6 @@ fun lazyKotlinIntrospector(
     override fun search(query: String, page: Int, pageSize: Int) = introspector.search(query, page, pageSize)
 
 }
+
+/** The introspector of the classpath of the scripts, shared by every executor of the JVM, see [lazyKotlinIntrospector]. */
+val annieIntrospector: KotlinIntrospector = lazyKotlinIntrospector()

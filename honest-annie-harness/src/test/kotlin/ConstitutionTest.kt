@@ -120,6 +120,20 @@ class ConstitutionTest {
     }
 
     @Test
+    fun `should show the cognition without the annotations of its serialization`() {
+        // when
+        val constitutions = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3")
+            .map { constitution(model = it) }
+
+        // then
+        // the serialization is the protocol between the harness and the executor, not what a cognizer acts through
+        // the constitution teaches @Serializable for the JSON of HTTP, so only the declarations of the API and the cognition are checked
+        assert(constitutions.none { "@SerialName" in it || "UseSerializers" in it || "Base64Serializer" in it })
+        assert(constitutions.all { "\ndata class Cogitation(" in it && "\nsealed interface Phenomenon {" in it && "\ndata class Allowance(" in it })
+        assert(constitutions.none { "@Serializable\ndata class Cogitation(" in it || "@Serializable\nsealed interface Phenomenon {" in it || "@Serializable\ndata class Allowance(" in it })
+    }
+
+    @Test
     fun `should tell that the Python of scripts cannot import the packages of the task`() {
         // when
         val constitutions = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3")

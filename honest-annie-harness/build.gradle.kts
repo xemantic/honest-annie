@@ -11,10 +11,10 @@ plugins {
 
 dependencies {
     api(project(":honest-annie-api"))
-    // in-process for now, to be replaced by an executor process, communicating through its standard input and output
-    implementation(project(":honest-annie-executor"))
+    // only on the classpath, not compiled against: the executor process is started of it, see ExecutorProcess,
+    // communicating with the harness through its standard input and output
+    runtimeOnly(project(":honest-annie-executor"))
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.xemantic.kotlin.introspection)
     implementation(libs.anthropic.java)
     implementation(libs.openai.java)
     implementation(libs.xemantic.ai.file.magic)
@@ -23,6 +23,8 @@ dependencies {
 
     runtimeOnly(libs.logback.classic)
 
+    // the tests of the harness executing its intents in-process, see HarnessTest
+    testImplementation(project(":honest-annie-executor"))
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.xemantic.kotlin.test)
@@ -78,6 +80,11 @@ val generateConstitution = tasks.register("generateConstitution") {
     outputs.dir(outputDir)
     doLast {
         val licenseHeader = Regex("""\A\s*/\*.*?\*/\s*""", RegexOption.DOT_MATCHES_ALL)
+        // the serialization is the protocol between the harness and the executor, not what a cognizer acts through
+        val serialization = Regex(
+            """^[ \t]*(@file:UseSerializers\(.*\)\n\n?|@Serializable\n|@SerialName\(.*\)\n|import kotlinx\.serialization\.(Serializable|SerialName|UseSerializers)\n)""",
+            RegexOption.MULTILINE
+        )
         val output = outputDir.get().asFile
         output.deleteRecursively()
         val templates = mapOf("constitution.md" to default.asFile) +
@@ -86,7 +93,7 @@ val generateConstitution = tasks.register("generateConstitution") {
             val constitution = sources.entries.fold(template.readText()) { text, (name, file) ->
                 val placeholder = "{{$name}}"
                 check(placeholder in text) { "No $placeholder in $template" }
-                text.replace(placeholder, file.asFile.readText().replaceFirst(licenseHeader, "").trimEnd())
+                text.replace(placeholder, file.asFile.readText().replaceFirst(licenseHeader, "").replace(serialization, "").trimEnd())
             }
             output.resolve(path).apply { parentFile.mkdirs() }.writeText(constitution)
         }

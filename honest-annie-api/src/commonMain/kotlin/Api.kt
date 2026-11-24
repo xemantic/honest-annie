@@ -19,6 +19,9 @@
 package com.xemantic.annie
 
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -146,6 +149,7 @@ interface Agency {
  * @property spentTokens inferred so far by the whole tree, see [Inference.total].
  * @property started when the tree started unfolding, its [time] being measured from it.
  */
+@Serializable
 data class Allowance(
     val tokens: Long? = null,
     val spentTokens: Long = 0,
@@ -219,6 +223,12 @@ fun Agency.bash(
     script: String,
     timeout: Duration = 1.minutes
 ): Execution = execute(listOf("bash", "-c", script), timeout = timeout)
+
+/**
+ * Runs the suspending [block] in a scope of its own, returning its result, e.g. `await { agency.http.get(url).body<JsonElement>() }`,
+ * waiting for the coroutines the [block] launches, e.g. `async { }`.
+ */
+suspend fun <T> await(block: suspend CoroutineScope.() -> T): T = coroutineScope(block)
 
 /**
  * Triple quotes, which end a raw string, written into one as `$TQ`, or `$$TQ` in a multi-dollar one,

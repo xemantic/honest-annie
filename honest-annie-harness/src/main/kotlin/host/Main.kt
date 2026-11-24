@@ -107,10 +107,12 @@ fun main(args: Array<String>) {
             OpenAIInference(openAI, model, provider = openAIProvider, effort = effort)
         }
     }
-    client.use {
+    // the intents are executed by an executor process of their own, each cogitation in a session of its own
+    client.use { ExecutorProcess().use { executor ->
         runBlocking {
             val output = HarnessHost(
-                cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism
+                cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism,
+                executors = executor::session
             ).cognize(Cogitation(
                 constitution = listOf(constitution(model, constitutionFile)),
                 enunciations = listOf(Enunciation(
@@ -124,5 +126,5 @@ fun main(args: Array<String>) {
             )))
             println(output)
         }
-    }
+    } }
 }

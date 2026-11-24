@@ -454,6 +454,39 @@ class ScriptExecutorTest {
         assert(phenomena == listOf(Phenomenon.Text("launched", "text/plain")))
     }
 
+    @Test
+    fun `should call suspend function directly in intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            """
+            delay(1)
+            coroutineScope { async { 42 }.await() }
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
+    }
+
+    // The REPL compiler of xemantic-kotlin-script before 0.3.0 crashed internally on a function calling `await`.
+    @Test
+    fun `should await within suspend function declared in intent`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            """
+            suspend fun answer(): Int = await { delay(1); 42 }
+            answer()
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
+    }
+
     // The constitution tells to declare a suspend function rather than calling `await` within a function,
     // which fails the compiler internally.
     @Test
@@ -518,8 +551,10 @@ class ScriptExecutorTest {
         assert(phenomena == listOf(Phenomenon.Text("gat", "text/plain")))
     }
 
+    // The REPL compiler of xemantic-kotlin-script before 0.3.0 could not resolve the declarations of earlier snippets
+    // from a function of inferred type used in the snippet declaring it.
     @Test
-    fun `should impede function of inferred type referring to declaration of earlier intent, hinting to declare its type`() = runTest(timeout = 5.minutes) {
+    fun `should use function of inferred type referring to declaration of earlier intent`() = runTest(timeout = 5.minutes) {
         // given
         val agency = TestAgency()
         executor.execute("val genome = \"gattaca\"", cogitation, agency)
@@ -535,9 +570,7 @@ class ScriptExecutorTest {
         )
 
         // then
-        val reason = (phenomena.single() as Phenomenon.Impediment).reason
-        assert("Unresolved reference 'genome'" in reason)
-        assert("declare the type" in reason)
+        assert(phenomena == listOf(Phenomenon.Text("gat", "text/plain")))
     }
 
     @Test
@@ -1054,6 +1087,61 @@ class ScriptExecutorTest {
         assert(printed.contains(Regex("\\d+ more characters omitted")))
         val file = Regex("the whole text being in (\\S+)$").find(printed)?.groupValues?.get(1)
         assert(file != null && Path(file).readText() == (0 until 100_000).joinToString("\n"))
+    }
+
+    @Test
+    fun `should execute a process of the executor through the agency of the intent`() = runTest(timeout = 5.minutes) {
+        // given
+        // the agency of the host executes no process, as the files of the intents are the executor's
+        val agency = TestAgency()
+
+        // when
+        val phenomena = executor.execute("agency.bash(\"echo hello\").output", cogitation, agency)
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("hello\n", "text/plain")))
+    }
+
+    @Test
+    fun `should resolve the declarations of the executor through the agency of the intent`() = runTest(timeout = 5.minutes) {
+        // given
+        // the agency of the host resolves nothing, as the scripts compile against the classpath of the executor
+        val agency = TestAgency()
+
+        // when
+        val resolved = executor.execute("agency.resolveDeclaration(\"com.xemantic.annie.Agency\")", cogitation, agency)
+        val searched = executor.execute("agency.searchDeclarations(\"ScriptExecutor\")", cogitation, agency)
+
+        // then
+        assert("interface Agency" in (resolved.single() as Phenomenon.Text).text)
+        assert("com.xemantic.annie.ScriptExecutor" in (searched.single() as Phenomenon.Text).text)
+    }
+
+    @Test
+    fun `should refuse a process and an enunciation to the agency of an intent already executed`() = runTest(timeout = 5.minutes) {
+        // given
+        val released = "annie.test.released.${randomId()}"
+        val stray = "annie.test.stray.${randomId()}"
+        executor.execute(
+            """
+            Thread {
+                while (System.getProperty("$released") == null) Thread.sleep(10)
+                val executed = runCatching { agency.bash("echo late") }
+                val enunciated = runCatching { agency.enunciate("late") }
+                System.setProperty("$stray", listOf(executed, enunciated).joinToString("\n") { it.exceptionOrNull()?.message ?: "done" })
+            }.start()
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // when
+        System.setProperty(released, "true")
+        while (System.getProperty(stray) == null) Thread.sleep(10)
+
+        // then
+        val refusal = "The intent is executed, its agency cannot be used anymore"
+        assert(System.getProperty(stray) == "$refusal\n$refusal")
     }
 
 }

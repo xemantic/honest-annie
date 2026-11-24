@@ -29,14 +29,8 @@ import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.ScriptExecutor
 import com.xemantic.annie.Python
 import com.xemantic.annie.harness.cognizer.Cognizer
-import com.xemantic.annie.executor.PythonVenv
-import com.xemantic.annie.executor.SessionScriptExecutor
-import com.xemantic.annie.executor.annieHttpClient
-import com.xemantic.annie.executor.executeProcess
-import com.xemantic.annie.executor.lazyKotlinIntrospector
 import com.xemantic.annie.randomId
 import com.xemantic.annie.harness.unfold
-import com.xemantic.kotlin.introspection.KotlinIntrospector
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.HttpClient
 import java.nio.file.Path
@@ -70,11 +64,12 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * are answered, the invoking cogitation is queued again. The state of every unfolding is kept
  * in the [store] at each step.
  *
- * Each cogitation has a script session of its own, executing its intents, see [SessionScriptExecutor],
+ * Each cogitation has a script executor of its own, created by the [executors], executing its intents, see [ScriptExecutor],
  * so that their declarations stay visible across the steps, until the cogitation rests,
- * when the session is closed, together with the ones of all the cogitations it invoked,
+ * when the executor is closed, together with the ones of all the cogitations it invoked,
  * the coroutines launched in them being cancelled.
- * Likewise, each cogitation has a Python interpreter of its own, see [Agency.python], started when first used.
+ * What an intent does on a computer, e.g. executing a process, or its Python, see [Agency.python],
+ * is done by its executor, not by the host, which only acts within the cogitations, see [HostedAgency].
  *
  * Recording is done here and not by the harness: every inference of the cognizer provided to it is recorded,
  * and so is the cogitation each step of the harness unfolds, preceded by the inferences
@@ -91,9 +86,7 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * What is left of both is told to the cogitations by their [Agency.allowance].
  * @param parallelism how many steps of a tree of cogitations may execute at a time, `null` for no limit.
  * The steps beyond it wait in the queue.
- * @param introspector of the Kotlin API available to scripts, resolving declarations for every [Agency].
- * @param preparePython preparing the Python environment of the cogitations, before their first Python is started, see [PythonVenv].
- * @param http the HTTP client of every cogitation, see [Agency.http], shared by default with the other hosts of the JVM.
+ * @param executors creating the [ScriptExecutor] of each cogitation, closed once the cogitation rests.
  */
 class HarnessHost(
     private val cognizer: Cognizer,
@@ -102,9 +95,7 @@ class HarnessHost(
     private val tokenBudget: Long? = null,
     private val timeLimit: Duration? = null,
     private val parallelism: Int? = null,
-    private val introspector: KotlinIntrospector = lazyKotlinIntrospector(),
-    private val preparePython: () -> Unit = PythonVenv::prepare,
-    private val http: HttpClient = annieHttpClient
+    private val executors: () -> ScriptExecutor
 ) {
 
     private val runtimes = ConcurrentHashMap<String, Runtime>()
@@ -130,12 +121,11 @@ class HarnessHost(
         val spent: AtomicLong,
         val started: Instant,
         handler: CoroutineExceptionHandler,
-        preparePython: () -> Unit
+        val executor: ScriptExecutor
     ) {
         val mutex = Mutex()
         val scope = CoroutineScope(job + handler)
         val invoked = CopyOnWriteArrayList<Runtime>()
-        val executor = SessionScriptExecutor(preparePython)
         @Volatile
         var inferred: MutableList<Enunciation> = CopyOnWriteArrayList()
 
@@ -167,7 +157,7 @@ class HarnessHost(
             spent = AtomicLong(),
             started = Clock.System.now(),
             handler = CoroutineExceptionHandler { _, e -> rested.completeExceptionally(e) },
-            preparePython = preparePython
+            executor = executors()
         )
         runtimes[root.id] = runtime
         store.save(root)
@@ -212,7 +202,6 @@ class HarnessHost(
             val agency = HostedAgency(
                 unfolding = unfolding,
                 parentCogitation = unfolding.parent?.let { store.load(it)?.cogitation },
-                executor = runtime.executor,
                 runtime = runtime
             )
             val inferred = CopyOnWriteArrayList<Enunciation>()
@@ -294,7 +283,7 @@ class HarnessHost(
                     spent = runtime.spent,
                     started = runtime.started,
                     handler = CoroutineExceptionHandler { _, e -> runtime.rested.completeExceptionally(e) },
-                    preparePython = preparePython
+                    executor = executors()
                 )
                 runtime.invoked += invoked
                 logger.info { "[${unfolding.id}] Dispatching invocation ${invocation.id}" }
@@ -405,11 +394,15 @@ class HarnessHost(
         }
     }
 
-    /** [Agency] of a single step of the harness unfolding the [unfolding], see [seal]. */
+    /**
+     * [Agency] of a single step of the harness unfolding the [unfolding], see [seal],
+     * acting only within the cogitations: invoking, enunciating, and telling the allowance.
+     * What an intent does on a computer, e.g. executing a process, the executor of the intent does,
+     * through the agency it provides the intent with, see [ScriptExecutor].
+     */
     private inner class HostedAgency(
         private val unfolding: Unfolding,
         override val parentCogitation: Cogitation?,
-        private val executor: SessionScriptExecutor,
         private val runtime: Runtime
     ) : Agency {
 
@@ -468,13 +461,9 @@ class HarnessHost(
             enunciate(Phenomenon.Impediment(reason))
         }
 
+        override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = onComputer()
 
-
-        override fun resolveDeclaration(name: String, page: Int, pageSize: Int) =
-            introspector.resolve(name, page, pageSize)
-
-        override fun searchDeclarations(query: String, page: Int, pageSize: Int) =
-            introspector.search(query, page, pageSize)
+        override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = onComputer()
 
         override fun execute(
             command: List<String>,
@@ -483,15 +472,15 @@ class HarnessHost(
             environment: Map<String, String>,
             timeout: Duration,
             maxOutputLength: Int
-        ): Execution {
-            checkNotSealed()
-            logger.info { "[${unfolding.id}] Executing process ${command.first()}" }
-            return executeProcess(command, input, directory, environment, timeout, maxOutputLength)
-        }
+        ): Execution = onComputer()
 
-        override val python: Python get() = executor.python
+        override val python: Python get() = onComputer()
 
-        override val http: HttpClient get() = this@HarnessHost.http
+        override val http: HttpClient get() = onComputer()
+
+        private fun onComputer(): Nothing = throw UnsupportedOperationException(
+            "The host acts only within the cogitations: what an intent does on a computer, its executor does"
+        )
 
         private fun enunciate(phenomenon: Phenomenon) = synchronized(lock) {
             checkNotSealed()

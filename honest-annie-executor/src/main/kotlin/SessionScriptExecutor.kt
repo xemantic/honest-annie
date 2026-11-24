@@ -21,9 +21,11 @@ package com.xemantic.annie.executor
 import com.xemantic.annie.Agency
 import com.xemantic.annie.Allowance
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Execution
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Python
 import com.xemantic.annie.ScriptExecutor
+import com.xemantic.kotlin.introspection.KotlinIntrospector
 import com.xemantic.kotlin.script.ScriptResult
 import io.ktor.client.HttpClient
 import com.xemantic.kotlin.script.ScriptSession
@@ -40,10 +42,17 @@ import kotlin.time.Duration
  * created on the first intent, and released when closed,
  * together with the [python] of the intents, started after [preparePython] prepared its environment,
  * e.g. installing Jep.
+ *
+ * What an intent does on the computer of the executor, it does through the agency of the executor,
+ * not the one of the host: it executes processes, resolves the declarations of the [introspector],
+ * the classpath of the scripts being the one of the executor, and requests by the [http] client,
+ * so that the host and the executor can be processes of their own, even on other machines.
  */
 class SessionScriptExecutor(
-    private val preparePython: () -> Unit = {}
-) : ScriptExecutor, AutoCloseable {
+    private val preparePython: () -> Unit = {},
+    private val introspector: KotlinIntrospector = annieIntrospector,
+    private val http: HttpClient = annieHttpClient
+) : ScriptExecutor {
 
     // started on first use, as starting the first one initializes the Python environment of the JVM
     private val interpreter = lazy {
@@ -83,14 +92,18 @@ class SessionScriptExecutor(
         cogitation: Cogitation,
         agency: Agency
     ): List<Phenomenon> {
-        val collecting = CollectingAgency(agency, cogitation, this)
+        val collecting = ExecutorAgency(agency, cogitation, this, introspector, http)
         this.agency.current = collecting
-        if (!imported) {
-            val imports = session.value.execute(DEFAULT_IMPORTS)
-            check(imports !is ScriptResult.Error) { "Cannot import the API of annie: ${(imports as ScriptResult.Error).message}" }
-            imported = true
+        val result = try {
+            if (!imported) {
+                val imports = session.value.execute(DEFAULT_IMPORTS)
+                check(imports !is ScriptResult.Error) { "Cannot import the API of annie: ${(imports as ScriptResult.Error).message}" }
+                imported = true
+            }
+            session.value.execute(script)
+        } finally {
+            collecting.seal()
         }
-        val result = session.value.execute(script)
         val printed = if (interpreter.isInitialized()) interpreter.value.printed() else null
         return buildList {
             addAll(collecting.collected)
@@ -277,14 +290,30 @@ internal const val UNSUPPORTED_ESCAPE_HINT: String =
         "where a backslash is itself, and only `${'$'}${'$'}` interpolates."
 
 /**
- * The [agency] collecting the invocations made through it, within the [cogitation] of the intent,
- * and providing the Python of the [executor].
+ * The agency of an intent: the [agency] of the host, collecting the invocations made through it,
+ * within the [cogitation] of the intent, and acting on the computer of the [executor] itself:
+ * its Python, its processes, the declarations of its [introspector], and its [http] client.
+ * Sealed once the intent is executed, so that a thread or a coroutine the intent left running
+ * acts no more on the computer, as the host no longer awaits it.
  */
-private class CollectingAgency(
+private class ExecutorAgency(
     private val agency: Agency,
     override val cogitation: Cogitation,
-    private val executor: SessionScriptExecutor
+    private val executor: SessionScriptExecutor,
+    private val introspector: KotlinIntrospector,
+    override val http: HttpClient
 ) : Agency by agency {
+
+    @Volatile
+    private var sealed = false
+
+    fun seal() {
+        sealed = true
+    }
+
+    private fun checkNotSealed() {
+        check(!sealed) { "The intent is executed, its agency cannot be used anymore" }
+    }
 
     override val python: Python get() = executor.python
 
@@ -293,7 +322,44 @@ private class CollectingAgency(
     override fun invoke(
         prompt: String,
         constitution: String
-    ): Phenomenon.Invocation = agency.invoke(prompt, constitution).also { collected += it }
+    ): Phenomenon.Invocation {
+        checkNotSealed()
+        return agency.invoke(prompt, constitution).also { collected += it }
+    }
+
+    // refused once sealed, as the agency of a harness of another process would not perceive it anymore
+    override fun enunciate(text: String, contentType: String) {
+        checkNotSealed()
+        agency.enunciate(text, contentType)
+    }
+
+    override fun enunciate(bytes: ByteArray, contentType: String?) {
+        checkNotSealed()
+        agency.enunciate(bytes, contentType)
+    }
+
+    override fun impede(reason: String) {
+        checkNotSealed()
+        agency.impede(reason)
+    }
+
+    override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? =
+        introspector.resolve(name, page, pageSize)
+
+    override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? =
+        introspector.search(query, page, pageSize)
+
+    override fun execute(
+        command: List<String>,
+        input: String?,
+        directory: String?,
+        environment: Map<String, String>,
+        timeout: Duration,
+        maxOutputLength: Int
+    ): Execution {
+        checkNotSealed()
+        return executeProcess(command, input, directory, environment, timeout, maxOutputLength)
+    }
 
 }
 

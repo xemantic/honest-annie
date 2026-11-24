@@ -26,6 +26,8 @@ import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.harness.cognizer.Cognized
 import com.xemantic.annie.harness.cognizer.Cognizer
+import com.xemantic.annie.executor.PythonVenv
+import com.xemantic.annie.executor.SessionScriptExecutor
 import com.xemantic.annie.responseId
 import com.xemantic.kotlin.test.assert
 import java.util.concurrent.atomic.AtomicInteger
@@ -47,6 +49,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class HarnessTest {
 
     private val store = InMemoryCogitationStore()
+
+    private val executors = { SessionScriptExecutor(PythonVenv::prepare) }
 
     /**
      * Expresses the next of its [intents] on each inference of the root cogitation, recording the cogitations it perceived,
@@ -79,7 +83,7 @@ class HarnessTest {
     private suspend fun cognize(
         cognizer: Cognizer,
         cogitation: Cogitation
-    ) = HarnessHost(cognizer, store).cognize(cogitation)
+    ) = HarnessHost(cognizer, store, executors = executors).cognize(cogitation)
 
     private fun cogitation() = Cogitation(
         constitution = emptyList(),
@@ -619,7 +623,7 @@ class HarnessTest {
     fun `should tell cognizer what its tree may still spend of the token budget and time only once little is left`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer("6 * 7", "6 * 8", restingIntent)
-        val host = HarnessHost(cognizer, store, tokenBudget = 5, timeLimit = 90.minutes)
+        val host = HarnessHost(cognizer, store, tokenBudget = 5, timeLimit = 90.minutes, executors = executors)
 
         // when
         host.cognize(cogitation())
@@ -641,7 +645,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, timeLimit = Duration.ZERO).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, timeLimit = Duration.ZERO, executors = executors).cognize(cogitation())
 
         // then
         assert(cognizer.perceived.isEmpty())
@@ -654,7 +658,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, tokenBudget = 1).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, tokenBudget = 1, executors = executors).cognize(cogitation())
 
         // then
         assert(cognizer.perceived.size == 1)
@@ -669,7 +673,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("agency.invoke(\"sub\")", "6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, tokenBudget = 2).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, tokenBudget = 2, executors = executors).cognize(cogitation())
 
         // then
         // the root and the invoked cogitation inferred once each, 1 token each, then both were impeded
@@ -703,7 +707,7 @@ class HarnessTest {
         }
 
         // when
-        HarnessHost(cognizer, store, parallelism = 1).cognize(cogitation())
+        HarnessHost(cognizer, store, parallelism = 1, executors = executors).cognize(cogitation())
 
         // then
         assert(maxInFlight.get() == 1)
@@ -756,7 +760,7 @@ class HarnessTest {
         )
 
         // when
-        HarnessHost(cognizer, store, recordingDir).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir, executors = executors).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -789,7 +793,7 @@ class HarnessTest {
         }
 
         // when
-        HarnessHost(cognizer, store, recordingDir).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir, executors = executors).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -805,7 +809,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("agency.enunciate(\"answer is 42\")")
 
         // when
-        HarnessHost(cognizer, store, recordingDir).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir, executors = executors).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()

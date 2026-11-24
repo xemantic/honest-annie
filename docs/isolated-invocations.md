@@ -173,8 +173,15 @@ and its counting of tokens a reading of its inferences.
 | `executor-image` | the OCI image of the executor | `executor` |
 | `honest-annie-harness` | `HarnessHost`, the cognizers, the recorder, the environments, the server of the protocol, and `Main` | `api` |
 
-The first three exist, the executor still running in the JVM of the harness, which depends on it until the protocol replaces it;
-`RemoteAgency`, the protocol, the environments and the image do not exist yet.
+The `api`, `executor` and `harness` modules exist,
+and the executor runs as a process of the host, see `ExecutorProcess`,
+speaking the protocol of `Protocol.kt` over its standard input and output,
+the harness only having it on its classpath, to start the process from.
+The protocol is request and response, without calls back to the host:
+what an intent does within its cogitation, invoking and enunciating, is kept by the `ProtocolAgency` of the executor,
+and responded along the result of the intent,
+which suffices while the harness script runs in the host, see the first open decision.
+The environments and the image do not exist yet.
 
 Without a container runtime, the executor runs as a process of the host, speaking the same protocol,
 so that there is a single code path.

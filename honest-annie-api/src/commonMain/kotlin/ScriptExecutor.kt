@@ -23,8 +23,13 @@ package com.xemantic.annie
  *
  * The intents are executed one after another in a session of their own, which is stateful, like a Kotlin notebook:
  * what an intent declares, e.g. a `val`, a function or a class, stays visible to the intents executed after it.
+ * The session is released when the executor is closed, e.g. once its cogitation rests.
+ *
+ * What an intent does on a computer, e.g. executing a process, it does on the computer of the executor,
+ * through the agency the executor provides it with, so that the executor can be a process of its own,
+ * while what it does within its cogitation, e.g. invoking another one, it does through the given agency.
  */
-interface ScriptExecutor {
+interface ScriptExecutor : AutoCloseable {
     /**
      * Executes the [script] of an intent expressed in the [cogitation], given the [agency] of the current step
      * of the harness, provided to the script as `agency`, with this [cogitation] as its [Agency.cogitation],
@@ -68,4 +73,7 @@ interface ScriptExecutor {
         }
         return listOfNotNull(edited) + if (intent.script.isBlank()) emptyList() else execute(intent.script, cogitation, agency)
     }
+
+    /** Releases the session of the intents, closing it again having no effect. */
+    override fun close() {}
 }

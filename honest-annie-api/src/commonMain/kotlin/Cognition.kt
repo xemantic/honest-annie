@@ -16,8 +16,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+@file:UseSerializers(Base64Serializer::class)
+
 package com.xemantic.annie
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 import kotlin.uuid.Uuid
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -32,6 +37,7 @@ import kotlin.time.Instant
  * It is the record of an edit, read in a cogitation, e.g. of the parent one, to learn what its intents changed:
  * an edit created in a script changes no file.
  */
+@Serializable
 data class Edit(
     val path: String,
     val new: String,
@@ -39,6 +45,7 @@ data class Edit(
     val all: Boolean = false
 )
 
+@Serializable
 sealed interface Phenomenon {
     /** Phenomenon awaiting a response, an [Enunciation] whose [Enunciation.respondsTo] is its [id]. */
     sealed interface Request : Phenomenon {
@@ -52,6 +59,8 @@ sealed interface Phenomenon {
      * The cognizer expresses it by calling the only tool it is offered, whose result is the response,
      * the call being replayed with the [id] of the intent, rather than the one the cognizer gave it.
      */
+    @Serializable
+    @SerialName("intent")
     data class Intent(
         val script: String,
         val edits: List<Edit> = emptyList(),
@@ -61,7 +70,11 @@ sealed interface Phenomenon {
      * Text, e.g. the prompt of a task, the value of an intent, or what the cognizer says:
      * an inference expressing text, and no [Intent], answers with it, which is the output of its cogitation.
      */
+    @Serializable
+    @SerialName("text")
     data class Text(val text: String, val contentType: String = "text/markdown") : Phenomenon
+    @Serializable
+    @SerialName("data")
     class Data(val bytes: ByteArray, val contentType: String? = null) : Phenomenon {
         override fun equals(other: Any?): Boolean = other is Data
                 && contentType == other.contentType && bytes.contentEquals(other.bytes)
@@ -72,6 +85,8 @@ sealed interface Phenomenon {
      * Request to unfold a new cogitation, see [Agency.invoke], also used as the id of that cogitation.
      * Its outcome is perceived later, as an [Enunciation] responding to this [id], see [Cogitation].
      */
+    @Serializable
+    @SerialName("invocation")
     data class Invocation(
         override val id: String,
         val prompt: String,
@@ -80,6 +95,8 @@ sealed interface Phenomenon {
         override fun toString(): String = "Invocation(id=$id)"
     }
     /** What impeded the cogitation, or an intent, as the [reason] for it, see [Agency.impede]. */
+    @Serializable
+    @SerialName("impediment")
     data class Impediment(val reason: String) : Phenomenon
     /**
      * What the cognizer thought before expressing anything else in the same inference, as far as its provider reveals it:
@@ -89,12 +106,15 @@ sealed interface Phenomenon {
      * @property id unique within its cogitation, like the id of a [Request]:
      * whatever the provider needs to replay the monologue exactly is kept by the cognizer under this id, not here.
      */
+    @Serializable
+    @SerialName("monologue")
     data class Monologue(
         val text: String,
         val id: String = randomId()
     ) : Phenomenon
 }
 
+@Serializable
 data class Actant(
     val type: Type,
     val name: String,
@@ -118,6 +138,7 @@ data class Actant(
  * @property inference the inference expressing this enunciation, `null` when it was not inferred.
  * Never perceived by the cognizer, so that the rendering of past turns never changes.
  */
+@Serializable
 data class Enunciation(
     val actant: Actant,
     val initiated: Instant = Clock.System.now(),
@@ -153,6 +174,7 @@ data class Enunciation(
  * The categories are disjoint, so that each token is counted once, and they sum up to the [total].
  * @property stop why the inference stopped, `null` when not reported.
  */
+@Serializable
 data class Inference(
     val model: String,
     val provider: String,
@@ -183,6 +205,7 @@ data class Inference(
      * @property reason as reported by the provider, e.g. `end_turn` of Claude, or `length` of Chat Completions.
      * @property category of a refusal, as reported by the provider, e.g. `cyber` of Claude, `null` when not reported.
      */
+    @Serializable
     data class Stop(val kind: Kind, val reason: String, val category: String? = null) {
         enum class Kind {
             /** The model completed what it expressed. */
@@ -231,6 +254,7 @@ data class Inference(
  *
  * @property depth how deep this cogitation is in its tree: 0 for the root one, 1 for one it invokes, and so on.
  */
+@Serializable
 data class Cogitation(
     val constitution: List<String>,
     val enunciations: List<Enunciation>,
