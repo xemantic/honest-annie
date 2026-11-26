@@ -82,14 +82,14 @@ sealed interface ExecutorResponse {
 
     /**
      * The [result] of the intent, see [ScriptExecutor.execute], the invocations it made included,
-     * and the phenomena it [enunciated] within its cogitation, see [Agency.enunciated].
+     * and its [output], see [ExecutedIntent].
      */
     @Serializable
     @SerialName("executed")
     data class Executed(
         override val id: String,
         val result: List<Phenomenon>,
-        val enunciated: List<Phenomenon> = emptyList()
+        val output: List<Phenomenon> = emptyList()
     ) : ExecutorResponse
 
     /** The executor failed to execute the intent, for the [reason], e.g. its session failing to start. */

@@ -44,7 +44,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerializationException
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration
 
 /**
@@ -122,16 +121,16 @@ class ExecutorServer(
 
     private suspend fun execute(request: ExecutorRequest.Execute, executor: ScriptExecutor): ExecutorResponse {
         val agency = ProtocolAgency(request.context)
-        val result = executor.execute(request.intent, request.context.cogitation, agency)
-        return ExecutorResponse.Executed(request.id, result, agency.enunciated.toList())
+        val (result, output) = executor.execute(request.intent, request.context.cogitation, agency)
+        return ExecutorResponse.Executed(request.id, result, output)
     }
 
 }
 
 /**
  * The agency of the harness of another process, as far as an intent acts through it within its cogitation:
- * what it tells of the cogitation is the [context] of the request, and what the intent does within the cogitation,
- * invoking and enunciating, is kept to be responded, see [ExecutorResponse.Executed].
+ * what it tells of the cogitation is the [context] of the request, and the invocations of the intent are responded,
+ * see [ExecutorResponse.Executed], together with its output, kept by the agency of the executor, see [SessionScriptExecutor].
  * What the intent does on the computer, the executor does itself, see [SessionScriptExecutor].
  */
 internal class ProtocolAgency(
@@ -144,24 +143,14 @@ internal class ProtocolAgency(
 
     override val allowance: Allowance get() = context.allowance
 
-    override val invocations = CopyOnWriteArrayList<Phenomenon.Invocation>()
-
-    override val enunciated = CopyOnWriteArrayList<Phenomenon>()
-
     override suspend fun invoke(prompt: String, constitution: String): Phenomenon.Invocation =
-        Phenomenon.Invocation(id = randomId(), prompt = prompt, constitution = constitution).also { invocations += it }
+        Phenomenon.Invocation(id = randomId(), prompt = prompt, constitution = constitution)
 
-    override suspend fun enunciate(text: String, contentType: String) {
-        enunciated += Phenomenon.Text(text, contentType)
-    }
+    override suspend fun enunciate(text: String, contentType: String): Unit = byExecutor()
 
-    override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
-        enunciated += Phenomenon.Data(bytes, contentType)
-    }
+    override suspend fun enunciate(bytes: ByteArray, contentType: String?): Unit = byExecutor()
 
-    override suspend fun impede(reason: String) {
-        enunciated += Phenomenon.Impediment(reason)
-    }
+    override suspend fun impede(reason: String): Unit = byExecutor()
 
     override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = onComputer()
 
@@ -182,6 +171,10 @@ internal class ProtocolAgency(
 
     private fun onComputer(): Nothing = throw UnsupportedOperationException(
         "What an intent does on the computer, its executor does, see SessionScriptExecutor"
+    )
+
+    private fun byExecutor(): Nothing = throw UnsupportedOperationException(
+        "What an intent enunciates, its executor keeps as the output of the intent, see SessionScriptExecutor"
     )
 
 }

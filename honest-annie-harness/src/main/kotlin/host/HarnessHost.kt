@@ -396,8 +396,8 @@ class HarnessHost(
 
     /**
      * [Agency] of a single step of the harness unfolding the [unfolding], see [seal],
-     * acting only within the cogitations: invoking, enunciating, and telling the allowance.
-     * What an intent does on a computer, e.g. executing a process, the executor of the intent does,
+     * acting only within the cogitations: invoking, and telling the allowance.
+     * What an intent does on a computer, e.g. executing a process, and what it enunciates, the executor of the intent does,
      * through the agency it provides the intent with, see [ScriptExecutor].
      */
     private inner class HostedAgency(
@@ -406,23 +406,17 @@ class HarnessHost(
         private val runtime: Runtime
     ) : Agency {
 
-        private val lock = Any()
-
         @Volatile
         private var sealed = false
 
         override val cogitation: Cogitation = unfolding.cogitation
 
-        override val invocations = CopyOnWriteArrayList<Phenomenon.Invocation>()
-
         override val allowance: Allowance get() = Allowance(
             tokens = tokenBudget, spentTokens = runtime.spent.get(), time = timeLimit, started = runtime.started
         )
 
-        override val enunciated = CopyOnWriteArrayList<Phenomenon>()
-
         /** Seals this agency once the step of the harness is over. */
-        fun seal(): Unit = synchronized(lock) {
+        fun seal() {
             sealed = true
         }
 
@@ -441,21 +435,14 @@ class HarnessHost(
                 constitution = constitution
             ).also {
                 logger.info { "[${unfolding.id}] Intent invoked ${it.id}" }
-                invocations += it
             }
         }
 
-        override suspend fun enunciate(text: String, contentType: String) {
-            enunciate(Phenomenon.Text(text, contentType))
-        }
+        override suspend fun enunciate(text: String, contentType: String): Unit = byExecutor()
 
-        override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
-            enunciate(Phenomenon.Data(bytes, contentType))
-        }
+        override suspend fun enunciate(bytes: ByteArray, contentType: String?): Unit = byExecutor()
 
-        override suspend fun impede(reason: String) {
-            enunciate(Phenomenon.Impediment(reason))
-        }
+        override suspend fun impede(reason: String): Unit = byExecutor()
 
         override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = onComputer()
 
@@ -478,17 +465,9 @@ class HarnessHost(
             "The host acts only within the cogitations: what an intent does on a computer, its executor does"
         )
 
-        private fun enunciate(phenomenon: Phenomenon) = synchronized(lock) {
-            checkNotSealed()
-            logger.info {
-                "[${unfolding.id}] Enunciated " + when (phenomenon) {
-                    is Text -> "text of ${phenomenon.text.length} chars (${phenomenon.contentType})"
-                    is Data -> "data of ${phenomenon.bytes.size} bytes (${phenomenon.contentType})"
-                    else -> phenomenon.kind
-                }
-            }
-            enunciated += phenomenon
-        }
+        private fun byExecutor(): Nothing = throw UnsupportedOperationException(
+            "What an intent enunciates, its executor keeps as the output of the intent, see ScriptExecutor"
+        )
 
     }
 

@@ -56,26 +56,19 @@ class ScriptExecutorTest {
         executor.close()
     }
 
-    /** [Agency] keeping everything enunciated, and invoking nothing for real. */
+    /** [Agency] keeping the invocations, and invoking nothing for real, what an intent enunciates being kept by the executor. */
     private class TestAgency : Agency {
         override val cogitation = Cogitation(constitution = "", enunciations = emptyList())
         override val parentCogitation: Cogitation? = null
-        override val invocations = mutableListOf<Phenomenon.Invocation>()
-        override val enunciated = mutableListOf<Phenomenon>()
+        val invoked = mutableListOf<Phenomenon.Invocation>()
         override suspend fun invoke(prompt: String, constitution: String) = Phenomenon.Invocation(
-            id = "invocation-${invocations.size + 1}",
+            id = "invocation-${invoked.size + 1}",
             prompt = prompt,
             constitution = constitution
-        ).also { invocations += it }
-        override suspend fun enunciate(text: String, contentType: String) {
-            enunciated += Phenomenon.Text(text, contentType)
-        }
-        override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
-            enunciated += Phenomenon.Data(bytes, contentType)
-        }
-        override suspend fun impede(reason: String) {
-            enunciated += Phenomenon.Impediment(reason)
-        }
+        ).also { invoked += it }
+        override suspend fun enunciate(text: String, contentType: String): Unit = throw UnsupportedOperationException()
+        override suspend fun enunciate(bytes: ByteArray, contentType: String?): Unit = throw UnsupportedOperationException()
+        override suspend fun impede(reason: String): Unit = throw UnsupportedOperationException()
         override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
         override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
         override suspend fun execute(
@@ -97,7 +90,7 @@ class ScriptExecutorTest {
         val agency = TestAgency()
 
         // when
-        val phenomena = executor.execute(
+        val executed = executor.execute(
             """
             agency.enunciate("first")
             agency.invoke("sub")
@@ -110,11 +103,11 @@ class ScriptExecutorTest {
         )
 
         // then
-        assert(phenomena == listOf(
-            agency.invocations.single(),
+        assert(executed.result == listOf(
+            agency.invoked.single(),
             Phenomenon.Text("42", "text/plain")
         ))
-        assert(agency.enunciated == listOf(
+        assert(executed.output == listOf(
             Phenomenon.Text("first"),
             Phenomenon.Data(byteArrayOf(4, 2)),
             Phenomenon.Impediment("stuck")
@@ -124,8 +117,8 @@ class ScriptExecutorTest {
     @Test
     fun `should return value of intent as text`() = runTest(timeout = 5.minutes) {
         // when
-        val number = executor.execute("6 * 7", cogitation, TestAgency())
-        val string = executor.execute("\"*answer*\"", cogitation, TestAgency())
+        val number = executor.execute("6 * 7", cogitation, TestAgency()).result
+        val string = executor.execute("\"*answer*\"", cogitation, TestAgency()).result
 
         // then
         assert(number == listOf(Phenomenon.Text("42", "text/plain")))
@@ -140,7 +133,7 @@ class ScriptExecutorTest {
                 "said(Phenomenon.Text(\"no import needed\"))",
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("no import needed", "text/plain")))
@@ -155,10 +148,10 @@ class ScriptExecutorTest {
         // e.g. the timeout of `agency.bash`, whose missing import failed an 8 KB intent of edits
         val phenomena = executor.execute(
             "Path(\"$file\").writeText(\"edited\")\n" +
-                "\"${'$'}{10.minutes} ${'$'}{Path(\"$file\").readText()}\"",
+                    $$"\"${10.minutes} ${Path(\"$$file\").readText()}\"",
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("10m edited", "text/plain")))
@@ -170,11 +163,11 @@ class ScriptExecutorTest {
         // e.g. a Python docstring, whose triple quotes would end the raw string, which failed a 13 KB intent of edits
         val q = "\"\"\""
         val script = "val plain = ${q}def f():\n    \${TQ}Docstring.\${TQ}\n$q\n" +
-            "val multiDollar = $$${q}price = \"$\" + \$\$TQ + \"$$\" + \$\$TQ$q\n" +
+                $$$"val multiDollar = $$$$${q}price = \"$\" + $$TQ + \"$$\" + $$TQ$$$q\n" +
             "plain + multiDollar"
 
         // when
-        val phenomena = executor.execute(script, cogitation, TestAgency())
+        val phenomena = executor.execute(script, cogitation, TestAgency()).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text(
@@ -186,7 +179,7 @@ class ScriptExecutorTest {
     @Test
     fun `should perceive whole value of intent up to 30,000 characters`() = runTest(timeout = 5.minutes) {
         // when
-        val phenomena = executor.execute("\"a\".repeat(30_000)", cogitation, TestAgency())
+        val phenomena = executor.execute("\"a\".repeat(30_000)", cogitation, TestAgency()).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("a".repeat(30_000), "text/plain")))
@@ -195,7 +188,7 @@ class ScriptExecutorTest {
     @Test
     fun `should digest longer value of intent, telling the file of the whole value`() = runTest(timeout = 5.minutes) {
         // when
-        val phenomena = executor.execute("(0 until 100_000).joinToString(\"\\n\")", cogitation, TestAgency())
+        val phenomena = executor.execute("(0 until 100_000).joinToString(\"\\n\")", cogitation, TestAgency()).result
 
         // then
         val value = (phenomena.single() as Phenomenon.Text).text
@@ -213,7 +206,7 @@ class ScriptExecutorTest {
         val intent = "val n = 42\n\$\$\"\"\"for c in a b; do echo \"\$c \$\$n\"; done\"\"\""
 
         // when
-        val result = executor.execute(intent, cogitation, TestAgency())
+        val result = executor.execute(intent, cogitation, TestAgency()).result
 
         // then
         assert(result == listOf(Phenomenon.Text("""for c in a b; do echo "${'$'}c 42"; done""", "text/plain")))
@@ -225,7 +218,7 @@ class ScriptExecutorTest {
         val intent = "\$\$\"\"\"\ndef f(\$x):\n    \$\${\"\\\"\\\"\\\"\"}Doc.\$\${\"\\\"\\\"\\\"\"}\n\"\"\".trimIndent()"
 
         // when
-        val result = executor.execute(intent, cogitation, TestAgency())
+        val result = executor.execute(intent, cogitation, TestAgency()).result
 
         // then
         val python = "def f(\$x):\n    \"\"\"Doc.\"\"\""
@@ -242,7 +235,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(result == listOf(Phenomenon.Data(byteArrayOf(4, 2), "image/png")))
@@ -251,8 +244,8 @@ class ScriptExecutorTest {
     @Test
     fun `should return nothing for intent evaluating to Unit or null`()= runTest(timeout = 5.minutes) {
         // when
-        val unit = executor.execute("agency.enunciate(\"output\")", cogitation, TestAgency())
-        val nothing = executor.execute("null", cogitation, TestAgency())
+        val unit = executor.execute("agency.enunciate(\"output\")", cogitation, TestAgency()).result
+        val nothing = executor.execute("null", cogitation, TestAgency()).result
 
         // then
         assert(unit.isEmpty())
@@ -265,10 +258,10 @@ class ScriptExecutorTest {
         val agency = TestAgency()
 
         // when
-        val phenomena = executor.execute("agency.invoke(\"sub\")", cogitation, agency)
+        val phenomena = executor.execute("agency.invoke(\"sub\")", cogitation, agency).result
 
         // then
-        assert(phenomena == listOf(agency.invocations.single()))
+        assert(phenomena == listOf(agency.invoked.single()))
     }
 
     @Test
@@ -281,10 +274,10 @@ class ScriptExecutorTest {
             "listOf(\"first\", \"second\").map { agency.invoke(it) }",
             cogitation,
             agency
-        )
+        ).result
 
         // then
-        assert(phenomena == agency.invocations)
+        assert(phenomena == agency.invoked)
     }
 
     @Test
@@ -293,7 +286,7 @@ class ScriptExecutorTest {
         val python = (1..500).joinToString("\n") { "for i,o in enumerate(opts$it): print(i)" }
 
         // when
-        val phenomena = executor.execute(python, cogitation, TestAgency())
+        val phenomena = executor.execute(python, cogitation, TestAgency()).result
 
         // then
         val reason = (phenomena.single() as Phenomenon.Impediment).reason
@@ -309,7 +302,7 @@ class ScriptExecutorTest {
         val script = "val command = \"grep -n 'deprecated\\|sunset' fastapi/routing.py\"\ncommand"
 
         // when
-        val phenomena = executor.execute(script, cogitation, TestAgency())
+        val phenomena = executor.execute(script, cogitation, TestAgency()).result
 
         // then
         val reason = (phenomena.single() as Phenomenon.Impediment).reason
@@ -324,7 +317,7 @@ class ScriptExecutorTest {
         val intent = Phenomenon.Intent(script = "Path(\"$file\").readText()", edits = listOf(Edit(path = file.toString(), old = "a", new = "b")))
 
         // when
-        val phenomena = executor.execute(intent, cogitation, TestAgency())
+        val phenomena = executor.execute(intent, cogitation, TestAgency()).result
 
         // then
         assert(phenomena == listOf(
@@ -343,7 +336,7 @@ class ScriptExecutorTest {
         )
 
         // when
-        val phenomena = executor.execute(intent, cogitation, TestAgency())
+        val phenomena = executor.execute(intent, cogitation, TestAgency()).result
 
         // then
         assert(file.readText() == "a\n")
@@ -363,7 +356,7 @@ class ScriptExecutorTest {
             "applyEdits(listOf(Edit(path = \"$file\", old = \"a\", new = \"b\")))",
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(file.readText() == "a\n")
@@ -380,7 +373,7 @@ class ScriptExecutorTest {
         val agency = TestAgency()
 
         // when
-        val phenomena = executor.execute(
+        val executed = executor.execute(
             """
             agency.enunciate("before")
             agency.invoke("sub")
@@ -391,11 +384,12 @@ class ScriptExecutorTest {
         )
 
         // then
+        val phenomena = executed.result
         assert(phenomena.size == 2)
-        assert(phenomena.first() == agency.invocations.single())
+        assert(phenomena.first() == agency.invoked.single())
         assert((phenomena.last() as Phenomenon.Impediment).reason.contains("boom"))
         // the failure impedes the intent, not the cogitation
-        assert(agency.enunciated == listOf(Phenomenon.Text("before")))
+        assert(executed.output == listOf(Phenomenon.Text("before")))
     }
 
     @Test
@@ -413,7 +407,7 @@ class ScriptExecutorTest {
         )
 
         // when
-        val phenomena = executor.execute("Phenomenon.Text(describe(answer))", cogitation, agency)
+        val phenomena = executor.execute("Phenomenon.Text(describe(answer))", cogitation, agency).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("Text(text=answer is 42, contentType=text/markdown)", "text/plain")))
@@ -425,19 +419,20 @@ class ScriptExecutorTest {
         val first = TestAgency()
         val second = TestAgency()
         val expressed = cogitation.copy(depth = 7)
-        executor.execute("agency.enunciate(\"first\")", cogitation, first)
+        val firstExecuted = executor.execute("agency.enunciate(\"first\")\nagency.invoke(\"first\")", cogitation, first)
 
         // when
-        val phenomena = executor.execute(
-            "agency.enunciate(\"second\")\nagency.cogitation.depth",
+        val secondExecuted = executor.execute(
+            "agency.enunciate(\"second\")\nagency.invoke(\"second\")\nagency.cogitation.depth",
             expressed,
             second
         )
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("7", "text/plain")))
-        assert(first.enunciated == listOf(Phenomenon.Text("first")))
-        assert(second.enunciated == listOf(Phenomenon.Text("second")))
+        assert(secondExecuted.result == listOf(second.invoked.single(), Phenomenon.Text("7", "text/plain")))
+        assert(first.invoked.single().prompt == "first" && second.invoked.single().prompt == "second")
+        assert(firstExecuted.output == listOf(Phenomenon.Text("first")))
+        assert(secondExecuted.output == listOf(Phenomenon.Text("second")))
     }
 
     @Test
@@ -453,7 +448,7 @@ class ScriptExecutorTest {
         )
 
         // when
-        val phenomena = executor.execute("job.join(); started.await()", cogitation, TestAgency())
+        val phenomena = executor.execute("job.join(); started.await()", cogitation, TestAgency()).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("launched", "text/plain")))
@@ -469,7 +464,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
@@ -492,7 +487,7 @@ class ScriptExecutorTest {
                 slow.cancel()
             }
             // the intents of a session execute one after another, so this one waits until the slow one ends
-            executor.execute("6 * 7", cogitation, TestAgency())
+            executor.execute("6 * 7", cogitation, TestAgency()).result
         }
 
         // then
@@ -510,7 +505,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
@@ -528,7 +523,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         val reason = (phenomena.single() as Phenomenon.Impediment).reason
@@ -546,7 +541,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
@@ -570,7 +565,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             agency
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("gat-aca", "text/plain")))
@@ -592,7 +587,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             agency
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("gat", "text/plain")))
@@ -614,7 +609,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             agency
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("gat", "text/plain")))
@@ -634,7 +629,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             agency
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("aca", "text/plain")))
@@ -665,7 +660,7 @@ class ScriptExecutorTest {
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
-            )
+            ).result
         } finally {
             server.stop(0)
         }
@@ -715,7 +710,7 @@ class ScriptExecutorTest {
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
-            )
+            ).result
         } finally {
             server.stop(0)
         }
@@ -752,7 +747,7 @@ class ScriptExecutorTest {
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
-            )
+            ).result
         } finally {
             server.stop(0)
         }
@@ -786,7 +781,7 @@ class ScriptExecutorTest {
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
-            )
+            ).result
         } finally {
             server.stop(0)
         }
@@ -835,7 +830,7 @@ class ScriptExecutorTest {
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
-            )
+            ).result
         } finally {
             server.stop(0)
         }
@@ -857,7 +852,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("dog: 180 aa\ncow: 180 aa\n", "text/plain")))
@@ -874,7 +869,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("dog: 180 aa\ncow: 180 aa\n", "text/plain")))
@@ -894,7 +889,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("DOG: GCG: present\nGLP1R: present\n", "text/plain")))
@@ -929,7 +924,7 @@ class ScriptExecutorTest {
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
-            )
+            ).result
         } finally {
             server.stop(0)
         }
@@ -968,7 +963,7 @@ class ScriptExecutorTest {
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
-            )
+            ).result
         } finally {
             server.stop(0)
         }
@@ -997,7 +992,7 @@ class ScriptExecutorTest {
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
-            )
+            ).result
         } finally {
             server.stop(0)
         }
@@ -1014,7 +1009,7 @@ class ScriptExecutorTest {
 
         // when
         val phenomena = unprepared.use {
-            it.execute("agency.python(\"6 * 7\")", cogitation, TestAgency())
+            it.execute("agency.python(\"6 * 7\")", cogitation, TestAgency()).result
         }
 
         // then
@@ -1044,7 +1039,7 @@ class ScriptExecutorTest {
         executor.execute("agency.python(\"import math\\nfactor = 6\")", cogitation, TestAgency())
 
         // when
-        val phenomena = executor.execute("agency.python(\"math.prod([factor, 7])\")", cogitation, TestAgency())
+        val phenomena = executor.execute("agency.python(\"math.prod([factor, 7])\")", cogitation, TestAgency()).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
@@ -1061,7 +1056,7 @@ class ScriptExecutorTest {
             """.trimIndent(),
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("1, 4, 9", "text/plain")))
@@ -1074,7 +1069,7 @@ class ScriptExecutorTest {
             "agency.python(\"print('hello')\\nimport sys\\nprint('warning', file=sys.stderr)\\n6 * 7\")",
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena == listOf(
@@ -1090,7 +1085,7 @@ class ScriptExecutorTest {
             "agency.python(\"print('before')\\nraise ValueError('boom')\")",
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         assert(phenomena.size == 2)
@@ -1107,8 +1102,8 @@ class ScriptExecutorTest {
             executor.execute("agency.python(\"x = 2\")", cogitation, TestAgency())
 
             // when
-            val printed = other.execute("agency.python(\"print(x)\")", cogitation, TestAgency())
-            val nothing = executor.execute("agency.python(\"x\")", cogitation, TestAgency())
+            val printed = other.execute("agency.python(\"print(x)\")", cogitation, TestAgency()).result
+            val nothing = executor.execute("agency.python(\"x\")", cogitation, TestAgency()).result
 
             // then
             assert(printed == listOf(Phenomenon.Text("Printed by Python:\n1", "text/plain")))
@@ -1123,7 +1118,7 @@ class ScriptExecutorTest {
             "agency.python(\"for i in range(100000): print(i)\")",
             cogitation,
             TestAgency()
-        )
+        ).result
 
         // then
         val printed = (phenomena.single() as Phenomenon.Text).text
@@ -1141,7 +1136,7 @@ class ScriptExecutorTest {
         val agency = TestAgency()
 
         // when
-        val phenomena = executor.execute("agency.bash(\"echo hello\").output", cogitation, agency)
+        val phenomena = executor.execute("agency.bash(\"echo hello\").output", cogitation, agency).result
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("hello\n", "text/plain")))
@@ -1154,8 +1149,8 @@ class ScriptExecutorTest {
         val agency = TestAgency()
 
         // when
-        val resolved = executor.execute("agency.resolveDeclaration(\"com.xemantic.annie.Agency\")", cogitation, agency)
-        val searched = executor.execute("agency.searchDeclarations(\"ScriptExecutor\")", cogitation, agency)
+        val resolved = executor.execute("agency.resolveDeclaration(\"com.xemantic.annie.Agency\")", cogitation, agency).result
+        val searched = executor.execute("agency.searchDeclarations(\"ScriptExecutor\")", cogitation, agency).result
 
         // then
         assert("interface Agency" in (resolved.single() as Phenomenon.Text).text)

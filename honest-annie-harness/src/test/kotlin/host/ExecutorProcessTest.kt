@@ -57,23 +57,15 @@ class ExecutorProcessTest {
 
     private val cogitation = Cogitation(constitution = "Be honest", enunciations = emptyList(), depth = 1)
 
-    /** The agency of the host, keeping what is enunciated through it, and telling of the [cogitation]. */
+    /** The agency of the host, telling of the [cogitation], what the intent enunciates being kept by the executor. */
     private inner class HostAgency : Agency {
         override val cogitation: Cogitation = this@ExecutorProcessTest.cogitation
         override val parentCogitation: Cogitation? = null
         override val allowance = Allowance(tokens = 100, spentTokens = 40)
-        override val invocations = mutableListOf<Phenomenon.Invocation>()
-        override val enunciated = mutableListOf<Phenomenon>()
         override suspend fun invoke(prompt: String, constitution: String): Phenomenon.Invocation = throw UnsupportedOperationException()
-        override suspend fun enunciate(text: String, contentType: String) {
-            enunciated += Phenomenon.Text(text, contentType)
-        }
-        override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
-            enunciated += Phenomenon.Data(bytes, contentType)
-        }
-        override suspend fun impede(reason: String) {
-            enunciated += Phenomenon.Impediment(reason)
-        }
+        override suspend fun enunciate(text: String, contentType: String): Unit = throw UnsupportedOperationException()
+        override suspend fun enunciate(bytes: ByteArray, contentType: String?): Unit = throw UnsupportedOperationException()
+        override suspend fun impede(reason: String): Unit = throw UnsupportedOperationException()
         override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = throw UnsupportedOperationException()
         override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = throw UnsupportedOperationException()
         override suspend fun execute(
@@ -101,19 +93,19 @@ class ExecutorProcessTest {
             "\"${'$'}{ProcessHandle.current().pid() != ${ProcessHandle.current().pid()}L} ${'$'}{agency.cogitation.depth} ${'$'}{agency.allowance.tokensLeft}\"",
             cogitation,
             agency
-        )
+        ).result
 
         // then
         assert(result == listOf(Phenomenon.Text("true 1 60", "text/plain")))
     }
 
     @Test
-    fun `should enunciate through the agency of the host what the intent enunciated`() = test {
+    fun `should return what the intent enunciated in the executor process as its output`() = test {
         // given
         val agency = HostAgency()
 
         // when
-        val result = executor.session().execute(
+        val executed = executor.session().execute(
             """
             agency.enunciate("first")
             agency.enunciate(byteArrayOf(4, 2), "image/png")
@@ -125,9 +117,9 @@ class ExecutorProcessTest {
         )
 
         // then
-        val invocation = result.single() as Phenomenon.Invocation
+        val invocation = executed.result.single() as Phenomenon.Invocation
         assert(invocation.prompt == "Count" && invocation.constitution == "Be brief")
-        assert(agency.enunciated == listOf(
+        assert(executed.output == listOf(
             Phenomenon.Text("first"),
             Phenomenon.Data(byteArrayOf(4, 2), "image/png"),
             Phenomenon.Impediment("stuck")
@@ -144,7 +136,7 @@ class ExecutorProcessTest {
             Phenomenon.Intent(script = "Path(\"$file\").readText()", edits = listOf(Edit(path = file.toString(), new = "x = 1\n"))),
             cogitation,
             HostAgency()
-        )
+        ).result
 
         // then
         assert(file.readText() == "x = 1\n")
@@ -159,10 +151,10 @@ class ExecutorProcessTest {
 
         // when
         session.execute("val answer = 42", cogitation, HostAgency())
-        val same = session.execute("answer", cogitation, HostAgency())
-        val apart = other.execute("answer", cogitation, HostAgency())
+        val same = session.execute("answer", cogitation, HostAgency()).result
+        val apart = other.execute("answer", cogitation, HostAgency()).result
         session.close()
-        val reopened = executor.session().execute("6 * 7", cogitation, HostAgency())
+        val reopened = executor.session().execute("6 * 7", cogitation, HostAgency()).result
 
         // then
         assert(same == listOf(Phenomenon.Text("42", "text/plain")))
@@ -181,7 +173,7 @@ class ExecutorProcessTest {
             """.trimIndent(),
             cogitation,
             HostAgency()
-        )
+        ).result
 
         // then
         assert(result == listOf(Phenomenon.Text("42", "text/plain")))
@@ -203,7 +195,7 @@ class ExecutorProcessTest {
             slow.cancel()
         }
         // the intents of a session execute one after another, so this one waits until the slow one is cancelled
-        val next = session.execute("6 * 7", cogitation, HostAgency())
+        val next = session.execute("6 * 7", cogitation, HostAgency()).result
 
         // then
         assert(next == listOf(Phenomenon.Text("42", "text/plain")))

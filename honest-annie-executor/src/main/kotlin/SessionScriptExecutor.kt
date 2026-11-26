@@ -21,6 +21,7 @@ package com.xemantic.annie.executor
 import com.xemantic.annie.Agency
 import com.xemantic.annie.Allowance
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.Execution
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Python
@@ -92,7 +93,7 @@ class SessionScriptExecutor(
         script: String,
         cogitation: Cogitation,
         agency: Agency
-    ): List<Phenomenon> {
+    ): ExecutedIntent {
         val collecting = ExecutorAgency(agency, cogitation, this, introspector, http)
         this.agency.current = collecting
         val result = try {
@@ -106,8 +107,8 @@ class SessionScriptExecutor(
             collecting.seal()
         }
         val printed = if (interpreter.isInitialized()) interpreter.value.printed() else null
-        return buildList {
-            addAll(collecting.collected)
+        val phenomena = buildList {
+            addAll(collecting.invoked)
             addAll(listOfNotNull(printed))
             addAll(
                 when (result) {
@@ -131,6 +132,7 @@ class SessionScriptExecutor(
                     )
                 })
         }
+        return ExecutedIntent(result = phenomena, output = collecting.output.toList())
     }
 
     private val closed = AtomicBoolean(false)
@@ -292,7 +294,7 @@ internal const val UNSUPPORTED_ESCAPE_HINT: String =
 
 /**
  * The agency of an intent: the [agency] of the host, collecting the invocations made through it,
- * within the [cogitation] of the intent, and acting on the computer of the [executor] itself:
+ * and keeping what the intent enunciates as its [output], within the [cogitation] of the intent, and acting on the computer of the [executor] itself:
  * its Python, its processes, the declarations of its [introspector], and its [http] client.
  * Sealed once the intent is executed, so that a thread or a coroutine the intent left running
  * acts no more on the computer, as the host no longer awaits it.
@@ -318,30 +320,32 @@ private class ExecutorAgency(
 
     override val python: Python get() = executor.python
 
-    val collected = CopyOnWriteArrayList<Phenomenon.Invocation>()
+    val invoked = CopyOnWriteArrayList<Phenomenon.Invocation>()
+
+    val output = CopyOnWriteArrayList<Phenomenon>()
 
     override suspend fun invoke(
         prompt: String,
         constitution: String
     ): Phenomenon.Invocation {
         checkNotSealed()
-        return agency.invoke(prompt, constitution).also { collected += it }
+        return agency.invoke(prompt, constitution).also { invoked += it }
     }
 
-    // refused once sealed, as the agency of a harness of another process would not perceive it anymore
+    // refused once sealed, as the output of the intent is already returned to the harness
     override suspend fun enunciate(text: String, contentType: String) {
         checkNotSealed()
-        agency.enunciate(text, contentType)
+        output += Phenomenon.Text(text, contentType)
     }
 
     override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
         checkNotSealed()
-        agency.enunciate(bytes, contentType)
+        output += Phenomenon.Data(bytes, contentType)
     }
 
     override suspend fun impede(reason: String) {
         checkNotSealed()
-        agency.impede(reason)
+        output += Phenomenon.Impediment(reason)
     }
 
     override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? =
@@ -376,9 +380,7 @@ internal class SwitchedAgency : Agency {
 
     override val cogitation: Cogitation get() = current.cogitation
     override val parentCogitation: Cogitation? get() = current.parentCogitation
-    override val invocations: List<Phenomenon.Invocation> get() = current.invocations
     override val allowance: Allowance get() = current.allowance
-    override val enunciated: List<Phenomenon> get() = current.enunciated
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http
 

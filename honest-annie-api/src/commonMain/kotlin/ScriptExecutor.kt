@@ -36,9 +36,9 @@ interface ScriptExecutor : AutoCloseable {
      * and collecting the invocations made through it, e.g. `executor.execute(intent.script, inferred, agency)`.
      *
      * Only the invocations made through the script form the result, not those of the [agency] itself.
-     * What the script enunciates is not part of its result, but its output, see [Agency.enunciated].
+     * What the script enunciates is not part of its result, but its output, see [ExecutedIntent.output].
      *
-     * @return the invocations the script made, in their order,
+     * @return the [ExecutedIntent.result]: the invocations the script made, in their order,
      * followed by what the Python of the intents printed, see [Agency.python], if anything, as a [Phenomenon.Text],
      * by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
      * unless it is `Unit`, `null`, an invocation, or a collection of nothing else,
@@ -50,30 +50,42 @@ interface ScriptExecutor : AutoCloseable {
         script: String,
         cogitation: Cogitation,
         agency: Agency
-    ): List<Phenomenon>
+    ): ExecutedIntent
 
     /**
      * Executes the [intent] expressed in the [cogitation], e.g. `executor.execute(intent, inferred, agency)`:
      * its edits applied first, all of them or none, see [Phenomenon.Intent.edits],
      * then its script, as by the [execute] of a script, unless an edit failed, or the script is blank.
      *
-     * @return the report of the edits, if any, as a [Phenomenon.Text] telling where each one was applied,
+     * @return the [ExecutedIntent.result]: the report of the edits, if any, as a [Phenomenon.Text] telling where each one was applied,
      * followed by the result of the script,
-     * or only the [Phenomenon.Impediment] of the edit failing, no file being changed, and the script not executed.
+     * or only the [Phenomenon.Impediment] of the edit failing, no file being changed, and the script not executed;
+     * and the [ExecutedIntent.output] of the script.
      */
     suspend fun execute(
         intent: Phenomenon.Intent,
         cogitation: Cogitation,
         agency: Agency
-    ): List<Phenomenon> {
+    ): ExecutedIntent {
         val edited: Phenomenon? = if (intent.edits.isEmpty()) null else try {
             Phenomenon.Text(applyEdits(intent.edits), "text/plain")
         } catch (e: Exception) {
-            return listOf(Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed."))
+            return ExecutedIntent(listOf(Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed.")))
         }
-        return listOfNotNull(edited) + if (intent.script.isBlank()) emptyList() else execute(intent.script, cogitation, agency)
+        val executed = if (intent.script.isBlank()) ExecutedIntent(emptyList()) else execute(intent.script, cogitation, agency)
+        return executed.copy(result = listOfNotNull(edited) + executed.result)
     }
 
     /** Releases the session of the intents, closing it again having no effect. */
     override fun close() {}
 }
+
+/**
+ * An intent executed by a [ScriptExecutor]: its [result], the response of the computer to the intent,
+ * and its [output], what its script enunciated through the agency, e.g. by [Agency.enunciate],
+ * to be enunciated by the harness as the output of the cogitation, see [Enunciation.isOutput].
+ */
+data class ExecutedIntent(
+    val result: List<Phenomenon>,
+    val output: List<Phenomenon> = emptyList()
+)
