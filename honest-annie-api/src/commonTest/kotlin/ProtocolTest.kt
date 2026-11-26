@@ -68,7 +68,7 @@ class ProtocolTest {
                     Phenomenon.Invocation(id = "invocation-1", prompt = "Count", constitution = "Be brief"),
                     Phenomenon.Text("2", "text/plain")
                 ),
-                enunciated = listOf(Phenomenon.Data(byteArrayOf(1, 2, 3), "image/png"), Phenomenon.Impediment("stuck"))
+                output = listOf(Phenomenon.Data(byteArrayOf(1, 2, 3), "image/png"), Phenomenon.Impediment("stuck"))
             ),
             ExecutorResponse.Failed(id = "request-2", reason = "No session\nat all")
         )

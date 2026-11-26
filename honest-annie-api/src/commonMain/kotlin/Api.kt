@@ -55,15 +55,8 @@ interface Agency {
     val cogitation: Cogitation
     /** [Cogitation] which invoked the current one, `null` for the root one. */
     val parentCogitation: Cogitation?
-    /** Invocations made during this step of the harness, e.g. by the intent it executes. */
-    val invocations: List<Phenomenon.Invocation>
     /** What the whole tree of the current cogitation may still spend, unlimited unless its host limits it. */
     val allowance: Allowance get() = Allowance()
-    /**
-     * Output enunciated during this step of the harness, e.g. by the intent it executes,
-     * to be enunciated by the harness in the cogitation it unfolds, see [Enunciation.isOutput].
-     */
-    val enunciated: List<Phenomenon>
     /**
      * Invokes a cogitation under the [constitution], by default the one of the current [cogitation], see [Cogitation.constitution].
      * The invoked cogitation is unfolded by the same harness and cognizer, starting with the [prompt]
@@ -78,7 +71,7 @@ interface Agency {
         constitution: String = cogitation.constitution
     ): Phenomenon.Invocation
     /**
-     * Enunciates a [Phenomenon.Text] as the output of the current cogitation, see [enunciated],
+     * Enunciates a [Phenomenon.Text] as the output of the current cogitation,
      * which is perceived by its invoker once the cogitation rests, see [Cogitation.output].
      * Enunciated by an intent, it is not part of the result of the intent, but precedes it in the cogitation:
      * what the intent needs to perceive in the response to it is the value of its last expression.

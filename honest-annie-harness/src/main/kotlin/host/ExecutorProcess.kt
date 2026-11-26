@@ -20,6 +20,7 @@ package com.xemantic.annie.harness.host
 
 import com.xemantic.annie.Agency
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.ExecutorRequest
 import com.xemantic.annie.ExecutorResponse
 import com.xemantic.annie.IntentContext
@@ -150,32 +151,21 @@ class ExecutorProcess(
             script: String,
             cogitation: Cogitation,
             agency: Agency
-        ): List<Phenomenon> = execute(Phenomenon.Intent(script), cogitation, agency)
+        ): ExecutedIntent = execute(Phenomenon.Intent(script), cogitation, agency)
 
         // the edits are applied by the executor, to the files of its computer
         override suspend fun execute(
             intent: Phenomenon.Intent,
             cogitation: Cogitation,
             agency: Agency
-        ): List<Phenomenon> {
+        ): ExecutedIntent {
             val context = IntentContext(
                 cogitation = cogitation,
                 parentCogitation = agency.parentCogitation,
                 allowance = agency.allowance
             )
             return when (val response = request(ExecutorRequest.Execute(randomId(), id, intent, context))) {
-                is ExecutorResponse.Executed -> {
-                    // enunciated through the agency of the harness, as if the intent acted through it
-                    response.enunciated.forEach { phenomenon ->
-                        when (phenomenon) {
-                            is Phenomenon.Text -> agency.enunciate(phenomenon.text, phenomenon.contentType)
-                            is Phenomenon.Data -> agency.enunciate(phenomenon.bytes, phenomenon.contentType)
-                            is Phenomenon.Impediment -> agency.impede(phenomenon.reason)
-                            else -> error("An intent enunciates no ${phenomenon::class.simpleName}")
-                        }
-                    }
-                    response.result
-                }
+                is ExecutorResponse.Executed -> ExecutedIntent(response.result, response.output)
                 is ExecutorResponse.Failed -> throw IllegalStateException(
                     "The executor failed to execute the intent:\n${response.reason}"
                 )

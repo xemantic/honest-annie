@@ -73,12 +73,12 @@ class ExecutorServerTest {
     @Test
     fun `should respond with the result of the intent and what it enunciated`() = serving {
         // when
-        send(execute("request-1", """
+        send(execute("request-1", $$"""
             agency.enunciate("first")
             agency.enunciate(byteArrayOf(4, 2), "image/png")
             agency.impede("stuck")
-            val invocation = agency.invoke("Count", "Be brief")
-            "${'$'}{agency.cogitation.depth} ${'$'}{agency.allowance.tokensLeft} ${'$'}{agency.cogitation.constitution} ${'$'}{agency.invocations == listOf(invocation)}"
+            agency.invoke("Count", "Be brief")
+            "${agency.cogitation.depth} ${agency.allowance.tokensLeft} ${agency.cogitation.constitution}"
         """.trimIndent()))
         val response = receive() as ExecutorResponse.Executed
 
@@ -86,8 +86,8 @@ class ExecutorServerTest {
         assert(response.id == "request-1")
         val invocation = response.result.first() as Phenomenon.Invocation
         assert(invocation.prompt == "Count" && invocation.constitution == "Be brief")
-        assert(response.result.drop(1) == listOf(Phenomenon.Text("2 990 Be honest true", "text/plain")))
-        assert(response.enunciated == listOf(
+        assert(response.result.drop(1) == listOf(Phenomenon.Text("2 990 Be honest", "text/plain")))
+        assert(response.output == listOf(
             Phenomenon.Text("first"),
             Phenomenon.Data(byteArrayOf(4, 2), "image/png"),
             Phenomenon.Impediment("stuck")

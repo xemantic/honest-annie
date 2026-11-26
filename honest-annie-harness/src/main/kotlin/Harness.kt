@@ -125,9 +125,8 @@ internal suspend fun unfold(
         }
     } else {
         val initiated = Clock.System.now()
-        val result = executor.execute(intent, inferred, agency)
+        val (result, output) = executor.execute(intent, inferred, agency)
         val executed = Clock.System.now()
-        val output = agency.enunciated
         val enunciated = if (output.isEmpty()) inferred else inferred + Enunciation(
             actant = Actant.SELF,
             initiated = initiated,

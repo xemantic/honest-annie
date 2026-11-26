@@ -230,15 +230,17 @@ data class Inference(
  *   the phenomena to be enunciated by [Actant.SELF], e.g. a [Phenomenon.Monologue], a [Phenomenon.Text] and a [Phenomenon.Intent],
  *   and the [Inference] expressing them, to be carried by that enunciation,
  * - `executor`: `ScriptExecutor`, whose
- *   `suspend fun execute(intent: Phenomenon.Intent, cogitation: Cogitation, agency: Agency): List<Phenomenon>`
+ *   `suspend fun execute(intent: Phenomenon.Intent, cogitation: Cogitation, agency: Agency): ExecutedIntent`
  *   executes an intent expressed in the `cogitation`: it applies the edits of the `intent` first, all of them or none,
  *   returning where each one was applied as a [Phenomenon.Text], or only the [Phenomenon.Impediment] of the edit failing,
  *   no file being changed, and the script not executed; then it executes the script, unless blank,
  *   in the session of the intents of this cogitation, providing it with the `agency`, whose [Agency.cogitation] is the given one,
- *   collecting the invocations made through it, and returns the result of the intent: these invocations, in their order,
- *   followed by the value of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`;
- *   when the script fails, the [Phenomenon.Impediment] describing the failure follows the invocations instead.
- *   What the intent enunciates through the agency is not part of its result, but its output, see [Agency.enunciated].
+ *   collecting the invocations made through it, and returns
+ *   `data class ExecutedIntent(val result: List<Phenomenon>, val output: List<Phenomenon>)`:
+ *   the `result` of the intent, these invocations, in their order,
+ *   followed by the value of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`,
+ *   when the script fails, the [Phenomenon.Impediment] describing the failure following the invocations instead;
+ *   and its `output`, what the intent enunciated through the agency, not part of its result.
  *
  * The harness unfolds the cogitation by a single step, one inference and the intent it expresses, and is called
  * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded,
