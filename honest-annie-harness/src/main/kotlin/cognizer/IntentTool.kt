@@ -18,12 +18,17 @@
 
 package com.xemantic.annie.harness.cognizer
 
+import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.node.ObjectNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.xemantic.annie.Edit
 import com.xemantic.annie.Phenomenon
+import com.xemantic.ai.tool.schema.generator.jsonSchemaOf
+import com.xemantic.ai.tool.schema.meta.Description
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
 private val logger = KotlinLogging.logger {}
 
@@ -34,6 +39,8 @@ private val logger = KotlinLogging.logger {}
  */
 object IntentTool {
 
+    private val mapper = ObjectMapper()
+
     const val NAME: String = "kotlin_script"
 
     const val PARAMETER: String = "script"
@@ -42,48 +49,54 @@ object IntentTool {
             "Its result is where the edits were applied, and what the script evaluated to, or the error failing it, and the cogitations it invoked, " +
             "unless it enunciated your output, which ends the cogitation."
 
-    const val SCRIPT_DESCRIPTION: String = "The raw source of the Kotlin script, starting with its imports, executed after the edits."
-
     const val EDITS: String = "edits"
-
-    const val EDITS_DESCRIPTION: String = "Edits of files, applied in their order before the script, all of them or none, " +
-            "each to the file as the edits before it left it: the code of any language written as it is, never escaped for Kotlin."
-
-    const val PATH_DESCRIPTION: String = "The path of the file, absolute, or relative to the working directory of the scripts, " +
-            "given in every edit, even one changing the file of the edit before it."
 
     /** The hint of an impediment of edits without a `path`, as DeepSeek leaves it out of every edit of a call, meaning the file of an earlier call. */
     const val PATH_HINT: String = "give every edit its own `path`, even one changing the file of the edit before it, or of an earlier call"
 
-    const val OLD_DESCRIPTION: String = "The text to replace, exactly as in the file, whitespace included, occurring once unless `all`: " +
-            "omitted, the `new` text is written as the whole file, created when absent."
+    /**
+     * The input of the tool, only describing its JSON schema:
+     * the input is parsed leniently by [intent] instead, as models send malformed edits a decoding would only refuse.
+     */
+    @Serializable
+    private class Input(
+        @Description("The raw source of the Kotlin script, starting with its imports, executed after the edits.")
+        val script: String? = null,
+        @Description(
+            "Edits of files, applied in their order before the script, all of them or none, " +
+                "each to the file as the edits before it left it: the code of any language written as it is, never escaped for Kotlin."
+        )
+        val edits: List<EditInput>? = null
+    )
 
-    const val NEW_DESCRIPTION: String = "The text replacing the `old` one, or the whole file without it."
+    /** An edit of the [Input], see [Edit]. */
+    @Serializable
+    private class EditInput(
+        @Description(
+            "The path of the file, absolute, or relative to the working directory of the scripts, " +
+                "given in every edit, even one changing the file of the edit before it."
+        )
+        val path: String,
+        @Description(
+            "The text to replace, exactly as in the file, whitespace included, occurring once unless `all`: " +
+                "omitted, the `new` text is written as the whole file, created when absent."
+        )
+        val old: String? = null,
+        @Description("The text replacing the `old` one, or the whole file without it.")
+        val new: String,
+        @Description("Whether to replace every occurrence of the `old` text, rather than its only one.")
+        val all: Boolean = false
+    )
 
-    const val ALL_DESCRIPTION: String = "Whether to replace every occurrence of the `old` text, rather than its only one."
-
-    /** The JSON schema of the [PARAMETER]. */
-    val parameter: Map<String, String> = mapOf("type" to "string", "description" to SCRIPT_DESCRIPTION)
+    /** The JSON schema of the input of the tool, generated of the [Input], with its edits inlined, and no other properties than theirs. */
+    private val schema: Map<String, Any> = mapper.readValue(
+        Json.encodeToString(jsonSchemaOf<Input>(additionalProperties = false, inlineRefs = true)),
+        object : TypeReference<Map<String, Any>>() {}
+    )
 
     /** The JSON schema of the properties of the input of the tool, none of them required: the [PARAMETER], and the [EDITS]. */
-    val properties: Map<String, Any> = mapOf(
-        PARAMETER to parameter,
-        EDITS to mapOf(
-            "type" to "array",
-            "description" to EDITS_DESCRIPTION,
-            "items" to mapOf(
-                "type" to "object",
-                "properties" to mapOf(
-                    "path" to mapOf("type" to "string", "description" to PATH_DESCRIPTION),
-                    "old" to mapOf("type" to "string", "description" to OLD_DESCRIPTION),
-                    "new" to mapOf("type" to "string", "description" to NEW_DESCRIPTION),
-                    "all" to mapOf("type" to "boolean", "description" to ALL_DESCRIPTION)
-                ),
-                "required" to listOf("path", "new"),
-                "additionalProperties" to false
-            )
-        )
-    )
+    @Suppress("UNCHECKED_CAST")
+    val properties: Map<String, Any> = schema.getValue("properties") as Map<String, Any>
 
     /** The input of the call of the tool expressing the [intent], replayed: its script, and its edits, when any. */
     fun input(intent: Phenomenon.Intent): Map<String, Any> = buildMap {
@@ -97,8 +110,6 @@ object IntentTool {
             }
         })
     }
-
-    private val mapper = ObjectMapper()
 
     /**
      * The intent expressed by a tool call, calling the tool of the [name] with the [arguments] in JSON:
