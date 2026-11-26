@@ -79,23 +79,8 @@ class ClaudeInferenceTest {
     private fun ClaudeInference.body(cogitation: Cogitation): JsonNode =
         json(jsonMapper().writeValueAsString(request(cogitation)._body()))
 
-    private fun String.quoted() = jsonMapper().writeValueAsString(this)
-
-    /** The properties of the input of the tool of intents: the script, and the edits applied before it, neither required. */
-    private val intentProperties = """
-        {"script": {"type": "string", "description": ${IntentTool.SCRIPT_DESCRIPTION.quoted()}},
-         "edits": {"type": "array", "description": ${IntentTool.EDITS_DESCRIPTION.quoted()}, "items": {
-           "type": "object",
-           "properties": {
-             "path": {"type": "string", "description": ${IntentTool.PATH_DESCRIPTION.quoted()}},
-             "old": {"type": "string", "description": ${IntentTool.OLD_DESCRIPTION.quoted()}},
-             "new": {"type": "string", "description": ${IntentTool.NEW_DESCRIPTION.quoted()}},
-             "all": {"type": "boolean", "description": ${IntentTool.ALL_DESCRIPTION.quoted()}}
-           },
-           "required": ["path", "new"],
-           "additionalProperties": false
-         }}}
-    """
+    /** The properties of the input of the tool of intents, see IntentToolTest. */
+    private val intentProperties = jsonMapper().writeValueAsString(IntentTool.properties)
 
     @Test
     fun `should request adaptive thinking with effort, cached constitution and the tool executing intents`() {

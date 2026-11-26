@@ -5,6 +5,8 @@ import com.xemantic.annie.buildlogic.usePythonVenvOfTests
 // and storing and recording the cogitations, the intents being executed by the executor.
 plugins {
     alias(libs.plugins.kotlin.jvm)
+    // the input of the tool of intents, whose JSON schema is generated, see IntentTool
+    alias(libs.plugins.kotlin.serialization)
     id("annie.convention")
     application
 }
@@ -19,6 +21,7 @@ dependencies {
     implementation(libs.openai.java)
     implementation(libs.xemantic.ai.file.magic)
     implementation(libs.xemantic.ai.money)
+    implementation(libs.xemantic.ai.tool.schema)
     implementation(libs.kotlin.logging)
 
     runtimeOnly(libs.logback.classic)

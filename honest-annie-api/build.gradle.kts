@@ -11,10 +11,11 @@ plugins {
 kotlin {
 
     jvm()
-    // native, so that a harness compiled natively can use it, the executor staying on the JVM
-    macosArm64()
-    linuxX64()
-    linuxArm64()
+    // native, so that a harness compiled natively can use it, the executor staying on the JVM,
+    // switched off for now
+    //macosArm64()
+    //linuxX64()
+    //linuxArm64()
 
     sourceSets {
 
