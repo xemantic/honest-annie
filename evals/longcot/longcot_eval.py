@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 EVAL_DIR = Path(__file__).resolve().parent / "data"
 SETS_DIR = EVAL_DIR / "sets"
 RUNS_DIR = EVAL_DIR / "runs"
-AGENT = ROOT / "build" / "install" / "honest-annie" / "bin" / "honest-annie"
+AGENT = ROOT / "honest-annie-harness" / "build" / "install" / "honest-annie" / "bin" / "honest-annie"
 VERIFY = Path(__file__).resolve().parent / "longcot_verify.py"
 
 # the commit of LongHorizonReasoning/longcot which prime-envs' longcot_mini depends on

@@ -24,7 +24,7 @@ jobs:
       java_distribution: zulu
       java_version: 27
       gradle_args: runtimeDistTar
-      artifact_path: build/distributions/*.tar.gz
+      artifact_path: honest-annie-harness/build/distributions/*.tar.gz
       artifact_name: honest-annie-${{ matrix.runner }}
 
   release:

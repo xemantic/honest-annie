@@ -2,15 +2,17 @@
 # libraries
 kotlinTarget = "2.4"
 javaTarget = "17"
-kotlin = "2.4.21"
+kotlin = "2.5.0-RC"
 kotlinxCoroutines = "1.11.0"
+kotlinxIo = "0.9.1"
+kotlinxSerialization = "1.11.0"
 ktor = "3.6.1"
 anthropic = "3.8.0"
 openai = "4.101.0"
 kotlinLogging = "8.0.7"
 logback = "1.6.6"
 xemanticKotlinIntrospection = "0.1.0"
-xemanticKotlinScript = "0.2.2"
+xemanticKotlinScript = "0.3.0"
 xemanticKotlinScriptPython = "0.2.1"
 jep = "4.3.2"
 xemanticKotlinTest = "1.18.0"
@@ -23,6 +25,8 @@ xemanticConventionsPlugin = "0.7.1"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinxIo" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
 ktor-client-cio = { module = "io.ktor:ktor-client-cio", version.ref = "ktor" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
@@ -32,16 +36,19 @@ openai-java = { module = "com.openai:openai-java", version.ref = "openai" }
 kotlin-logging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlinLogging" }
 logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 xemantic-kotlin-introspection = { module = "com.xemantic.kotlin:xemantic-kotlin-introspection", version.ref = "xemanticKotlinIntrospection" }
-xemantic-kotlin-script = { module = "com.xemantic.kotlin:xemantic-kotlin-script", version.ref = "xemanticKotlinScript" }
+xemantic-kotlin-script = { module = "com.xemantic.kotlin:xemantic-kotlin-script-core", version.ref = "xemanticKotlinScript" }
 xemantic-kotlin-script-python = { module = "com.xemantic.kotlin:xemantic-kotlin-script-python", version.ref = "xemanticKotlinScriptPython" }
 xemantic-ai-file-magic = { module = "com.xemantic.ai:xemantic-ai-file-magic", version.ref = "xemanticAiFileMagic" }
 xemantic-ai-money = { module = "com.xemantic.ai:xemantic-ai-money", version.ref = "xemanticAiMoney" }
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+kotlin-power-assert = { module = "org.jetbrains.kotlin:kotlin-power-assert", version.ref = "kotlin" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 xemantic-kotlin-test = { module = "com.xemantic.kotlin:xemantic-kotlin-test", version.ref = "xemanticKotlinTest" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
-kotlin-plugin-power-assert = { id = "org.jetbrains.kotlin.plugin.power-assert", version.ref = "kotlin" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 version-catalog-update = { id = "nl.littlerobots.version-catalog-update", version.ref = "versionCatalogUpdatePlugin" }
 xemantic-conventions = { id = "com.xemantic.gradle.xemantic-conventions", version.ref = "xemanticConventionsPlugin" }

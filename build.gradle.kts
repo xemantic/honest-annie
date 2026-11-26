@@ -1,16 +1,13 @@
-import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
-
 plugins {
-    alias(libs.plugins.kotlin.jvm)
-    alias(libs.plugins.kotlin.plugin.power.assert)
+    // loaded once, by the root, as the Kotlin Gradle plugin fails on one loaded by several modules
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.kotlin.multiplatform) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.version.catalog.update)
     alias(libs.plugins.xemantic.conventions)
-    application
 }
 
-group = "com.xemantic.ai"
+group = "com.xemantic.annie"
 
 xemantic {
     description = "A recursive harness for cognizers acting through Kotlin scripts"
@@ -18,82 +15,13 @@ xemantic {
     applyAllConventions()
 }
 
-val javaTarget = libs.versions.javaTarget.get()
-val kotlinTarget = KotlinVersion.fromVersion(libs.versions.kotlinTarget.get())
-
-kotlin {
-
-    // set up according to https://jakewharton.com/gradle-toolchains-are-rarely-a-good-idea/
-    compilerOptions {
-        apiVersion = kotlinTarget
-        languageVersion = kotlinTarget
-        jvmTarget = JvmTarget.fromTarget(javaTarget)
-        freeCompilerArgs.addAll(
-            "-Xjdk-release=$javaTarget",
-            "-Xcontext-sensitive-resolution"
-        )
-        extraWarnings = true
-        progressiveMode = true
-    }
-
-}
-
-java {
-    sourceCompatibility = JavaVersion.toVersion(javaTarget)
-    targetCompatibility = JavaVersion.toVersion(javaTarget)
-}
-
-// the fast JAR file system of the Kotlin compiler calls sun.misc.Unsafe, the option is unknown before JDK 23
-val compilerJvmArgs = if (JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_23)) {
-    listOf("--sun-misc-unsafe-memory-access=allow")
-} else emptyList()
-
-// Jep, embedding CPython for agency.python, loads its native library with System.load, restricted since JDK 24
-val runtimeJvmArgs = compilerJvmArgs + "--enable-native-access=ALL-UNNAMED"
-
-application {
-    mainClass = "com.xemantic.ai.annie.host.MainKt"
-    applicationDefaultJvmArgs = runtimeJvmArgs
-}
-
-
-repositories {
-    mavenCentral()
-}
-
-dependencies {
-    implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.xemantic.kotlin.introspection)
-    implementation(libs.xemantic.kotlin.script)
-    implementation(libs.xemantic.kotlin.script.python)
-    // not used by the harness itself, but by the scripts of cognizers, see the constitution
-    implementation(libs.ktor.client.core)
-    implementation(libs.ktor.client.cio)
-    implementation(libs.ktor.client.content.negotiation)
-    implementation(libs.ktor.serialization.kotlinx.json)
-    implementation(libs.anthropic.java)
-    implementation(libs.openai.java)
-    implementation(libs.xemantic.ai.file.magic)
-    implementation(libs.xemantic.ai.money)
-    implementation(libs.kotlin.logging)
-
-    runtimeOnly(libs.logback.classic)
-
-    testImplementation(libs.kotlin.test)
-    testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.xemantic.kotlin.test)
-}
-
-configurations.all {
-    resolutionStrategy.eachDependency {
-        if (requested.group == "org.ow2.asm") {
-            useVersion(libs.versions.asm.get())
-        }
-    }
+allprojects {
+    group = "com.xemantic.annie"
 }
 
 // The Python virtual environment of the tests, with only the jep package matching the org.ninia:jep library,
-// like a clean environment of a user, the tests declaring the Python packages they use as dependencies.
+// like a clean environment of a user, the tests declaring the Python packages they use as dependencies,
+// see usePythonVenvOfTests of build-logic.
 val pythonVenv = layout.projectDirectory.dir(".venv")
 val venvPython = pythonVenv.file("bin/python")
 
@@ -106,7 +34,7 @@ val createPythonVenv = tasks.register<Exec>("createPythonVenv") {
     commandLine("python3", "-m", "venv", pythonVenv.asFile.absolutePath)
 }
 
-val installPythonPackages = tasks.register<Exec>("installPythonPackages") {
+tasks.register<Exec>("installPythonPackages") {
     description = "Installs jep into the virtual environment of the tests"
     dependsOn(createPythonVenv)
     val packages = listOf("jep==${libs.versions.jep.get()}")
@@ -118,171 +46,6 @@ val installPythonPackages = tasks.register<Exec>("installPythonPackages") {
     doLast {
         marker.asFile.writeText(packages.joinToString("\n"))
     }
-}
-
-tasks.test {
-    useJUnitPlatform()
-    jvmArgs(runtimeJvmArgs)
-    inputs.files(installPythonPackages)
-    environment("VIRTUAL_ENV", pythonVenv.asFile.absolutePath)
-    // the dependencies declared by the tests are installed from scratch on every run, not into the user cache
-    val dependencyDirectory = layout.buildDirectory.dir("python-dependencies").get().asFile
-    systemProperty("xemantic.kotlin.script.python.dependencyDirectory", dependencyDirectory.absolutePath)
-    doFirst {
-        dependencyDirectory.deleteRecursively()
-    }
-}
-
-// Run from the build, the harness uses the virtual environment of the tests,
-// rather than preparing one of its own in the user cache, see PythonVenv.
-tasks.named<JavaExec>("run") {
-    args = (findProperty("input") as String?)?.let { listOf(it) } ?: emptyList()
-    inputs.files(installPythonPackages)
-    // set at execution: setting it at configuration snapshots the whole environment into the configuration cache,
-    // and a reused cache entry would then run the harness without the variables exported since, e.g. ANTHROPIC_MODEL
-    val virtualEnv = pythonVenv.asFile.absolutePath
-    doFirst { (this as JavaExec).environment("VIRTUAL_ENV", virtualEnv) }
-}
-
-// The version of the jep package matching the org.ninia:jep library, installed by PythonVenv at runtime.
-val generatePythonProperties = tasks.register("generatePythonProperties") {
-    group = "annie"
-    description = "Generates the python.properties resource with the version of jep"
-    val jepVersion = libs.versions.jep.get()
-    val outputDir = layout.buildDirectory.dir("generated/python/resources")
-    inputs.property("jepVersion", jepVersion)
-    outputs.dir(outputDir)
-    doLast {
-        val output = outputDir.get().file("python.properties").asFile
-        output.parentFile.mkdirs()
-        output.writeText("jep.version=$jepVersion\n")
-    }
-}
-
-// Fills the constitution templates with the API, cognition and harness sources, as resources:
-// constitution.md, the default one, and constitutions/<family>.md, the ones of model families, see Constitution.kt.
-val generateConstitution = tasks.register("generateConstitution") {
-    group = "annie"
-    description = "Generates the constitution resources from their templates and the API, cognition and harness sources"
-    val default = layout.projectDirectory.file("src/main/constitution.md")
-    val families = layout.projectDirectory.dir("src/main/constitutions")
-    val sourceDir = layout.projectDirectory.dir("src/main/kotlin")
-    val sources = mapOf(
-        "api" to sourceDir.file("Api.kt"),
-        "cognition" to sourceDir.file("Cognition.kt"),
-        "harness" to sourceDir.file("Harness.kt")
-    )
-    val outputDir = layout.buildDirectory.dir("generated/constitution/resources")
-    inputs.file(default)
-    inputs.dir(families)
-    inputs.files(sources.values)
-    outputs.dir(outputDir)
-    doLast {
-        val licenseHeader = Regex("""\A\s*/\*.*?\*/\s*""", RegexOption.DOT_MATCHES_ALL)
-        val output = outputDir.get().asFile
-        output.deleteRecursively()
-        val templates = mapOf("constitution.md" to default.asFile) +
-                families.asFile.listFiles { file -> file.extension == "md" }!!.associateBy { "constitutions/${it.name}" }
-        templates.forEach { (path, template) ->
-            val constitution = sources.entries.fold(template.readText()) { text, (name, file) ->
-                val placeholder = "{{$name}}"
-                check(placeholder in text) { "No $placeholder in $template" }
-                text.replace(placeholder, file.asFile.readText().replaceFirst(licenseHeader, "").trimEnd())
-            }
-            output.resolve(path).apply { parentFile.mkdirs() }.writeText(constitution)
-        }
-    }
-}
-
-sourceSets.main {
-    resources.srcDir(generateConstitution)
-    resources.srcDir(generatePythonProperties)
-}
-
-// The Java runtime of the JDK running the build, linked with the modules the scripts of cognizers can use:
-// all of Java SE, not only the ones the harness depends on, plus the JDK modules the Kotlin compiler relies on.
-val runtimeImage = tasks.register<Exec>("runtimeImage") {
-    group = "annie"
-    description = "Links the Java runtime bundled with the runtime distribution"
-    val javaHome = System.getProperty("java.home")
-    val modules = listOf(
-        "java.se",
-        "jdk.compiler",
-        "jdk.unsupported",
-        "jdk.zipfs",
-        "jdk.charsets",
-        "jdk.localedata",
-        "jdk.crypto.cryptoki",
-        "jdk.httpserver",
-        "jdk.management",
-        "jdk.naming.dns",
-        "jdk.net",
-        "jdk.security.auth"
-    )
-    val outputDir = layout.buildDirectory.dir("runtime-image")
-    inputs.property("javaHome", javaHome)
-    inputs.property("modules", modules)
-    outputs.dir(outputDir)
-    executable = "$javaHome/bin/jlink"
-    args(
-        "--add-modules", modules.joinToString(","),
-        "--strip-debug",
-        "--no-man-pages",
-        "--no-header-files",
-        "--compress", "zip-6",
-        "--output", outputDir.get().asFile.path
-    )
-    // jlink refuses to write into an existing directory
-    doFirst { outputDir.get().asFile.deleteRecursively() }
-}
-
-// The distribution carrying its own Java runtime, which its start script uses instead of JAVA_HOME.
-distributions.register("runtime") {
-    contents {
-        from(tasks.installDist)
-        exclude("bin/*.bat")
-        filesMatching("bin/${project.name}") {
-            filter { line ->
-                if (line.startsWith("if [ -n \"\$JAVA_HOME\" ] ; then")) "JAVA_HOME=\$APP_HOME/runtime\n$line" else line
-            }
-        }
-        into("runtime") {
-            from(runtimeImage)
-            // jlink makes the legal notices read-only, which would fail installing the distribution again
-            filesMatching("**/legal/**") { permissions { user { write = true } } }
-        }
-    }
-}
-
-// The runtime is native, so its archive is named after the platform of the build, e.g. linux-x64 or macos-arm64.
-tasks.named<Tar>("runtimeDistTar") {
-    val os = System.getProperty("os.name").lowercase().let { if ("mac" in it) "macos" else it.substringBefore(' ') }
-    val arch = System.getProperty("os.arch").let { if (it == "aarch64") "arm64" else if (it == "amd64" || it == "x86_64") "x64" else it }
-    archiveClassifier = "$os-$arch"
-    archiveExtension = "tar.gz"
-    compression = Compression.GZIP
-    // archives have fixed permissions by default, which would make the launcher and the runtime non-executable
-    useFileSystemPermissions()
-}
-
-tasks.named("runtimeDistZip") {
-    enabled = false
-}
-
-tasks.register<JavaExec>("listModels") {
-    group = "annie"
-    description = "Lists models exposed by the OpenAI-compatible endpoint at OPENAI_BASE_URL"
-    classpath = sourceSets.main.get().runtimeClasspath
-    mainClass = "com.xemantic.ai.annie.cognizer.openai.ListModelsKt"
-    args = (findProperty("prompt") as String?)?.let { listOf(it) } ?: emptyList()
-}
-
-@OptIn(ExperimentalKotlinGradlePluginApi::class)
-powerAssert {
-    functions = listOf(
-        "com.xemantic.kotlin.test.assert",
-        "com.xemantic.kotlin.test.have"
-    )
 }
 
 versionCatalogUpdate {

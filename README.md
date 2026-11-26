@@ -129,6 +129,23 @@ monitor experiments,
 a public dataset of recorded cogitations,
 and a writeup.
 
+## Modules
+
+- [honest-annie-api](honest-annie-api): what the harness and the executor share:
+  the cogitation, see [Cognition.kt](honest-annie-api/src/commonMain/kotlin/Cognition.kt),
+  the `Agency` of the scripts of intents, see [Api.kt](honest-annie-api/src/commonMain/kotlin/Api.kt),
+  and the `ScriptExecutor` executing them.
+- [honest-annie-harness](honest-annie-harness): the host unfolding cogitations by the harness,
+  inferring through the APIs of the providers, storing and recording every cogitation,
+  and the application, see [Main.kt](honest-annie-harness/src/main/kotlin/host/Main.kt).
+- [honest-annie-executor](honest-annie-executor): the execution of intents,
+  in Kotlin script sessions, with the Python embedded by Jep, processes, and HTTP.
+
+The harness still runs the executor in its own JVM,
+which is meant to become a process of its own,
+communicating with the harness only through its standard input and output,
+see [docs/isolated-invocations.md](docs/isolated-invocations.md).
+
 ## Dependencies
 
 Honest Annie is built on open-source libraries developed by xemantic,
@@ -141,7 +158,7 @@ Current:
 - [xemantic-kotlin-introspection](https://github.com/xemantic/xemantic-kotlin-introspection) renders the signatures of any Kotlin declaration on the classpath,
   so a script can look up the API it compiles against, even one absent from the training data of the model;
 - [xemantic-ai-file-magic](https://github.com/xemantic/xemantic-ai-file-magic) detects the media type of the data Annie perceives;
-- [xemantic-ai-money](https://github.com/xemantic/xemantic-ai-money) calculates exactly what each inference costs at the list prices of its model, see [Pricing.kt](src/main/kotlin/Pricing.kt).
+- [xemantic-ai-money](https://github.com/xemantic/xemantic-ai-money) calculates exactly what each inference costs at the list prices of its model, see [Pricing.kt](honest-annie-harness/src/main/kotlin/Pricing.kt).
 
 Future:
 - [xemantic-kotlin-script-python](https://github.com/xemantic/xemantic-kotlin-script-python) embeds a stateful CPython interpreter into the Kotlin script session,
@@ -163,8 +180,8 @@ otherwise the `OPENAI_MODEL` (with `OPENAI_API_KEY`) served by the OpenAI API,
 or by any OpenAI-compatible endpoint set as `OPENAI_BASE_URL`, the `/v1` suffix included.
 Cogitations are recorded in `ANNIE_COGITATIONS_DIR` (`cogitations` by default),
 each with the tokens of its inferences in `inferences.json`,
-and their cost in US dollars at list prices, when [Pricing.kt](src/main/kotlin/Pricing.kt) knows the prices of the model,
-and unfolded by the harness of [Harness.kt](src/main/kotlin/Harness.kt), compiled into honest-annie,
+and their cost in US dollars at list prices, when [Pricing.kt](honest-annie-harness/src/main/kotlin/Pricing.kt) knows the prices of the model,
+and unfolded by the harness of [Harness.kt](honest-annie-harness/src/main/kotlin/Harness.kt), compiled into honest-annie,
 whose source is part of every constitution.
 When `ANNIE_TOKEN_BUDGET` is set, the cogitation and the ones it invokes spend at most that many tokens,
 and are impeded once they have spent them.
@@ -214,7 +231,7 @@ remove the `.venv` it left, or run `.venv/bin/python -m ensurepip`, and build ag
 
 `./gradlew runtimeDistTar` packages honest-annie together with its own Java runtime,
 linked by `jlink` from the JDK running the build,
-as `build/distributions/honest-annie-runtime-<version>-<platform>.tar.gz`, e.g. `macos-arm64`.
+as `honest-annie-harness/build/distributions/honest-annie-runtime-<version>-<platform>.tar.gz`, e.g. `macos-arm64`.
 Once extracted, `bin/honest-annie "What's fibonacci number 45"` runs it with no other Java installed.
 The [Package](.github/workflows/package.yml) workflow builds these packages for Linux and macOS, on x64 and arm64,
 and attaches them to the release of each `v*` tag.

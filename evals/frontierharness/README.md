@@ -36,7 +36,7 @@ and the agent's directory of each job holds `honest-annie.txt`, her answer,
 
 ## Comparing constitutions
 
-Kimi K3 is constituted by [constitutions/kimi.md](../../src/main/constitutions/kimi.md),
+Kimi K3 is constituted by [constitutions/kimi.md](../../honest-annie-harness/src/main/constitutions/kimi.md),
 whatever the provider names it, e.g. `kimi-k3` or `moonshotai/Kimi-K3`,
 so the evaluated commit carries the constitution of its runs.
 
@@ -46,7 +46,7 @@ change the copy, and run the same tasks with each, under runs of their own:
 
 ```shell
 ./gradlew generateConstitution
-cp build/generated/constitution/resources/constitutions/kimi.md /tmp/kimi-b.md   # then change it
+cp honest-annie-harness/build/generated/constitution/resources/constitutions/kimi.md /tmp/kimi-b.md   # then change it
 RUN_ID=<date>-kimi-a evals/frontierharness/local.sh run <tasks>
 RUN_ID=<date>-kimi-b ANNIE_CONSTITUTION=/tmp/kimi-b.md evals/frontierharness/local.sh run <tasks>
 ```
@@ -72,7 +72,7 @@ so under Runta, where the runner runs in the checkpoint, the variant to compare 
    e.g. `fireworks_ai/accounts/fireworks/models/kimi-k3` → `https://api.fireworks.ai/inference/v1`,
    with the stub of the key, which the egress proxy replaces with the real one.
    Under Pier, the task is air-gapped, and only the endpoint is reachable, through an authenticated proxy,
-   which honest-annie takes from `HTTPS_PROXY`, see [HttpsProxy.kt](../../src/main/kotlin/cognizer/HttpsProxy.kt).
+   which honest-annie takes from `HTTPS_PROXY`, see [HttpsProxy.kt](../../honest-annie-harness/src/main/kotlin/cognizer/HttpsProxy.kt).
 4. After the run, the adapter reads the tokens of every inference of the tree of cogitations from their `inferences.json`,
    reports their totals to the runner, the cached input included in the input, the reasoning in the output,
    and their cost at list prices as `cost_usd`, when honest-annie knows the prices of every inference,
