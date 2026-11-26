@@ -172,9 +172,7 @@ class CogitationRecorder(
                 null
             }
         }
-        dir.resolve("constitution.md").writeText(
-            cogitation.constitution.joinToString(separator = "\n\n")
-        )
+        dir.resolve("constitution.md").writeText(cogitation.constitution)
         index.append("# Cogitation started at ${started ?: "-"}\n\n")
         index.append("[constitution](constitution.md)\n\n")
         index.append("| # | actant | initiated | duration | phenomena | inference |\n")

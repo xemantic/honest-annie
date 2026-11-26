@@ -29,20 +29,27 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.Path
+import kotlin.io.path.createTempDirectory
 import kotlin.io.path.createTempFile
+import kotlin.io.path.exists
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 
 class ScriptExecutorTest {
 
     private val executor = SessionScriptExecutor()
 
-    private val cogitation = Cogitation(constitution = emptyList(), enunciations = emptyList())
+    private val cogitation = Cogitation(constitution = "", enunciations = emptyList())
 
     @AfterTest
     fun closeExecutor() {
@@ -51,29 +58,27 @@ class ScriptExecutorTest {
 
     /** [Agency] keeping everything enunciated, and invoking nothing for real. */
     private class TestAgency : Agency {
-        override val cogitation = Cogitation(constitution = emptyList(), enunciations = emptyList())
-        override val constitution = ""
+        override val cogitation = Cogitation(constitution = "", enunciations = emptyList())
         override val parentCogitation: Cogitation? = null
-        override val depth = 0
         override val invocations = mutableListOf<Phenomenon.Invocation>()
         override val enunciated = mutableListOf<Phenomenon>()
-        override fun invoke(prompt: String, constitution: String) = Phenomenon.Invocation(
+        override suspend fun invoke(prompt: String, constitution: String) = Phenomenon.Invocation(
             id = "invocation-${invocations.size + 1}",
             prompt = prompt,
             constitution = constitution
         ).also { invocations += it }
-        override fun enunciate(text: String, contentType: String) {
+        override suspend fun enunciate(text: String, contentType: String) {
             enunciated += Phenomenon.Text(text, contentType)
         }
-        override fun enunciate(bytes: ByteArray, contentType: String?) {
+        override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
             enunciated += Phenomenon.Data(bytes, contentType)
         }
-        override fun impede(reason: String) {
+        override suspend fun impede(reason: String) {
             enunciated += Phenomenon.Impediment(reason)
         }
-        override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
-        override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
-        override fun execute(
+        override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
+        override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
+        override suspend fun execute(
             command: List<String>,
             input: String?,
             directory: String?,
@@ -436,7 +441,7 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should await suspend function and launch coroutine outliving intent`() = runTest(timeout = 5.minutes) {
+    fun `should launch coroutine outliving intent`() = runTest(timeout = 5.minutes) {
         // given
         executor.execute(
             """
@@ -448,7 +453,7 @@ class ScriptExecutorTest {
         )
 
         // when
-        val phenomena = executor.execute("await { job.join(); started.await() }", cogitation, TestAgency())
+        val phenomena = executor.execute("job.join(); started.await()", cogitation, TestAgency())
 
         // then
         assert(phenomena == listOf(Phenomenon.Text("launched", "text/plain")))
@@ -470,6 +475,30 @@ class ScriptExecutorTest {
         assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
     }
 
+    // The thread of a session is not interrupted as its intent is cancelled, see ScriptSession of xemantic-kotlin-script,
+    // so that a process the intent executes would run to its end, and the next intents of the session would wait for it.
+    @Test
+    fun `should destroy process of cancelled intent and execute the next one`() = runTest(timeout = 5.minutes) {
+        // given
+        val started = createTempDirectory().resolve("started")
+
+        // when
+        val next = withContext(Dispatchers.Default) {
+            coroutineScope {
+                val slow = async {
+                    executor.execute("Path(\"$started\").writeText(\"\")\nagency.bash(\"sleep 600\", timeout = 20.minutes)", cogitation, TestAgency())
+                }
+                while (!started.exists()) delay(10)
+                slow.cancel()
+            }
+            // the intents of a session execute one after another, so this one waits until the slow one ends
+            executor.execute("6 * 7", cogitation, TestAgency())
+        }
+
+        // then
+        assert(next == listOf(Phenomenon.Text("42", "text/plain")))
+    }
+
     // The REPL compiler of xemantic-kotlin-script before 0.3.0 crashed internally on a function calling `await`.
     @Test
     fun `should await within suspend function declared in intent`() = runTest(timeout = 5.minutes) {
@@ -487,8 +516,26 @@ class ScriptExecutorTest {
         assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
     }
 
-    // The constitution tells to declare a suspend function rather than calling `await` within a function,
-    // which fails the compiler internally.
+    // The functions of the agency suspend, so a helper calling one, as models wrote them, e.g. `fun sh(cmd: String) = agency.bash(cmd)`,
+    // has to be declared suspend, which the error tells.
+    @Test
+    fun `should impede function calling agency which does not suspend`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(
+            """
+            fun sh(command: String): String = agency.bash(command).output
+            sh("echo 42")
+            """.trimIndent(),
+            cogitation,
+            TestAgency()
+        )
+
+        // then
+        val reason = (phenomena.single() as Phenomenon.Impediment).reason
+        assert("can only be called from a coroutine or another suspend function" in reason)
+    }
+
+    // `await` is kept for the scripts written before xemantic-kotlin-script 0.3.0, when the snippets did not suspend.
     @Test
     fun `should await suspend function declared in intent`() = runTest(timeout = 5.minutes) {
         // when
@@ -614,7 +661,7 @@ class ScriptExecutorTest {
                 import kotlinx.serialization.json.*
 
                 suspend fun seq(id: String): String = agency.http.get("$$url/$id").body<JsonElement>()["seq"].string
-                await { seq("MKSIY") }
+                seq("MKSIY")
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
@@ -659,13 +706,11 @@ class ScriptExecutorTest {
                 import io.ktor.http.*
                 import kotlinx.serialization.json.*
 
-                val json = await {
-                    agency.http.post("$$url") {
-                        timeout { requestTimeoutMillis = 300_000 }
-                        contentType(ContentType.Application.Json)
-                        setBody(buildJsonObject { put("question", "ultimate") })
-                    }.body<JsonObject>()
-                }
+                val json = agency.http.post("$$url") {
+                    timeout { requestTimeoutMillis = 300_000 }
+                    contentType(ContentType.Application.Json)
+                    setBody(buildJsonObject { put("question", "ultimate") })
+                }.body<JsonObject>()
                 "${json["question"]!!.jsonPrimitive.content}: ${json["answer"]!!.jsonPrimitive.int}"
                 """.trimIndent(),
                 cogitation,
@@ -702,7 +747,7 @@ class ScriptExecutorTest {
                 @Serializable
                 data class Answer(val question: String, val answer: Int)
 
-                val answer = await { agency.http.get("$$url").body<Answer>() }
+                val answer = agency.http.get("$$url").body<Answer>()
                 "${answer.question}: ${answer.answer}"
                 """.trimIndent(),
                 cogitation,
@@ -735,7 +780,7 @@ class ScriptExecutorTest {
                 import io.ktor.client.request.*
                 import kotlinx.serialization.json.*
 
-                val gene = await { agency.http.get("$$url").body<JsonElement>() }
+                val gene = agency.http.get("$$url").body<JsonElement>()
                 val canonical = gene["Transcript"].list.first { it["is_canonical"].boolean }
                 "${gene["id"].string}: ${canonical["id"].string} ${canonical["Translation"]["id"].string}"
                 """.trimIndent(),
@@ -781,7 +826,7 @@ class ScriptExecutorTest {
 
                 val ids = listOf("a", "b", "c")
                 val permits = Semaphore(5)
-                val items = await {
+                val items = coroutineScope {
                     ids.map { id ->
                         async { permits.withPermit { agency.http.get("$$url/$id").body<JsonElement>() } }
                     }.awaitAll()
@@ -880,7 +925,7 @@ class ScriptExecutorTest {
                 import io.ktor.client.request.*
                 import io.ktor.client.statement.*
 
-                await { agency.http.get("$$url").bodyAsText() }
+                agency.http.get("$$url").bodyAsText()
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
@@ -914,7 +959,7 @@ class ScriptExecutorTest {
                 import io.ktor.client.request.*
                 import kotlinx.serialization.json.*
 
-                val item = await { agency.http.get("$$url/42").body<JsonElement>() }
+                val item = agency.http.get("$$url/42").body<JsonElement>()
                 val tags = item["tags"].list.filter { it["active"].boolean }.map { it["label"].string }
                 buildString {
                     +"${item["name"].string}: ${item["stock"]["count"].int} in stock, price ${item.getOrNull("price")?.double}\n"
@@ -948,7 +993,7 @@ class ScriptExecutorTest {
                 import io.ktor.client.request.*
                 import io.ktor.client.statement.*
 
-                await { agency.http.get("$$url").bodyAsText() }
+                agency.http.get("$$url").bodyAsText()
                 """.trimIndent(),
                 cogitation,
                 TestAgency()
@@ -1126,8 +1171,9 @@ class ScriptExecutorTest {
             """
             Thread {
                 while (System.getProperty("$released") == null) Thread.sleep(10)
-                val executed = runCatching { agency.bash("echo late") }
-                val enunciated = runCatching { agency.enunciate("late") }
+                // the functions of the agency suspend, called from a thread of its own within runBlocking
+                val executed = runCatching { runBlocking { agency.bash("echo late") } }
+                val enunciated = runCatching { runBlocking { agency.enunciate("late") } }
                 System.setProperty("$stray", listOf(executed, enunciated).joinToString("\n") { it.exceptionOrNull()?.message ?: "done" })
             }.start()
             """.trimIndent(),

@@ -68,7 +68,7 @@ class OpenAIInferenceTest {
 
     /** A cogitation whose intent, expressed after a text, was executed, responded with text and an image. */
     private val executed = Cogitation(
-        constitution = listOf("constitution"),
+        constitution = "constitution",
         enunciations = listOf(
             Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),
@@ -96,7 +96,7 @@ class OpenAIInferenceTest {
             "42\n\n<annie:data content-type=\"image/png\" size=\"70\"/>"
 
     private fun cogitation(vararg phenomena: Phenomenon) = Cogitation(
-        constitution = listOf("constitution"),
+        constitution = "constitution",
         enunciations = listOf(
             Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),
@@ -171,7 +171,7 @@ class OpenAIInferenceTest {
         val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
 
         // when
-        val body = json(inference.chatRequest(cogitation().copy(constitution = listOf("")))._body())
+        val body = json(inference.chatRequest(cogitation().copy(constitution = ""))._body())
 
         // then
         assert(body["messages"] == json("""
@@ -185,7 +185,7 @@ class OpenAIInferenceTest {
         val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
 
         // when
-        val body = json(inference.responseRequest(cogitation().copy(constitution = listOf("")))._body())
+        val body = json(inference.responseRequest(cogitation().copy(constitution = ""))._body())
 
         // then
         assert(body["instructions"] == null)

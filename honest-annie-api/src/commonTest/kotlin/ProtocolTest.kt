@@ -26,7 +26,7 @@ import kotlin.time.Instant
 class ProtocolTest {
 
     private val cogitation = Cogitation(
-        constitution = listOf("Be honest"),
+        constitution = "Be honest",
         enunciations = listOf(Enunciation(
             actant = Actant.INVOKER,
             initiated = Instant.parse("2026-11-24T12:00:00Z"),
@@ -40,9 +40,7 @@ class ProtocolTest {
         intent = Phenomenon.Intent(script = "1 + 1", edits = listOf(Edit(path = "a.py", new = "x = 1\n"))),
         context = IntentContext(
             cogitation = cogitation,
-            constitution = "Be honest",
             parentCogitation = null,
-            depth = 0,
             allowance = Allowance(tokens = 100, time = 5.minutes, started = Instant.parse("2026-11-24T12:00:00Z"))
         )
     )

@@ -291,7 +291,7 @@ class HarnessHost(
                     val child = store.load(invocation.id) ?: Unfolding(
                         id = invocation.id,
                         cogitation = Cogitation(
-                            constitution = listOf(invocation.constitution),
+                            constitution = invocation.constitution,
                             enunciations = listOf(Enunciation(
                                 actant = Actant.INVOKER,
                                 phenomena = listOf(Phenomenon.Text(invocation.prompt))
@@ -413,10 +413,6 @@ class HarnessHost(
 
         override val cogitation: Cogitation = unfolding.cogitation
 
-        override val constitution: String = unfolding.cogitation.constitution.joinToString(separator = "\n\n")
-
-        override val depth: Int = unfolding.cogitation.depth
-
         override val invocations = CopyOnWriteArrayList<Phenomenon.Invocation>()
 
         override val allowance: Allowance get() = Allowance(
@@ -434,7 +430,7 @@ class HarnessHost(
             check(!sealed) { "The step of the harness is over, its agency cannot be used anymore" }
         }
 
-        override fun invoke(
+        override suspend fun invoke(
             prompt: String,
             constitution: String
         ): Phenomenon.Invocation {
@@ -449,23 +445,23 @@ class HarnessHost(
             }
         }
 
-        override fun enunciate(text: String, contentType: String) {
+        override suspend fun enunciate(text: String, contentType: String) {
             enunciate(Phenomenon.Text(text, contentType))
         }
 
-        override fun enunciate(bytes: ByteArray, contentType: String?) {
+        override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
             enunciate(Phenomenon.Data(bytes, contentType))
         }
 
-        override fun impede(reason: String) {
+        override suspend fun impede(reason: String) {
             enunciate(Phenomenon.Impediment(reason))
         }
 
-        override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = onComputer()
+        override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = onComputer()
 
-        override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = onComputer()
+        override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = onComputer()
 
-        override fun execute(
+        override suspend fun execute(
             command: List<String>,
             input: String?,
             directory: String?,

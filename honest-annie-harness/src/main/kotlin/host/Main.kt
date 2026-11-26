@@ -114,7 +114,7 @@ fun main(args: Array<String>) {
                 cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism,
                 executors = executor::session
             ).cognize(Cogitation(
-                constitution = listOf(constitution(model, constitutionFile)),
+                constitution = constitution(model, constitutionFile),
                 enunciations = listOf(Enunciation(
                     actant = Actant(
                         type = Actant.Type.HUMAN,

@@ -54,7 +54,7 @@ class ClaudeInferenceTest {
     private fun json(text: String): JsonNode = jsonMapper().readTree(text)
 
     private fun cogitation(vararg enunciations: Enunciation) = Cogitation(
-        constitution = listOf("constitution"),
+        constitution = "constitution",
         enunciations = listOf(Enunciation(
             actant = Actant(type = Actant.Type.HUMAN, name = "user"),
             initiated = initiated,
@@ -194,7 +194,7 @@ class ClaudeInferenceTest {
         val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
 
         // when
-        val body = inference.body(cogitation().copy(constitution = listOf("")))
+        val body = inference.body(cogitation().copy(constitution = ""))
 
         // then
         assert(body["system"] == null)

@@ -86,7 +86,7 @@ class HarnessTest {
     ) = HarnessHost(cognizer, store, executors = executors).cognize(cogitation)
 
     private fun cogitation() = Cogitation(
-        constitution = emptyList(),
+        constitution = "",
         enunciations = listOf(Enunciation(
             actant = Actant(type = Actant.Type.HUMAN, name = "user"),
             phenomena = listOf(Phenomenon.Text("test"))
@@ -717,9 +717,9 @@ class HarnessTest {
     fun `should provide depth of cogitation to intent`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
-            "agency.invoke(\"sub at depth ${'$'}{agency.depth}\")",
+            "agency.invoke(\"sub at depth ${'$'}{agency.cogitation.depth}\")",
             respondedIntent,
-            invoked = { Phenomenon.Intent("agency.enunciate(\"depth \" + agency.depth)") }
+            invoked = { Phenomenon.Intent("agency.enunciate(\"depth \" + agency.cogitation.depth)") }
         )
 
         // when
@@ -739,7 +739,7 @@ class HarnessTest {
             "agency.invoke(\"sub\")",
             respondedIntent
         )
-        val cogitation = cogitation().copy(constitution = listOf("first", "second"))
+        val cogitation = cogitation().copy(constitution = "Be honest")
 
         // when
         cognize(cognizer, cogitation)
@@ -747,7 +747,7 @@ class HarnessTest {
         // then
         val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }
             .filterIsInstance<Phenomenon.Invocation>().single()
-        assert(invocation.constitution == "first\n\nsecond")
+        assert(invocation.constitution == "Be honest")
     }
 
     @Test

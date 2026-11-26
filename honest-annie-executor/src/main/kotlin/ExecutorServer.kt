@@ -140,11 +140,7 @@ internal class ProtocolAgency(
 
     override val cogitation: Cogitation get() = context.cogitation
 
-    override val constitution: String get() = context.constitution
-
     override val parentCogitation: Cogitation? get() = context.parentCogitation
-
-    override val depth: Int get() = context.depth
 
     override val allowance: Allowance get() = context.allowance
 
@@ -152,26 +148,26 @@ internal class ProtocolAgency(
 
     override val enunciated = CopyOnWriteArrayList<Phenomenon>()
 
-    override fun invoke(prompt: String, constitution: String): Phenomenon.Invocation =
+    override suspend fun invoke(prompt: String, constitution: String): Phenomenon.Invocation =
         Phenomenon.Invocation(id = randomId(), prompt = prompt, constitution = constitution).also { invocations += it }
 
-    override fun enunciate(text: String, contentType: String) {
+    override suspend fun enunciate(text: String, contentType: String) {
         enunciated += Phenomenon.Text(text, contentType)
     }
 
-    override fun enunciate(bytes: ByteArray, contentType: String?) {
+    override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
         enunciated += Phenomenon.Data(bytes, contentType)
     }
 
-    override fun impede(reason: String) {
+    override suspend fun impede(reason: String) {
         enunciated += Phenomenon.Impediment(reason)
     }
 
-    override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = onComputer()
+    override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = onComputer()
 
-    override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = onComputer()
+    override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = onComputer()
 
-    override fun execute(
+    override suspend fun execute(
         command: List<String>,
         input: String?,
         directory: String?,

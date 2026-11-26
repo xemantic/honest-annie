@@ -39,7 +39,7 @@ class TurnsTest {
         // given
         val intent = Phenomenon.Intent("6 * 7", id = "call_1")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("judge"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
@@ -77,7 +77,7 @@ class TurnsTest {
         val inference = Inference(model = "m", provider = "p", tokens = emptyMap())
         val impediment = Phenomenon.Impediment("Your call carried no script")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
                 Enunciation(
@@ -110,7 +110,7 @@ class TurnsTest {
         // given
         val intent = Phenomenon.Intent("agency.invoke(\"judge\")", id = "call_1")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
@@ -156,7 +156,7 @@ class TurnsTest {
         val intent = Phenomenon.Intent("render()", id = "call_1")
         val image = Phenomenon.Data(redPixelPng, "image/png")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("draw"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
@@ -182,7 +182,7 @@ class TurnsTest {
         // given
         val intent = Phenomenon.Intent("6 * 7", id = "call_1")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
@@ -212,7 +212,7 @@ class TurnsTest {
         // given
         val image = Phenomenon.Data(redPixelPng, "image/png")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant(type = Actant.Type.HUMAN, name = "user"),
@@ -255,7 +255,7 @@ class TurnsTest {
         // given
         val image = Phenomenon.Data(redPixelPng)
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
@@ -277,7 +277,7 @@ class TurnsTest {
         // given
         val document = Phenomenon.Data(minimalPdf, "application/pdf")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
@@ -305,7 +305,7 @@ class TurnsTest {
     fun `should perceive PDF document larger than any API accepts only as markup`() {
         // given
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
@@ -327,7 +327,7 @@ class TurnsTest {
         // given
         val jpegHeader = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
@@ -350,7 +350,7 @@ class TurnsTest {
         val inference = Inference(model = "scripted", provider = "test")
         val intent = Phenomenon.Intent("6 * 7", id = "call_1")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("compute"))),
                 Enunciation(
@@ -386,7 +386,7 @@ class TurnsTest {
         // given
         val intent = Phenomenon.Intent("agency.enunciate(\"42\")", id = "call_1")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("compute"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),

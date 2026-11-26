@@ -28,6 +28,7 @@ import com.xemantic.annie.ScriptExecutor
 import com.xemantic.kotlin.introspection.KotlinIntrospector
 import com.xemantic.kotlin.script.ScriptResult
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.runInterruptible
 import com.xemantic.kotlin.script.ScriptSession
 import com.xemantic.kotlin.script.python.Python as Interpreter
 import org.intellij.lang.annotations.Language
@@ -72,8 +73,8 @@ class SessionScriptExecutor(
 
     /** The Python of the intents, see [Agency.python], forwarding to the [interpreter]. */
     val python: Python = object : Python {
-        override fun invoke(code: String): Any? = interpreter.value(code)
-        override fun set(name: String, value: Any?) {
+        override suspend fun invoke(code: String): Any? = interpreter.value(code)
+        override suspend fun set(name: String, value: Any?) {
             interpreter.value[name] = value
         }
     }
@@ -319,7 +320,7 @@ private class ExecutorAgency(
 
     val collected = CopyOnWriteArrayList<Phenomenon.Invocation>()
 
-    override fun invoke(
+    override suspend fun invoke(
         prompt: String,
         constitution: String
     ): Phenomenon.Invocation {
@@ -328,28 +329,28 @@ private class ExecutorAgency(
     }
 
     // refused once sealed, as the agency of a harness of another process would not perceive it anymore
-    override fun enunciate(text: String, contentType: String) {
+    override suspend fun enunciate(text: String, contentType: String) {
         checkNotSealed()
         agency.enunciate(text, contentType)
     }
 
-    override fun enunciate(bytes: ByteArray, contentType: String?) {
+    override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
         checkNotSealed()
         agency.enunciate(bytes, contentType)
     }
 
-    override fun impede(reason: String) {
+    override suspend fun impede(reason: String) {
         checkNotSealed()
         agency.impede(reason)
     }
 
-    override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? =
+    override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? =
         introspector.resolve(name, page, pageSize)
 
-    override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? =
+    override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int): String? =
         introspector.search(query, page, pageSize)
 
-    override fun execute(
+    override suspend fun execute(
         command: List<String>,
         input: String?,
         directory: String?,
@@ -358,7 +359,8 @@ private class ExecutorAgency(
         maxOutputLength: Int
     ): Execution {
         checkNotSealed()
-        return executeProcess(command, input, directory, environment, timeout, maxOutputLength)
+        // the thread of the session is not interrupted as the intent is cancelled, so that the process is destroyed by interrupting it here
+        return runInterruptible { executeProcess(command, input, directory, environment, timeout, maxOutputLength) }
     }
 
 }
@@ -373,31 +375,29 @@ internal class SwitchedAgency : Agency {
     lateinit var current: Agency
 
     override val cogitation: Cogitation get() = current.cogitation
-    override val constitution: String get() = current.constitution
     override val parentCogitation: Cogitation? get() = current.parentCogitation
-    override val depth: Int get() = current.depth
     override val invocations: List<Phenomenon.Invocation> get() = current.invocations
     override val allowance: Allowance get() = current.allowance
     override val enunciated: List<Phenomenon> get() = current.enunciated
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http
 
-    override fun invoke(prompt: String, constitution: String) = current.invoke(prompt, constitution)
+    override suspend fun invoke(prompt: String, constitution: String) = current.invoke(prompt, constitution)
 
-    override fun enunciate(text: String, contentType: String) = current.enunciate(text, contentType)
+    override suspend fun enunciate(text: String, contentType: String) = current.enunciate(text, contentType)
 
-    override fun enunciate(bytes: ByteArray, contentType: String?) = current.enunciate(bytes, contentType)
+    override suspend fun enunciate(bytes: ByteArray, contentType: String?) = current.enunciate(bytes, contentType)
 
-    override fun impede(reason: String) = current.impede(reason)
+    override suspend fun impede(reason: String) = current.impede(reason)
 
 
-    override fun resolveDeclaration(name: String, page: Int, pageSize: Int) =
+    override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int) =
         current.resolveDeclaration(name, page, pageSize)
 
-    override fun searchDeclarations(query: String, page: Int, pageSize: Int) =
+    override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int) =
         current.searchDeclarations(query, page, pageSize)
 
-    override fun execute(
+    override suspend fun execute(
         command: List<String>,
         input: String?,
         directory: String?,

@@ -70,9 +70,7 @@ sealed interface ExecutorRequest {
 @Serializable
 data class IntentContext(
     val cogitation: Cogitation,
-    val constitution: String,
     val parentCogitation: Cogitation?,
-    val depth: Int,
     val allowance: Allowance
 )
 

@@ -47,7 +47,7 @@ class CogitationRecorderTest {
         val recordingDir = createTempDirectory("cogitations")
         val recorder = CogitationRecorder(recordingDir)
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant(type = Actant.Type.HUMAN, name = "user"),
@@ -68,7 +68,7 @@ class CogitationRecorderTest {
         // when
         recorder.record(cogitation)
         recorder.invoked(invocation).record(Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(Enunciation(
                 actant = Actant.SELF,
                 initiated = Instant.parse("2026-10-23T13:14:59Z"),
@@ -97,7 +97,7 @@ class CogitationRecorderTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = computer,
@@ -124,7 +124,7 @@ class CogitationRecorderTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant.SELF,
@@ -170,7 +170,7 @@ class CogitationRecorderTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 inferred(mapOf(
                     Inference.Tokens.OUTPUT to 40L,
@@ -213,7 +213,7 @@ class CogitationRecorderTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)).let {
                     it.copy(inference = it.inference!!.copy(model = "deepseek-v4_1-flash", provider = "llm.example.com"))
@@ -236,7 +236,7 @@ class CogitationRecorderTest {
         val recordingDir = createTempDirectory("cogitations")
         val recorder = CogitationRecorder(recordingDir)
         recorder.record(Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.CACHE_WRITE_1H to 1000L)),
                 Enunciation(actant = computer, phenomena = listOf(invocation))
@@ -246,7 +246,7 @@ class CogitationRecorderTest {
 
         // when
         invoked.record(Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant.INVOKER,
@@ -283,14 +283,14 @@ class CogitationRecorderTest {
             initiated = Instant.parse("2026-10-23T13:14:39Z"),
             phenomena = listOf(Phenomenon.Text("question"))
         )
-        recorder.record(Cogitation(constitution = emptyList(), enunciations = listOf(question)))
+        recorder.record(Cogitation(constitution = "", enunciations = listOf(question)))
         val discarded = inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L))
             .copy(phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent("<invoke name=\"fetch\">")))
 
         // when
         recorder.record(
             Cogitation(
-                constitution = emptyList(),
+                constitution = "",
                 enunciations = listOf(question, inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 2L)))
             ),
             discarded = listOf(discarded)
@@ -321,7 +321,7 @@ class CogitationRecorderTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(
                 inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)),
                 inferred(
@@ -349,7 +349,7 @@ class CogitationRecorderTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
         val cogitation = Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(Enunciation(
                 actant = Actant.SELF,
                 initiated = Instant.parse("2026-10-23T13:14:39Z"),

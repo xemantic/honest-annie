@@ -33,13 +33,11 @@ import kotlin.time.Duration.Companion.minutes
 
 class ExecutorServerTest {
 
-    private val cogitation = Cogitation(constitution = listOf("Be honest"), enunciations = emptyList(), depth = 2)
+    private val cogitation = Cogitation(constitution = "Be honest", enunciations = emptyList(), depth = 2)
 
     private val context = IntentContext(
         cogitation = cogitation,
-        constitution = "Be honest",
         parentCogitation = null,
-        depth = 2,
         allowance = Allowance(tokens = 1000, spentTokens = 10)
     )
 
@@ -80,7 +78,7 @@ class ExecutorServerTest {
             agency.enunciate(byteArrayOf(4, 2), "image/png")
             agency.impede("stuck")
             val invocation = agency.invoke("Count", "Be brief")
-            "${'$'}{agency.depth} ${'$'}{agency.allowance.tokensLeft} ${'$'}{agency.constitution} ${'$'}{agency.invocations == listOf(invocation)}"
+            "${'$'}{agency.cogitation.depth} ${'$'}{agency.allowance.tokensLeft} ${'$'}{agency.cogitation.constitution} ${'$'}{agency.invocations == listOf(invocation)}"
         """.trimIndent()))
         val response = receive() as ExecutorResponse.Executed
 

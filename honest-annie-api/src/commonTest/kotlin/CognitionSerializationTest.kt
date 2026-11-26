@@ -41,7 +41,7 @@ class CognitionSerializationTest {
     private val invocation = Phenomenon.Invocation(id = "invocation-1", prompt = "Count", constitution = "Be brief")
 
     private val cogitation = Cogitation(
-        constitution = listOf("Be honest", "Be brief"),
+        constitution = "Be honest",
         enunciations = listOf(
             Enunciation(
                 actant = Actant.INVOKER,

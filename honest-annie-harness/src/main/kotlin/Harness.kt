@@ -31,8 +31,8 @@ import com.xemantic.annie.ScriptExecutor
 // The edits of files an intent carries, see `Edit`, are applied before its script, all of them or none,
 // the response telling where, or which edit failed, the script then not being executed.
 // Each intent is executed as a Kotlin script in the session of the intents of the cogitation, stateful like a Kotlin notebook,
-// so that its declarations stay visible to the next intents. Its body is not a suspending block: it calls suspend functions
-// within `await { }`, and the value of its last expression is its result. `agency` is provided: the Agency within the
+// so that its declarations stay visible to the next intents. Its body suspends, calling suspend functions directly,
+// and the value of its last expression is its result. `agency` is provided: the Agency within the
 // cogitation, whose `cogitation` includes the enunciation carrying the intent, invoking new cogitations,
 // enunciating its output and resolving the Kotlin API.
 //

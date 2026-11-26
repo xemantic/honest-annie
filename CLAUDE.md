@@ -62,12 +62,17 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
   Make every scripted cognizer of a test answer with text once its script goes unexpected.
 - `createPythonVenv` only checks that `.venv/bin/python` exists, so a `.venv` with no pip (see the Debian/Ubuntu note in [README.md](README.md#running)) is never recreated, and `installPythonPackages` fails with `No module named pip`.
 
-- Since xemantic-kotlin-script 0.3.0 cancelling an intent never interrupts the thread of its session, so an intent blocking it, e.g. in `Thread.sleep` or `agency.execute`, runs to its end, and the next intents of the session wait for it.
-  A test cancelling a slow intent must make it suspend, e.g. in `delay`, or it hangs.
-- `await { }` is annie's own, in `Api.kt`, as xemantic-kotlin-script 0.3.0 dropped it, the snippets suspending:
-  the constitutions still teach it, together with compiler limits of 0.2.x which are gone, see the tests of `ScriptExecutorTest` mentioning them.
+- Since xemantic-kotlin-script 0.3.0 cancelling an intent never interrupts the thread of its session, so an intent blocking it, e.g. in `Thread.sleep`, or in `agency.python`, runs to its end, and the next intents of the session wait for it.
+  `agency.execute` interrupts the thread itself, with `runInterruptible` in `ExecutorAgency`: wrap any blocking function of the agency the same way.
+  A test cancelling a slow intent must make it suspend, e.g. in `delay`, or execute a process, or it hangs.
+- `await { }` is annie's own, in `Api.kt`, kept for the scripts written before xemantic-kotlin-script 0.3.0 dropped it, the snippets suspending since:
+  the constitutions no longer teach it.
 - `ScriptSession` of xemantic-kotlin-script offers no default imports beyond `kotlinx.coroutines.*`, so `SessionScriptExecutor` imports annie's API in a snippet of its own before the first intent:
   the snippets of the intents are numbered from `snippet2`, which compilation errors name, so never assert on `snippet1`.
+
+- `Api.kt` must import the `kotlinx.serialization.json` extensions (`booleanOrNull`, `intOrNull`, …) explicitly, never as `kotlinx.serialization.json.*`:
+  a star import ranks below the declarations of the same package, so annie's own `JsonElement` extensions of the same names would call themselves, failing `JsonNavigationTest` with a `StackOverflowError`.
+  The IDE collapses 5 or more imports of a package into a star import on optimizing them.
 
 ### Model APIs
 

@@ -55,30 +55,28 @@ class ExecutorProcessTest {
         executor.close()
     }
 
-    private val cogitation = Cogitation(constitution = listOf("Be honest"), enunciations = emptyList(), depth = 1)
+    private val cogitation = Cogitation(constitution = "Be honest", enunciations = emptyList(), depth = 1)
 
     /** The agency of the host, keeping what is enunciated through it, and telling of the [cogitation]. */
     private inner class HostAgency : Agency {
         override val cogitation: Cogitation = this@ExecutorProcessTest.cogitation
-        override val constitution = "Be honest"
         override val parentCogitation: Cogitation? = null
-        override val depth = 1
         override val allowance = Allowance(tokens = 100, spentTokens = 40)
         override val invocations = mutableListOf<Phenomenon.Invocation>()
         override val enunciated = mutableListOf<Phenomenon>()
-        override fun invoke(prompt: String, constitution: String): Phenomenon.Invocation = throw UnsupportedOperationException()
-        override fun enunciate(text: String, contentType: String) {
+        override suspend fun invoke(prompt: String, constitution: String): Phenomenon.Invocation = throw UnsupportedOperationException()
+        override suspend fun enunciate(text: String, contentType: String) {
             enunciated += Phenomenon.Text(text, contentType)
         }
-        override fun enunciate(bytes: ByteArray, contentType: String?) {
+        override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
             enunciated += Phenomenon.Data(bytes, contentType)
         }
-        override fun impede(reason: String) {
+        override suspend fun impede(reason: String) {
             enunciated += Phenomenon.Impediment(reason)
         }
-        override fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = throw UnsupportedOperationException()
-        override fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = throw UnsupportedOperationException()
-        override fun execute(
+        override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = throw UnsupportedOperationException()
+        override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = throw UnsupportedOperationException()
+        override suspend fun execute(
             command: List<String>,
             input: String?,
             directory: String?,
@@ -100,7 +98,7 @@ class ExecutorProcessTest {
 
         // when
         val result = session.execute(
-            "\"${'$'}{ProcessHandle.current().pid() != ${ProcessHandle.current().pid()}L} ${'$'}{agency.depth} ${'$'}{agency.allowance.tokensLeft}\"",
+            "\"${'$'}{ProcessHandle.current().pid() != ${ProcessHandle.current().pid()}L} ${'$'}{agency.cogitation.depth} ${'$'}{agency.allowance.tokensLeft}\"",
             cogitation,
             agency
         )
@@ -232,7 +230,7 @@ class ExecutorProcessTest {
 
         // when
         val output = HarnessHost(cognizer, executors = executor::session).cognize(Cogitation(
-            constitution = emptyList(),
+            constitution = "",
             enunciations = listOf(Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),
                 phenomena = listOf(Phenomenon.Text("test"))

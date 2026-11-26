@@ -160,9 +160,7 @@ class ExecutorProcess(
         ): List<Phenomenon> {
             val context = IntentContext(
                 cogitation = cogitation,
-                constitution = agency.constitution,
                 parentCogitation = agency.parentCogitation,
-                depth = agency.depth,
                 allowance = agency.allowance
             )
             return when (val response = request(ExecutorRequest.Execute(randomId(), id, intent, context))) {

@@ -44,8 +44,8 @@ import kotlin.time.Instant
 /**
  * The agency within the current cogitation: how the harness, and the intents it executes, act within it,
  * provided to both as `agency`, see [Cogitation], always acting within the current step of the harness.
- * None of its functions suspends: each one is called directly, e.g. `agency.enunciate(answer)`,
- * the ones which wait, e.g. [execute], blocking the thread calling them.
+ * Its functions suspend, called directly by a script, e.g. `agency.enunciate(answer)`,
+ * or by a function the script declares `suspend`, while its properties do not.
  */
 interface Agency {
     /**
@@ -53,15 +53,8 @@ interface Agency {
      * or, within an intent, the one including the enunciation which expressed it, see [ScriptExecutor.execute].
      */
     val cogitation: Cogitation
-    /**
-     * The constitution of the current cogitation, its parts joined as the cognizer perceives them,
-     * see [Cogitation.constitution]. It embeds the source of the harness.
-     */
-    val constitution: String
     /** [Cogitation] which invoked the current one, `null` for the root one. */
     val parentCogitation: Cogitation?
-    /** How deep the current cogitation is in its tree, see [Cogitation.depth]. */
-    val depth: Int
     /** Invocations made during this step of the harness, e.g. by the intent it executes. */
     val invocations: List<Phenomenon.Invocation>
     /** What the whole tree of the current cogitation may still spend, unlimited unless its host limits it. */
@@ -72,7 +65,7 @@ interface Agency {
      */
     val enunciated: List<Phenomenon>
     /**
-     * Invokes a cogitation under the [constitution], by default this [Agency.constitution].
+     * Invokes a cogitation under the [constitution], by default the one of the current [cogitation], see [Cogitation.constitution].
      * The invoked cogitation is unfolded by the same harness and cognizer, starting with the [prompt]
      * enunciated by [Actant.INVOKER].
      *
@@ -80,9 +73,9 @@ interface Agency {
      * of the current intent, and the outcome of the invoked cogitation is perceived later,
      * as an enunciation responding to its [Phenomenon.Invocation.id].
      */
-    fun invoke(
+    suspend fun invoke(
         prompt: String,
-        constitution: String = this.constitution
+        constitution: String = cogitation.constitution
     ): Phenomenon.Invocation
     /**
      * Enunciates a [Phenomenon.Text] as the output of the current cogitation, see [enunciated],
@@ -90,11 +83,11 @@ interface Agency {
      * Enunciated by an intent, it is not part of the result of the intent, but precedes it in the cogitation:
      * what the intent needs to perceive in the response to it is the value of its last expression.
      */
-    fun enunciate(text: String, contentType: String = "text/markdown")
+    suspend fun enunciate(text: String, contentType: String = "text/markdown")
     /** Enunciates a [Phenomenon.Data] as the output of the current cogitation, like the text [enunciate]. */
-    fun enunciate(bytes: ByteArray, contentType: String? = null)
+    suspend fun enunciate(bytes: ByteArray, contentType: String? = null)
     /** Enunciates a [Phenomenon.Impediment] as the output of the current cogitation, like the text [enunciate]. */
-    fun impede(reason: String)
+    suspend fun impede(reason: String)
     /**
      * Renders the Kotlin declaration of the fully qualified [name], as available to scripts,
      * e.g. `kotlinx.coroutines.flow.Flow`: its current signature, together with the extensions of a type,
@@ -103,27 +96,27 @@ interface Agency {
      *
      * @return the rendered declaration, or `null` when nothing is found.
      */
-    fun resolveDeclaration(name: String, page: Int = 1, pageSize: Int = 10): String?
+    suspend fun resolveDeclaration(name: String, page: Int = 1, pageSize: Int = 10): String?
     /**
      * Lists the fully qualified names of the Kotlin declarations available to scripts containing the [query],
      * to be resolved with [resolveDeclaration], paged like it.
      *
      * @return the names, or `null` when nothing is found.
      */
-    fun searchDeclarations(query: String, page: Int = 1, pageSize: Int = 10): String?
+    suspend fun searchDeclarations(query: String, page: Int = 1, pageSize: Int = 10): String?
     /**
      * Executes the [command] as a process of the user's computer, e.g. `listOf("bash", "-c", script)`, see [bash],
      * writing the [input] to its standard input, in the [directory], with the [environment] added to the inherited one.
-     * Blocks until the process exits, and its outputs are read.
+     * Suspends until the process exits, and its outputs are read.
      * The process is destroyed, together with its descendants, when the [timeout] elapses,
-     * or when the thread executing it is interrupted, e.g. as the intent is cancelled.
+     * or when the intent executing it is cancelled.
      * Each of its outputs is truncated to [maxOutputLength] characters, the truncation being marked.
      *
      * What the process outputs is perceived only when the script makes it so:
      * by evaluating to it, so that you perceive it in the result of the intent,
      * or by [enunciate]-ing it as the output of the current cogitation.
      */
-    fun execute(
+    suspend fun execute(
         command: List<String>,
         input: String? = null,
         directory: String? = null,
@@ -134,8 +127,8 @@ interface Agency {
     /** The Python interpreter of the current cogitation, see [Python]. */
     val python: Python
     /**
-     * The HTTP client of every cogitation, whose functions suspend, so they are called within `await { }`,
-     * e.g. `await { agency.http.get(url).body<JsonElement>() }`, navigated with [get], see the HTTP section of the constitution.
+     * The HTTP client of every cogitation, whose functions suspend, like the ones of the agency,
+     * e.g. `agency.http.get(url).body<JsonElement>()`, navigated with [get], see the HTTP section of the constitution.
      * It negotiates JSON with kotlinx.serialization, ignoring unknown keys, times out a request after a minute,
      * retries a request limited by rate (`429`), failed by the server (`5xx`), or by the network, up to 5 times, backing off,
      * and throws on a response with an error status, e.g. `ClientRequestException` on `404`.
@@ -196,13 +189,13 @@ interface Python {
      * from rdkit import Chem
      * ```
      */
-    operator fun invoke(code: String): Any?
+    suspend operator fun invoke(code: String): Any?
     /**
      * Sets the global Python variable of the [name] to the [value], e.g. `agency.python["items"] = items`,
      * so that values pass from Kotlin to Python without being rendered into the code,
      * converted like the values of [invoke] in reverse.
      */
-    operator fun set(name: String, value: Any?)
+    suspend operator fun set(name: String, value: Any?)
 }
 
 /** The outcome of [Agency.execute]. */
@@ -219,14 +212,15 @@ data class Execution(
 }
 
 /** Executes the [script] with `bash`, see [Agency.execute]. */
-fun Agency.bash(
+suspend fun Agency.bash(
     script: String,
     timeout: Duration = 1.minutes
 ): Execution = execute(listOf("bash", "-c", script), timeout = timeout)
 
 /**
- * Runs the suspending [block] in a scope of its own, returning its result, e.g. `await { agency.http.get(url).body<JsonElement>() }`,
- * waiting for the coroutines the [block] launches, e.g. `async { }`.
+ * Runs the suspending [block] in a scope of its own, returning its result,
+ * waiting for the coroutines the [block] launches, like [coroutineScope],
+ * e.g. `await { urls.map { async { agency.http.get(it).bodyAsText() } }.awaitAll() }`.
  */
 suspend fun <T> await(block: suspend CoroutineScope.() -> T): T = coroutineScope(block)
 

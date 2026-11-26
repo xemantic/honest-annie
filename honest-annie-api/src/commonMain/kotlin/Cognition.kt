@@ -256,7 +256,7 @@ data class Inference(
  */
 @Serializable
 data class Cogitation(
-    val constitution: List<String>,
+    val constitution: String,
     val enunciations: List<Enunciation>,
     val depth: Int = 0
 ) {
