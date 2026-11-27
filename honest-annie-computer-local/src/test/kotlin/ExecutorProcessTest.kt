@@ -110,8 +110,9 @@ class ExecutorProcessTest {
             """.trimIndent())
 
         // then
-        val invocation = executed.result.single() as Phenomenon.Invocation
+        val invocation = executed.invoked.single()
         assert(invocation.prompt == "Count" && invocation.constitution == "Be brief")
+        assert(executed.result.isEmpty())
         assert(executed.output == listOf(
             Phenomenon.Text("first"),
             Phenomenon.Data(byteArrayOf(4, 2), "image/png"),

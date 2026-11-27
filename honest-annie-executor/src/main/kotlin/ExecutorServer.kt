@@ -30,7 +30,6 @@ import com.xemantic.annie.Python
 import com.xemantic.annie.ScriptExecutor
 import com.xemantic.annie.decodeRequest
 import com.xemantic.annie.encodeMessage
-import com.xemantic.annie.invocation
 import com.xemantic.annie.randomId
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
@@ -139,8 +138,8 @@ class ExecutorServer(
         executor: ScriptExecutor,
         context: IntentContext
     ): ExecutorResponse {
-        val (result, output) = executor.execute(request.intent, context)
-        return ExecutorResponse.Executed(request.id, result, output)
+        val (result, output, invoked) = executor.execute(request.intent, context)
+        return ExecutorResponse.Executed(request.id, result, output, invoked)
     }
 
 }
@@ -167,7 +166,7 @@ internal class RecallingContext(
 
 /**
  * Executes the [intent] as for a harness of another process, given what its agency tells of the cogitation, the [context]:
- * the invocations the intent makes form its result, and what it enunciates its output, see [ProtocolAgency],
+ * what the intent invokes and enunciates is kept by the executor, see [ExecutedIntent] and [ProtocolAgency],
  * e.g. for a REPL of the process of the harness itself.
  */
 suspend fun ScriptExecutor.execute(intent: Phenomenon.Intent, context: IntentContext): ExecutedIntent =
@@ -175,7 +174,7 @@ suspend fun ScriptExecutor.execute(intent: Phenomenon.Intent, context: IntentCon
 
 /**
  * The agency of the harness of another process, as far as an intent acts through it within its cogitation:
- * what it tells of the cogitation is the [context] of the request, and the invocations of the intent are responded,
+ * what it tells of the cogitation is the [context] of the request, while the cogitations the intent invokes are responded,
  * see [ExecutorResponse.Executed], together with its output, kept by the agency of the executor, see [SessionScriptExecutor].
  * What the intent does on the computer, the executor does itself, see [SessionScriptExecutor].
  */
@@ -193,7 +192,7 @@ internal class ProtocolAgency(
         computer: String?,
         repl: String?,
         independent: Boolean
-    ): Phenomenon.Invocation = invocation(prompt, constitution, computer, repl, independent)
+    ): Unit = byExecutor()
 
     override suspend fun enunciate(text: String, contentType: String): Unit = byExecutor()
 
@@ -224,7 +223,7 @@ internal class ProtocolAgency(
     )
 
     private fun byExecutor(): Nothing = throw UnsupportedOperationException(
-        "What an intent enunciates, its executor keeps as the output of the intent, see SessionScriptExecutor"
+        "What an intent invokes and enunciates, its executor keeps, see SessionScriptExecutor"
     )
 
 }

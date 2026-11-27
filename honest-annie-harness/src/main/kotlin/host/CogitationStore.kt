@@ -19,7 +19,8 @@
 package com.xemantic.annie.harness.host
 
 import com.xemantic.annie.Cogitation
-import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.Invocation
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -27,19 +28,30 @@ import kotlin.time.Instant
 /**
  * A [cogitation] being unfolded by the [HarnessHost], the unit of its persistence.
  *
- * Everything still to be done can be derived from unfoldings: each of the [Cogitation.unansweredInvocations]
+ * Everything still to be done can be derived from unfoldings: each of the [awaited] invocations
  * of a cogitation is pending, and is unfolded by an [Unfolding] of its own.
  *
- * @property id the id of the [invocation] which started it, a random one for a root.
+ * @property id the id of the [invocation] which started it, the one of the first enunciation of its cogitation, a random one for a root.
  * @property parent the id of the unfolding whose [invocation] started this one, `null` for a root.
+ * @property invoked the cogitations invoked by the intents of this one, in their order.
+ * @property outcomes the responses to the [invoked] cogitations which rested, kept until all of them do,
+ * to be appended to the [cogitation] together, in the order of their invocations.
  */
 data class Unfolding(
     val id: String,
     val cogitation: Cogitation,
     val parent: String? = null,
-    val invocation: Phenomenon.Invocation? = null,
+    val invocation: Invocation? = null,
+    val invoked: List<Invocation> = emptyList(),
+    val outcomes: List<Enunciation> = emptyList(),
     val initiated: Instant = Clock.System.now()
-)
+) {
+    /** The [invoked] cogitations whose outcome is neither enunciated in the [cogitation], nor among the [outcomes], see [Enunciation.respondsTo]. */
+    val awaited: List<Invocation> get() {
+        val responded = (cogitation.enunciations + outcomes).mapNotNullTo(mutableSetOf()) { it.respondsTo }
+        return invoked.filterNot { it.id in responded }
+    }
+}
 
 interface CogitationStore {
     suspend fun save(unfolding: Unfolding)

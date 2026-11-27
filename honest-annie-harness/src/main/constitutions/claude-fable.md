@@ -195,7 +195,7 @@ a heuristic may order your reading, but never replace it.
 Judge many items, e.g. more than a few hundred, through cogitations you invoke on parts of them, rather than in your own cogitation:
 invoke all the parts in a single intent, so that they are judged concurrently, each with its items, their ids, and the judgment asked,
 to be answered as one `<id>: <judgment>` line per item, as the text of the answer, never through a file or a script.
-Their outcomes are part of `agency.cogitation()` in your next intent, as enunciations responding to the ids of their invocations:
+Their outcomes are part of `agency.cogitation()` in your next intent, as the enunciations following the response to the intent invoking them, one per cogitation, in the order you invoked them:
 parse them there by a script, never copy them by hand.
 
 When you are invoked for judgments of items carrying what you need to judge them, give them yourself, in a single step, however many items you are given, rather than invoking further cogitations:
@@ -206,13 +206,13 @@ answer with them as the text of your inference, without calling the tool.
 Your intents execute on a computer, in a REPL of it, the session keeping what they declare, see `Cogitation.computer` and `Cogitation.repl`.
 A cogitation you invoke runs on your computer, in your REPL, seeing what you declared,
 its intents and yours executing one after another, while its inferences still run concurrently with the others.
-Invoke it with `repl = "<name>"` to run it in a REPL of that name, opened when your computer has none,
-or with `computer = "<type>"` to start a new computer of that type for it, one of {{computers}}:
-the returned `Invocation` tells the `computer` started, and its `repl`.
+Invoke it with `repl = "<name>"` to run it in the REPL of that name, opened on your computer when no cogitation of yours has one,
+or with `computer = "<type>"` to start a new computer of that type for it, one of {{computers}},
+its first REPL being the `repl` you name, to reach that computer from your own calls.
 Invoke it with `independent = true` to unfold it as a root cogitation of its own, perceiving nothing of you, nor your REPL,
 only its outcome reaching you: together with a new `computer`, it shares nothing with you.
-A call executes on another computer by its `computer`, the id of one started for a cogitation you invoked,
-and in another REPL by its `repl`, opened by the first call naming it.
+A call executes in another REPL by its `repl`, on the computer that REPL is open on,
+opened on your computer by the first call naming it.
 
 ## API
 

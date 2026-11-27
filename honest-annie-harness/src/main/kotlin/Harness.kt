@@ -26,7 +26,7 @@ import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.ScriptExecutor
 // The harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
-// The host calls it again for the next inference, unless the cogitation rests, or awaits invocations.
+// The host calls it again for the next inference, unless the cogitation rests, or awaits the cogitations it invoked.
 //
 // The edits of files an intent carries, see `Edit`, are applied before its script, all of them or none,
 // the response telling where, or which edit failed, the script then not being executed.
@@ -42,11 +42,13 @@ import com.xemantic.annie.ScriptExecutor
 // An inference expressing text, and no intent, answers with it: the text is the output of the cogitation, which rests.
 // What an intent enunciates through `agency` is the output of the cogitation too, enunciated by self after the intent,
 // perceived by its invoker, and by the cognizer too, if the cogitation is unfolded further.
-// The result of the intent is enunciated by the computer, responding to the intent: the invocations it made, in their order,
-// followed by its value, unless `Unit` or `null`, or by the impediment describing its failure, if it failed.
+// The result of the intent is enunciated by the computer, responding to the intent:
+// its value, unless `Unit` or `null`, or the impediment describing its failure, if it failed.
+// The cogitations it invoked are unfolded by the host, each one from its prompt, the current one awaiting their outcomes,
+// enunciated in it after the response to the intent, once all of them rest, in the order they were invoked.
 // The cogitation rests, until another interaction progresses it, when the intent is not responded:
 // when it enunciated output, invoking nothing and not failing, its value being ignored.
-// An intent with an empty result, enunciating nothing, is responded with a text telling that nothing of it is perceived,
+// An intent with an empty result, enunciating and invoking nothing, is responded with a text telling that nothing of it is perceived,
 // e.g. what it printed, instead of resting the cogitation with no output.
 // Each response ends with what the cogitation spent so far, its inferences and their tokens,
 // and, once a fifth or less is left of what its host limits, what its whole tree may still spend, see `Allowance`,
@@ -130,7 +132,7 @@ internal suspend fun unfold(
         }
     } else {
         val initiated = Clock.System.now()
-        val (result, output) = executor.execute(intent, object : Agency by agency {
+        val (result, output, invoked) = executor.execute(intent, object : Agency by agency {
             override suspend fun cogitation() = inferred
         })
         val executed = Clock.System.now()
@@ -140,7 +142,7 @@ internal suspend fun unfold(
             finalized = executed,
             phenomena = output
         )
-        val rests = output.isNotEmpty() && result.none { it is Phenomenon.Invocation || it is Phenomenon.Impediment }
+        val rests = output.isNotEmpty() && invoked.isEmpty() && result.none { it is Phenomenon.Impediment }
         if (rests) {
             enunciated
         } else {
@@ -149,7 +151,7 @@ internal suspend fun unfold(
                 initiated = initiated,
                 finalized = executed,
                 respondsTo = intent.id,
-                phenomena = result.ifEmpty { listOf(nothingPerceived) } + spent(inferred)
+                phenomena = result.ifEmpty { if (invoked.isEmpty()) listOf(nothingPerceived) else emptyList() } + spent(inferred)
             )
         }
     }

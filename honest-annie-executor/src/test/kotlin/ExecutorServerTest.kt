@@ -95,9 +95,9 @@ class ExecutorServerTest {
 
         // then
         assert(response.id == "request-1")
-        val invocation = response.result.first() as Phenomenon.Invocation
+        val invocation = response.invoked.single()
         assert(invocation.prompt == "Count" && invocation.constitution == "Be brief")
-        assert(response.result.drop(1) == listOf(Phenomenon.Text("2 Be honest", "text/plain")))
+        assert(response.result == listOf(Phenomenon.Text("2 Be honest", "text/plain")))
         assert(response.output == listOf(
             Phenomenon.Text("first"),
             Phenomenon.Data(byteArrayOf(4, 2), "image/png"),

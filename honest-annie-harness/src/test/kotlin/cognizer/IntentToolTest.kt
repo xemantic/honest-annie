@@ -38,8 +38,7 @@ class IntentToolTest {
 
         // then
         assert(properties == mapper.readTree("""
-            {"computer": {"type": "string", "description": "The id of the computer to execute on, e.g. one started for a cogitation you invoked, your own when omitted."},
-             "repl": {"type": "string", "description": "The name of the REPL of the computer to execute in, opened by the first call naming it, your own when omitted, or the first one of another `computer`."},
+            {"repl": {"type": "string", "description": "The name of the REPL to execute in, on the computer it is open on, e.g. one started for a cogitation you invoked, otherwise opened on your computer by the first call naming it, your own REPL when omitted."},
              "script": {"type": "string", "description": "The raw source of the script, executed after the edits: of Kotlin, starting with its imports, coded against the API of the constitution, or of the `language` given."},
              "language": {"type": "string", "enum": ["kotlin", "python", "bash"], "description": "The language of the script, `kotlin` when omitted."},
              "timeout": {"type": "number", "description": "Seconds after which the script is cancelled: by default never, but for bash after 60. A bash process is destroyed, while Kotlin or Python code blocking its thread, rather than suspending, runs to its end, and the next calls wait for it."},
@@ -65,14 +64,13 @@ class IntentToolTest {
         val names = IntentTool.properties.keys.toList()
 
         // then
-        assert(names == listOf("computer", "repl", "edits", "language", "script", "timeout"))
+        assert(names == listOf("repl", "edits", "language", "script", "timeout"))
     }
 
     @Test
     fun `should replay input of intent in the order of the properties`() {
         // given
         val intent = Phenomenon.Intent(
-            computer = "gpu-1",
             repl = "scratch",
             edits = listOf(Edit(path = "a.txt", new = "a")),
             language = Phenomenon.Intent.Language.BASH,
@@ -84,7 +82,7 @@ class IntentToolTest {
         val names = IntentTool.input(intent).keys.toList()
 
         // then
-        assert(names == listOf("computer", "repl", "edits", "language", "script", "timeout"))
+        assert(names == listOf("repl", "edits", "language", "script", "timeout"))
     }
 
     @Test
@@ -164,22 +162,22 @@ class IntentToolTest {
     }
 
     @Test
-    fun `should express intent of the computer and REPL of the call`() {
+    fun `should express intent of the REPL of the call`() {
         // when
-        val intent = IntentTool.intent("execute", """{"computer": "gpu-1", "repl": " scratch ", "script": "nvidia-smi", "language": "bash"}""")
+        val intent = IntentTool.intent("execute", """{"repl": " scratch ", "script": "nvidia-smi", "language": "bash"}""")
 
         // then
-        assert(intent is Phenomenon.Intent && intent.computer == "gpu-1" && intent.repl == "scratch")
+        assert(intent is Phenomenon.Intent && intent.repl == "scratch")
     }
 
     @Test
-    fun `should impede call of computer which is not a text, executing nothing`() {
+    fun `should impede call of REPL which is not a text, executing nothing`() {
         // when
-        val impediment = IntentTool.intent("execute", """{"computer": 7, "script": "6 * 7"}""")
+        val impediment = IntentTool.intent("execute", """{"repl": 7, "script": "6 * 7"}""")
 
         // then
         assert(impediment == Phenomenon.Impediment(
-            "Your call of `execute` carried the `computer` 7, rather than the id of a computer, so nothing was executed."
+            "Your call of `execute` carried the `repl` 7, rather than the name of a REPL, so nothing was executed."
         ))
     }
 

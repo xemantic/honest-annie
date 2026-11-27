@@ -99,15 +99,13 @@ sealed interface ExecutorResponse {
         val parent: Boolean = false
     ) : ExecutorResponse
 
-    /**
-     * The [result] of the intent, see [ScriptExecutor.execute], the invocations it made included,
-     * and its [output], see [ExecutedIntent].
-     */
+    /** The [result] of the intent, see [ScriptExecutor.execute], its [output], and the cogitations it [invoked], see [ExecutedIntent]. */
     @Serializable
     data class Executed(
         override val id: String,
         val result: List<Phenomenon>,
-        val output: List<Phenomenon> = emptyList()
+        val output: List<Phenomenon> = emptyList(),
+        val invoked: List<Invocation> = emptyList()
     ) : ExecutorResponse
 
     /** The executor failed to execute the intent, for the [reason], e.g. its session failing to start. */
@@ -151,7 +149,7 @@ private fun String.message(): String? =
     if (MESSAGE_SEPARATOR in this) substringAfterLast(MESSAGE_SEPARATOR).trimEnd('\r') else null
 
 /**
- * The invocation of a cogitation, see [Agency.invoke], made by the agency of the harness, or of the executor:
+ * The invocation of a cogitation, see [Agency.invoke], made by the agency of the executor:
  * on a new [Computer] of the [computer] type, its first REPL being the [repl] given, or a new one,
  * or on the computer of the invoker, in the [repl] given, or else in a new one when [independent], or in the one of the invoker.
  */
@@ -161,7 +159,7 @@ fun invocation(
     computer: String?,
     repl: String?,
     independent: Boolean
-): Phenomenon.Invocation = Phenomenon.Invocation(
+): Invocation = Invocation(
     id = randomId(),
     prompt = prompt,
     constitution = constitution,

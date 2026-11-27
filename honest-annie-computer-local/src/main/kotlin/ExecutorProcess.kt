@@ -162,7 +162,7 @@ class ExecutorProcess(
         // the edits are applied by the executor, to the files of its computer
         override suspend fun execute(intent: Phenomenon.Intent, context: IntentContext): ExecutedIntent =
             when (val response = request(ExecutorRequest.Execute(randomId(), id, intent), context)) {
-                is ExecutorResponse.Executed -> ExecutedIntent(response.result, response.output)
+                is ExecutorResponse.Executed -> ExecutedIntent(response.result, response.output, response.invoked)
                 is ExecutorResponse.Recall -> error("A recall is answered by the request, never its outcome")
                 is ExecutorResponse.Failed -> throw IllegalStateException(
                     "The executor failed to execute the intent:\n${response.reason}"

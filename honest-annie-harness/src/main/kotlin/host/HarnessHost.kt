@@ -22,6 +22,8 @@ import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Execution
+import com.xemantic.annie.ExecutedIntent
+import com.xemantic.annie.Invocation
 import com.xemantic.annie.Agency
 import com.xemantic.annie.harness.Allowance
 import com.xemantic.annie.Inference
@@ -30,7 +32,6 @@ import com.xemantic.annie.ScriptExecutor
 import com.xemantic.annie.computer.ComputerProvider
 import com.xemantic.annie.Python
 import com.xemantic.annie.harness.cognizer.Cognizer
-import com.xemantic.annie.invocation
 import com.xemantic.annie.randomId
 import com.xemantic.annie.harness.unfold
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -63,13 +64,14 @@ const val COMPUTERS_PLACEHOLDER: String = "{{computers}}"
  * Hosts the harness unfolding cogitations, see [Cogitation] and [unfold].
  *
  * Unfoldings ready for the next step are queued, and pulled from the queue to be unfolded by the harness.
- * After each step a cogitation is queued again, unless it awaits invocations, or rests:
+ * After each step a cogitation is queued again, unless it awaits the cogitations it invoked, or rests:
  * [Actant.SELF] enunciated last.
  *
- * Invocations are not executed by the intents enunciating them: they are recorded in the
- * cogitation, and only then dispatched by the host, each one unfolding a cogitation of its own,
- * whose output is delivered back as a response to the invocation once it rests. Once all of them
- * are answered, the invoking cogitation is queued again. The state of every unfolding is kept
+ * The cogitations an intent invokes are not unfolded by the intent: they are kept by its executor, see [ExecutedIntent.invoked],
+ * recorded in the unfolding of the invoking cogitation, see [Unfolding.invoked], and only then dispatched by the host,
+ * each one unfolding a cogitation of its own from its prompt, whose output is delivered back as a response to it once it rests.
+ * Once all of them are answered, their responses are appended to the invoking cogitation, in the order of their invocations,
+ * and it is queued again. The state of every unfolding is kept
  * in the [store] at each step.
  *
  * The intents of a cogitation execute on its computer, in its REPL, see [Cogitation.computer] and [Computers],
@@ -125,6 +127,7 @@ class HarnessHost(
      * @property started when the whole tree of cogitations started unfolding.
      * @property computers the computers of the whole tree of cogitations, and their REPLs, executing the intents.
      * @property inferred by the current step of the harness, see [recordingCognizer].
+     * @property intents the ids of the intents which made the invocations of its cogitation, by the id of the invocation.
      */
     private class Runtime(
         val recorder: CogitationRecorder?,
@@ -139,6 +142,7 @@ class HarnessHost(
         val mutex = Mutex()
         val scope = CoroutineScope(job + handler)
         val invoked = CopyOnWriteArrayList<Runtime>()
+        val intents = ConcurrentHashMap<String, String>()
         @Volatile
         var inferred: MutableList<Enunciation> = CopyOnWriteArrayList()
     }
@@ -216,18 +220,28 @@ class HarnessHost(
             )
             val inferred = CopyOnWriteArrayList<Enunciation>()
             runtime.inferred = inferred
+            val invoked = CopyOnWriteArrayList<Invocation>()
+            // the computers of the tree, keeping what each intent invoked, to be dispatched once the step is settled
+            val executor = object : ScriptExecutor by runtime.computers {
+                override suspend fun execute(intent: Phenomenon.Intent, agency: Agency): ExecutedIntent =
+                    runtime.computers.execute(intent, agency).also { executed ->
+                        executed.invoked.forEach { runtime.intents[it.id] = intent.id }
+                        invoked += executed.invoked
+                    }
+            }
             val failure = try {
-                unfolding = unfolding.copy(cogitation = unfold(recordingCognizer(id, runtime), runtime.computers, agency) {
-                    Allowance(tokens = tokenBudget, spentTokens = runtime.spent.get(), time = timeLimit, started = runtime.started)
-                })
+                unfolding = unfolding.copy(
+                    cogitation = unfold(recordingCognizer(id, runtime), executor, agency) {
+                        Allowance(tokens = tokenBudget, spentTokens = runtime.spent.get(), time = timeLimit, started = runtime.started)
+                    },
+                    invoked = unfolding.invoked + invoked
+                )
                 null
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 // e.g. an inference failing: the cogitation rests, telling why, rather than failing its whole tree
                 "Harness failed to unfold the cogitation:\n${e.described()}"
-            } finally {
-                agency.seal()
             }
             logger.debug { "[$id] Unfolded in ${Clock.System.now() - started}" }
             val unfolded = unfolding.cogitation.enunciations.drop(cogitation.enunciations.size)
@@ -272,7 +286,7 @@ class HarnessHost(
         runtime.recorder?.record(unfolding.cogitation, discarded)
         val cogitation = unfolding.cogitation
         when {
-            cogitation.unansweredInvocations.isNotEmpty() -> dispatch(unfolding, runtime)
+            unfolding.awaited.isNotEmpty() -> dispatch(unfolding, runtime)
             cogitation.enunciations.lastOrNull()?.actant == Actant.SELF -> rested(unfolding, runtime, extra = null)
             else -> {
                 logger.info { "[${unfolding.id}] Unfolded to ${cogitation.enunciations.size} enunciation(s), queued for the next step" }
@@ -282,13 +296,13 @@ class HarnessHost(
     }
 
     private fun dispatch(unfolding: Unfolding, runtime: Runtime) {
-        val awaited = unfolding.cogitation.unansweredInvocations
+        val awaited = unfolding.awaited
         logger.info { "[${unfolding.id}] Awaiting ${awaited.size} invocation(s): ${awaited.joinToString { it.id }}" }
         awaited
             .filter { dispatched.add(it.id) }
             .forEach { invocation ->
                 val invoked = Runtime(
-                    recorder = runtime.recorder?.invoked(invocation),
+                    recorder = runtime.recorder?.invoked(invocation.id, runtime.intents.getValue(invocation.id)),
                     job = SupervisorJob(runtime.job),
                     rested = runtime.rested,
                     queue = runtime.queue,
@@ -298,22 +312,26 @@ class HarnessHost(
                     computers = runtime.computers
                 )
                 runtime.invoked += invoked
-                val computer = invocation.computer
-                if (computer != null && computer.type !in computerTypes) {
-                    logger.warn { "[${unfolding.id}] Invocation ${invocation.id} of the computer type ${computer.type} not offered" }
+                fun notInvoked(reason: String) {
+                    logger.warn { "[${unfolding.id}] Invocation ${invocation.id} not dispatched: $reason" }
                     invoked.scope.launch {
                         respond(unfolding.id, Enunciation(
                             actant = host,
                             respondsTo = invocation.id,
-                            phenomena = listOf(Phenomenon.Impediment(
-                                "No computer of the type ${computer.type} can be started, but of ${computerTypes.joinToString()}, " +
-                                        "so that the cogitation was not invoked."
-                            ))
+                            phenomena = listOf(Phenomenon.Impediment("$reason, so that the cogitation was not invoked."))
                         ))
                     }
+                }
+                val computer = invocation.computer
+                if (computer != null && computer.type !in computerTypes) {
+                    notInvoked("No computer of the type ${computer.type} can be started, but of ${computerTypes.joinToString()}")
                     return@forEach
                 }
-                if (computer != null) runtime.computers.start(computer, checkNotNull(invocation.repl))
+                val repl = invocation.repl
+                if (computer != null && !runtime.computers.start(computer, checkNotNull(repl))) {
+                    notInvoked("The REPL $repl is already open on another computer than the one started for the cogitation")
+                    return@forEach
+                }
                 logger.info { "[${unfolding.id}] Dispatching invocation ${invocation.id}" }
                 invoked.scope.launch {
                     val child = store.load(invocation.id) ?: Unfolding(
@@ -323,11 +341,13 @@ class HarnessHost(
                             // an independent cogitation perceives itself as a root, see Agency.invoke
                             enunciations = listOf(Enunciation(
                                 actant = if (invocation.independent) unidentified else Actant.INVOKER,
+                                id = invocation.id,
                                 phenomena = listOf(Phenomenon.Text(invocation.prompt))
                             )),
                             depth = if (invocation.independent) 0 else unfolding.cogitation.depth + 1,
-                            computer = computer ?: unfolding.cogitation.computer,
-                            repl = invocation.repl ?: unfolding.cogitation.repl
+                            // on the computer of the REPL it names, when a cogitation of the tree has it
+                            computer = computer ?: repl?.let(runtime.computers::hosting) ?: unfolding.cogitation.computer,
+                            repl = repl ?: unfolding.cogitation.repl
                         ),
                         parent = unfolding.id,
                         invocation = invocation
@@ -371,20 +391,31 @@ class HarnessHost(
         ))
     }
 
-    /** Appends the [response] to the cogitation of the unfolding [id], queued once it awaits no more invocations. */
+    /**
+     * Keeps the [response] to an invocation of the unfolding [id] among its [Unfolding.outcomes],
+     * until it awaits no more invocations: then all of them are appended to its cogitation, in the order of their invocations,
+     * and it is queued for the next step.
+     */
     private suspend fun respond(id: String, response: Enunciation) {
         val runtime = runtimes.getValue(id)
         runtime.mutex.withLock {
             var unfolding = checkNotNull(store.load(id)) { "No unfolding $id" }
             // delivered again, e.g. when retried
-            if (unfolding.cogitation.enunciations.any { it.id == response.id }) {
+            if ((unfolding.cogitation.enunciations + unfolding.outcomes).any { it.id == response.id }) {
                 logger.info { "[$id] Response to invocation ${response.respondsTo} already delivered" }
                 return
             }
-            unfolding = unfolding.copy(cogitation = unfolding.cogitation + response)
-            store.save(unfolding)
-            val awaited = unfolding.cogitation.unansweredInvocations
+            unfolding = unfolding.copy(outcomes = unfolding.outcomes + response)
+            val awaited = unfolding.awaited
             logger.info { "[$id] Response to invocation ${response.respondsTo} delivered, ${awaited.size} still awaited" }
+            if (awaited.isEmpty()) {
+                val order = unfolding.invoked.map { it.id }
+                unfolding = unfolding.copy(
+                    cogitation = unfolding.outcomes.sortedBy { order.indexOf(it.respondsTo) }.fold(unfolding.cogitation, Cogitation::plus),
+                    outcomes = emptyList()
+                )
+            }
+            store.save(unfolding)
             if (awaited.isEmpty()) {
                 runtime.queue.send(id)
             }
@@ -425,9 +456,9 @@ class HarnessHost(
     }
 
     /**
-     * [Agency] of a single step of the harness unfolding the [unfolding], see [seal],
-     * acting only within the cogitations: invoking, and telling the cogitations, the [parent] one loaded only when asked for.
-     * What an intent does on a computer, e.g. executing a process, and what it enunciates, the executor of the intent does,
+     * [Agency] of a single step of the harness unfolding the [unfolding],
+     * acting only within the cogitations: telling them, the [parent] one loaded only when asked for.
+     * What an intent does on a computer, e.g. executing a process, and what it invokes and enunciates, the executor of the intent does,
      * through the agency it provides the intent with, see [ScriptExecutor].
      */
     private inner class HostedAgency(
@@ -436,21 +467,9 @@ class HarnessHost(
         private val runtime: Runtime
     ) : Agency {
 
-        @Volatile
-        private var sealed = false
-
         override suspend fun cogitation(): Cogitation = unfolding.cogitation
 
         override suspend fun parentCogitation(): Cogitation? = parent?.let { store.load(it)?.cogitation }
-
-        /** Seals this agency once the step of the harness is over. */
-        fun seal() {
-            sealed = true
-        }
-
-        private fun checkNotSealed() {
-            check(!sealed) { "The step of the harness is over, its agency cannot be used anymore" }
-        }
 
         override suspend fun invoke(
             prompt: String,
@@ -458,12 +477,7 @@ class HarnessHost(
             computer: String?,
             repl: String?,
             independent: Boolean
-        ): Phenomenon.Invocation {
-            checkNotSealed()
-            return invocation(prompt, constitution, computer, repl, independent).also {
-                logger.info { "[${unfolding.id}] Intent invoked ${it.id}" }
-            }
-        }
+        ): Unit = byExecutor()
 
         override suspend fun enunciate(text: String, contentType: String): Unit = byExecutor()
 
@@ -494,7 +508,7 @@ class HarnessHost(
         )
 
         private fun byExecutor(): Nothing = throw UnsupportedOperationException(
-            "What an intent enunciates, its executor keeps as the output of the intent, see ScriptExecutor"
+            "What an intent invokes and enunciates, its executor keeps, see ExecutedIntent"
         )
 
     }

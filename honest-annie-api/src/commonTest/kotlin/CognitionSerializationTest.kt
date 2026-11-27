@@ -37,8 +37,6 @@ class CognitionSerializationTest {
         script = "1 + 1"
     )
 
-    private val invocation = Phenomenon.Invocation(id = "invocation-1", prompt = "Count", constitution = "Be brief")
-
     private val cogitation = Cogitation(
         constitution = "Be honest",
         enunciations = listOf(
@@ -64,11 +62,18 @@ class CognitionSerializationTest {
                 initiated = initiated + 3.seconds,
                 respondsTo = intent.id,
                 phenomena = listOf(
-                    invocation,
                     Phenomenon.Text("2", "text/plain"),
                     Phenomenon.Data(byteArrayOf(0, 1, -1, 127), "image/png"),
                     Phenomenon.Impediment("Failed")
                 )
+            ),
+            // the outcome of a cogitation the intent invoked
+            Enunciation(
+                actant = Actant.SELF,
+                initiated = initiated + 3.seconds,
+                finalized = initiated + 5.seconds,
+                respondsTo = "invoked-1",
+                phenomena = listOf(Phenomenon.Text("42"))
             )
         ),
         depth = 1
@@ -87,7 +92,7 @@ class CognitionSerializationTest {
     @Test
     fun `should keep the id of an enunciation responding to a request`() {
         // given
-        val enunciation = cogitation.enunciations.last()
+        val enunciation = cogitation.enunciations[2]
 
         // when
         val decoded = Json.decodeFromString<Enunciation>(Json.encodeToString(enunciation))

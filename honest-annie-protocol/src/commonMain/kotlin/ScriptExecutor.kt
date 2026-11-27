@@ -18,6 +18,8 @@
 
 package com.xemantic.annie
 
+import kotlinx.serialization.Serializable
+
 /**
  * Executes the intents of a cogitation, provided to the harness as `executor`, see [Cogitation].
  *
@@ -27,7 +29,8 @@ package com.xemantic.annie
  *
  * What an intent does on a computer, e.g. executing a process, it does on the computer of the executor,
  * through the agency the executor provides it with, so that the executor can be a process of its own,
- * while what it does within its cogitation, e.g. invoking another one, it does through the given agency.
+ * while what it does within its cogitation, e.g. telling it, it does through the given agency,
+ * the cogitations it invokes, and what it enunciates, being kept by the executor, see [ExecutedIntent].
  */
 interface ScriptExecutor : AutoCloseable {
     /**
@@ -44,25 +47,22 @@ interface ScriptExecutor : AutoCloseable {
      * then its script, unless an edit failed, or the script is blank, in the [Phenomenon.Intent.language] of the intent.
      *
      * A Kotlin script is executed given the [agency] of the current step of the harness,
-     * provided to the script as `agency`,
-     * collecting the invocations made through it.
-     * Only the invocations made through the script form the result, not those of the [agency] itself.
-     * What the script enunciates is not part of its result, but its output, see [ExecutedIntent.output].
+     * provided to the script as `agency`, except for what the script invokes, see [ExecutedIntent.invoked],
+     * and what it enunciates, see [ExecutedIntent.output], neither of them part of its result.
      * A Python or bash script acts through no agency, so that its result is all of it.
      *
      * @return the [ExecutedIntent.result]: the report of the edits, if any, as a [Phenomenon.Text] telling where each one was applied,
      * followed by the result of the script:
-     * of a Kotlin script, the invocations it made, in their order,
-     * followed by what the Python of the intents printed, see [Agency.python], if anything, as a [Phenomenon.Text],
-     * by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
-     * unless it is `Unit`, `null`, an invocation, or a collection of nothing else,
+     * of a Kotlin script, what the Python of the intents printed, see [Agency.python], if anything, as a [Phenomenon.Text],
+     * followed by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
+     * unless it is `Unit`, `null`, or a collection of nothing but `Unit`, e.g. of invocations,
      * or [Phenomenon.Data] as is, e.g. an image the cognizer sees,
      * and by the versions resolved for the dependencies the script declared without a version, if any;
      * of a Python script, what it printed, followed by the `repr` of the value of its last statement, unless `None`, or not an expression;
      * of a bash script, what its process wrote to its standard output and error, followed by its exit code.
-     * If the script failed, or timed out, the [Phenomenon.Impediment] describing it follows the invocations instead.
+     * If the script failed, or timed out, the [Phenomenon.Impediment] describing it follows what Python printed instead of the value.
      * If an edit failed, its [Phenomenon.Impediment] is the only phenomenon, no file being changed, and the script not executed.
-     * The [ExecutedIntent.output] is what the script enunciated.
+     * The [ExecutedIntent.output] is what the script enunciated, and the [ExecutedIntent.invoked] the cogitations it invoked.
      */
     suspend fun execute(
         intent: Phenomenon.Intent,
@@ -92,10 +92,35 @@ interface ScriptExecutor : AutoCloseable {
 
 /**
  * An intent executed by a [ScriptExecutor]: its [result], the response of the computer to the intent,
- * and its [output], what its script enunciated through the agency, e.g. by [Agency.enunciate],
- * to be enunciated by the harness as the output of the cogitation, see [Enunciation.isOutput].
+ * its [output], what its script enunciated through the agency, e.g. by [Agency.enunciate],
+ * to be enunciated by the harness as the output of the cogitation, see [Enunciation.isOutput],
+ * and the cogitations it [invoked], in their order, see [Agency.invoke], to be unfolded by the host.
  */
 data class ExecutedIntent(
     val result: List<Phenomenon>,
-    val output: List<Phenomenon> = emptyList()
+    val output: List<Phenomenon> = emptyList(),
+    val invoked: List<Invocation> = emptyList()
 )
+
+/**
+ * The invocation of a cogitation by an intent, see [Agency.invoke]: not a phenomenon of the invoking cogitation,
+ * whose intent tells it, but what the host needs to unfold the invoked one,
+ * the first enunciation of which is the [prompt], of this [id], which its outcome responds to, see [Enunciation.respondsTo].
+ *
+ * @property constitution of the invoked cogitation, `null` when it is the one of its invoker.
+ * @property computer the new computer started for the invoked cogitation, `null` when it runs on the computer of its [repl].
+ * @property repl the name of the REPL the invoked cogitation runs in, `null` when it is the one of its invoker,
+ * the first one of the [computer] when a new one is started.
+ * @property independent whether the invoked cogitation perceives no invoker, see [Agency.invoke].
+ */
+@Serializable
+data class Invocation(
+    val id: String,
+    val prompt: String,
+    val constitution: String? = null,
+    val computer: Computer? = null,
+    val repl: String? = null,
+    val independent: Boolean = false
+) {
+    override fun toString(): String = "Invocation(id=$id)"
+}

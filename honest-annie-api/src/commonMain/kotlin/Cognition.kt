@@ -43,14 +43,15 @@ data class Edit(
 
 @Serializable
 sealed interface Phenomenon {
-    /** Phenomenon awaiting a response, an [Enunciation] whose [Enunciation.respondsTo] is its [id]. */
+    /** Phenomenon awaiting a response, an [Enunciation] whose [Enunciation.respondsTo] is its [id], e.g. an [Intent]. */
     sealed interface Request : Phenomenon {
         val id: String
     }
     /**
      * Request to apply the [edits] of files, and then to execute the [script] of the [language], unless blank,
-     * on the [computer] of the id given, and in the [repl] it names, by default the ones of its cogitation, see [Cogitation.computer],
-     * a REPL of another name being opened by the first intent naming it,
+     * in the [repl] it names, on the computer it is open on, by default the REPL of its cogitation, see [Cogitation.repl],
+     * a REPL no cogitation of the tree has yet being opened on the computer of its cogitation by the first intent naming it,
+     * e.g. one started for an invoked cogitation, see [Agency.invoke],
      * its properties in the order of the execution, like the arguments of the tool expressing it,
      * responded by where the edits were applied, followed by the result of the script, unless it produced no phenomena, see [Cogitation].
      * When an edit fails, no file is changed, nor the script executed.
@@ -68,7 +69,6 @@ sealed interface Phenomenon {
      */
     @Serializable
     data class Intent(
-        val computer: String? = null,
         val repl: String? = null,
         val edits: List<Edit> = emptyList(),
         val language: Language = Language.KOTLIN,
@@ -95,27 +95,6 @@ sealed interface Phenomenon {
                 && contentType == other.contentType && bytes.contentEquals(other.bytes)
         override fun hashCode(): Int = 31 * bytes.contentHashCode() + contentType.hashCode()
         override fun toString(): String = "Data(contentType=$contentType, size=${bytes.size})"
-    }
-    /**
-     * Request to unfold a new cogitation, see [Agency.invoke], also used as the id of that cogitation.
-     * Its outcome is perceived later, as an [Enunciation] responding to this [id], see [Cogitation].
-     *
-     * @property constitution of the invoked cogitation, `null` when it is the one of its invoker.
-     * @property computer the new computer started for the invoked cogitation, `null` when it runs on the one of its invoker.
-     * @property repl the REPL the invoked cogitation runs in, `null` when it is the one of its invoker,
-     * the first one of the [computer] when a new one is started.
-     * @property independent whether the invoked cogitation perceives no invoker, see [Agency.invoke].
-     */
-    @Serializable
-    data class Invocation(
-        override val id: String,
-        val prompt: String,
-        val constitution: String? = null,
-        val computer: Computer? = null,
-        val repl: String? = null,
-        val independent: Boolean = false
-    ) : Request {
-        override fun toString(): String = "Invocation(id=$id)"
     }
     /** What impeded the cogitation, or an intent, as the [reason] for it, see [Agency.impede]. */
     @Serializable
@@ -145,7 +124,10 @@ data class Actant(
     companion object {
         /** The actant of every enunciation of the cognizer, never revealing its model. */
         val SELF = Actant(type = Type.SELF, name = "self")
-        /** The actant of the prompt of an invoked cogitation: the cogitation which invoked it, see [Agency.invoke]. */
+        /**
+         * The actant of the prompt of an invoked cogitation, its first enunciation: the cogitation which invoked it, see [Agency.invoke].
+         * The id of the prompt is the one of the invoked cogitation, which its outcome responds to in the invoking one, see [Enunciation.respondsTo].
+         */
         val INVOKER = Actant(type = Type.INVOKER, name = "invoker")
     }
 }
@@ -153,8 +135,9 @@ data class Actant(
 /**
  * @property initiated the moment the expression of this enunciation started, e.g. the inference request.
  * @property finalized the moment the expression was completed; equal to [initiated] for instantaneous ones.
- * @property respondsTo the id of the [Phenomenon.Request] this enunciation responds to.
- * @property id unique within its cogitation, the [responseId] of the request it responds to,
+ * @property respondsTo the id of the [Phenomenon.Request] this enunciation responds to,
+ * or of the cogitation invoked, see [Agency.invoke], when this enunciation is its outcome.
+ * @property id unique within its cogitation, the [responseId] of what it responds to,
  * so that enunciating the same response again is recognized as such.
  * @property inference the inference expressing this enunciation, `null` when it was not inferred.
  * Never perceived by the cognizer, so that the rendering of past turns never changes.
@@ -177,7 +160,7 @@ data class Enunciation(
     val duration: Duration get() = finalized - initiated
     /**
      * Whether this is the output of its cogitation, addressed to its invoker, see [Cogitation.output]:
-     * enunciated by [Actant.SELF], not responding to a request, and expressing no intent, but something else than a monologue,
+     * enunciated by [Actant.SELF], not responding to anything, e.g. to a request, or as the outcome of an invoked cogitation, and expressing no intent, but something else than a monologue,
      * e.g. what an intent enunciates through its agency, or the text of an inference answering without an intent,
      * unless the inference also expressed a tool call which could not be executed, as an impediment, see `IntentTool`.
      */
@@ -244,7 +227,8 @@ data class Inference(
 /**
  * A computer the intents of cogitations execute on, see [Cogitation.computer], identified by its [id],
  * of a [type] the host offers, e.g. one with a GPU, a new one being started for an invoked cogitation, see [Agency.invoke].
- * Each computer runs REPLs, sessions keeping the declarations of the intents executed in them, see [Cogitation.repl].
+ * Each computer runs REPLs, sessions keeping the declarations of the intents executed in them, see [Cogitation.repl],
+ * each name of a REPL naming a single one in the tree of cogitations, see [Phenomenon.Intent.repl].
  */
 @Serializable
 data class Computer(
@@ -268,28 +252,28 @@ data class Computer(
  *   returning where each one was applied as a [Phenomenon.Text], or only the [Phenomenon.Impediment] of the edit failing,
  *   no file being changed, and the script not executed; then it executes the script, unless blank,
  *   in the [Phenomenon.Intent.language] of the intent, a Python or bash one acting through no agency, while a Kotlin one is executed
- *   in the session of the intents of this cogitation, providing it with the `agency`,
- *   collecting the invocations made through it, and returns
- *   `data class ExecutedIntent(val result: List<Phenomenon>, val output: List<Phenomenon>)`:
- *   the `result` of the intent, these invocations, in their order,
- *   followed by the value of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`,
- *   when the script fails, the [Phenomenon.Impediment] describing the failure following the invocations instead;
- *   and its `output`, what the intent enunciated through the agency, not part of its result.
+ *   in the session of the intents of this cogitation, providing it with the `agency`, and returns
+ *   `data class ExecutedIntent(val result: List<Phenomenon>, val output: List<Phenomenon>, val invoked: List<Invocation>)`:
+ *   the `result` of the intent, the value of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`,
+ *   or, when the script fails, the [Phenomenon.Impediment] describing the failure;
+ *   its `output`, what the intent enunciated through the agency, and the cogitations it `invoked`, see [Agency.invoke],
+ *   neither of them part of its result.
  *
  * The harness unfolds the cogitation by a single step, one inference and the intent it expresses, and is called
  * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded,
  * or the text of an inference expressing no intent:
  * then the cogitation rests, until another interaction progresses it.
- * A cogitation awaiting [unansweredInvocations] is not unfolded further
- * until all of them are answered, the responding [Enunciation]s appended to it.
- * The [output] of a cogitation is perceived by its invoker once it rests,
- * as the enunciation of [Actant.SELF] responding to the invocation.
+ * The host unfolds each cogitation an intent invoked from its prompt, see [Actant.INVOKER],
+ * the invoking cogitation awaiting all of them before it is unfolded further.
+ * Once all of them rest, their outcomes follow the response to the intent, in the order they were invoked:
+ * the [output] of each one, as the enunciation of [Actant.SELF] responding to the id of the invoked cogitation, the one of its prompt,
+ * or the [Phenomenon.Impediment] of the host, when it could not be invoked.
  *
  * A step which throws, e.g. an inference failing, has its cogitation rested by the host,
  * with the reason enunciated as a [Phenomenon.Impediment].
  *
  * @property depth how deep this cogitation is in its tree: 0 for the root one, 1 for one it invokes, and so on.
- * @property computer the computer its intents execute on, unless an intent names another one, see [Phenomenon.Intent.computer].
+ * @property computer the computer its intents execute on, unless an intent names a REPL open on another one, see [Phenomenon.Intent.repl].
  * @property repl the REPL of the [computer] its intents execute in, keeping their declarations,
  * shared with the cogitations it invokes, unless they run in another one, see [Agency.invoke].
  */
@@ -314,8 +298,6 @@ data class Cogitation(
             .filterIsInstance<Phenomenon.Request>()
             .filterNot { it.id in responded }
     }
-    val unansweredInvocations: List<Phenomenon.Invocation> get() =
-        unansweredRequests.filterIsInstance<Phenomenon.Invocation>()
     /** The phenomena of every [Enunciation.isOutput] of this cogitation, in their order, without the monologues. */
     val output: List<Phenomenon> get() = enunciations.filter { it.isOutput }.flatMap { it.phenomena }
         .filter { it !is Phenomenon.Monologue }

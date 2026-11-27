@@ -22,9 +22,11 @@ import com.xemantic.annie.Agency
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.Execution
+import com.xemantic.annie.Invocation
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Python
 import com.xemantic.annie.ScriptExecutor
+import com.xemantic.annie.invocation
 import com.xemantic.annie.readNumbered
 import com.xemantic.kotlin.introspection.KotlinIntrospector
 import com.xemantic.kotlin.script.ScriptResult
@@ -122,7 +124,6 @@ class SessionScriptExecutor(
         }
         val printed = if (interpreter.isInitialized()) interpreter.value.printed() else null
         val phenomena = buildList {
-            addAll(collecting.invoked)
             printed?.let { add(Phenomenon.Text("Printed by Python:\n${it.digest("")}", "text/plain")) }
             addAll(
                 when (result) {
@@ -130,10 +131,10 @@ class SessionScriptExecutor(
                     is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest().hinted()))
                     is ScriptResult.Value -> listOfNotNull(
                         when (val value = result.value) {
-                            null, Unit, is Phenomenon.Invocation -> null
+                            null, Unit -> null
                             is Phenomenon.Data -> value
-                            // already in the result, e.g. `prompts.map { agency.invoke(it) }`
-                            is Iterable<*> if value.any() && value.all { it is Phenomenon.Invocation } -> null
+                            // e.g. `prompts.map { agency.invoke(it) }`
+                            is Iterable<*> if value.any() && value.all { it == Unit } -> null
                             else -> Phenomenon.Text(value.toString().digest(VALUE_OMISSION), "text/plain")
                         },
                         result.resolvedVersions.takeIf { it.isNotEmpty() }?.let { versions ->
@@ -147,7 +148,7 @@ class SessionScriptExecutor(
                     )
                 })
         }
-        return ExecutedIntent(result = phenomena, output = collecting.output.toList())
+        return ExecutedIntent(result = phenomena, output = collecting.output.toList(), invoked = collecting.invoked.toList())
     }
 
     /**
@@ -399,8 +400,8 @@ internal const val UNSUPPORTED_ESCAPE_HINT: String =
         "where a backslash is itself, and only `${'$'}${'$'}` interpolates."
 
 /**
- * The agency of an intent: the [agency] of the host, collecting the invocations made through it,
- * and keeping what the intent enunciates as its [output], within the cogitation of the intent, and acting on the computer of the [executor] itself:
+ * The agency of an intent: the [agency] of the host, keeping what the intent invokes as its [invoked] cogitations,
+ * and what it enunciates as its [output], within the cogitation of the intent, and acting on the computer of the [executor] itself:
  * its Python, its processes, the declarations of its [introspector], and its [http] client.
  * Sealed once the intent is executed, so that a thread or a coroutine the intent left running
  * acts no more on the computer, as the host no longer awaits it.
@@ -425,7 +426,7 @@ private class ExecutorAgency(
 
     override val python: Python get() = executor.python
 
-    val invoked = CopyOnWriteArrayList<Phenomenon.Invocation>()
+    val invoked = CopyOnWriteArrayList<Invocation>()
 
     val output = CopyOnWriteArrayList<Phenomenon>()
 
@@ -435,9 +436,9 @@ private class ExecutorAgency(
         computer: String?,
         repl: String?,
         independent: Boolean
-    ): Phenomenon.Invocation {
+    ) {
         checkNotSealed()
-        return agency.invoke(prompt, constitution, computer, repl, independent).also { invoked += it }
+        invoked += invocation(prompt, constitution, computer, repl, independent)
     }
 
     // refused once sealed, as the output of the intent is already returned to the harness

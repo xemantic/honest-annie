@@ -30,16 +30,16 @@ interface Agency {
     /** null for the root */
     suspend fun parentCogitation(): Cogitation?
     /**
-     * Invokes a child-cogitation under the [constitution].
+     * Invokes a child-cogitation under the [constitution], its first enunciation being the [prompt].
      *
-     * Returns immediately: the returned [Phenomenon.Invocation] is enunciated in the result
-     * of the current intent, and the outcome of the invoked cogitation is perceived later,
-     * as an enunciation responding to its [Phenomenon.Invocation.id].
+     * Returns immediately: once the current intent is executed, the cogitations it invoked unfold, and the current one awaits them,
+     * perceiving their outcomes once all of them rest, in the order they were invoked, see [Cogitation].
      *
      * @param constitution of the invoked cogitation, the one of the current cogitation when `null`.
-     * @param computer the type of a new computer to start for it, one the host offers, otherwise it runs on the current one.
-     * @param repl the REPL to run in, opened when the computer has none of that name,
-     * otherwise the current one, sharing its declarations, or a new one on a new [computer], or when [independent].
+     * @param computer the type of a new computer to start for it, one the host offers, otherwise it runs on the computer of the [repl].
+     * @param repl the name of the REPL to run in, the one of that name of the cogitations of the tree, on the computer it is open on,
+     * otherwise opened on the current computer, or on the new [computer], its first REPL, reached by the intents naming it, see [Phenomenon.Intent.repl].
+     * When `null`, the current REPL, sharing its declarations, or a new one, unnamed, on a new [computer], or when [independent].
      * @param independent whether it perceives itself as a root, unable to reach the current cogitation as a parent, only its outcome returning:
      * with a new [computer] too, it shares nothing with it.
      */
@@ -49,7 +49,7 @@ interface Agency {
         computer: String? = null,
         repl: String? = null,
         independent: Boolean = false
-    ): Phenomenon.Invocation
+    )
     /**
      * Enunciates a [Phenomenon.Text] as the output of the current cogitation,
      * which is perceived by its invoker once the cogitation rests, see [Cogitation.output].
@@ -85,13 +85,11 @@ interface Agency {
         timeout: Duration = 1.minutes
     ): Execution
     /**
-     * The [lines] of the file at the [path] of the user's computer, each range of line numbers, e.g. `120..260`, numbered as by `cat -n`,
-     * ranges overlapping or adjacent read as one, and apart ones separated by `…`, the whole file when none is given,
-     * so that one intent reads all the code the next decision needs, e.g. whole functions of several files:
-     * `agency.read("fastapi/routing.py", 1..60, 420..610) + agency.read("fastapi/applications.py", 900..1100)`.
+     * The [lines] of the file at the [path], each range of line numbers.
+     * @return numbered as by `cat -n`, ranges overlapping or adjacent read as one, and apart ones separated by `…`, the whole file when no [lines] is given
      */
     suspend fun read(path: String, vararg lines: IntRange): String
-    /** Python interpreter of the current cogitation */
+    /** persistent Python REPL of the current cogitation */
     val python: Python
     /**
      * The HTTP client of every cogitation, whose functions suspend, like the ones of the agency,
@@ -104,10 +102,6 @@ interface Agency {
 }
 
 /**
- * The CPython interpreter of the current cogitation, started when first used,
- * stateful like your Kotlin session: the variables, functions, classes and imports of the Python code it executes
- * stay visible to the Python code of your later intents.
- *
  * What the code prints, to `sys.stdout` or `sys.stderr`, is perceived in the result of the intent,
  * truncated, before the value of the intent, also when the intent fails.
  * An exception of Python fails the intent, perceived with its type and message.

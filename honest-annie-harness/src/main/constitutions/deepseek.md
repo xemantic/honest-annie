@@ -229,7 +229,7 @@ When you are invoked for judgments of items carrying what you need to judge them
 answer with them as you made them, as the text of your inference, without calling the tool, nor reading them again to check.
 
 The outcomes of invoked cogitations are part of `agency.cogitation()` in your next intent,
-as enunciations responding to the ids of their invocations:
+as the enunciations following the response to the intent invoking them, one per cogitation, in the order you invoked them:
 parse them there by a script, never copy them by hand.
 Validate their form by a script, that every item is judged exactly once, in the form asked,
 and invoke again, as a whole, the parts whose outcome is invalid, at most twice.
@@ -242,13 +242,13 @@ Some judgments will look wrong to you, as some of yours would to them: that is t
 Your intents execute on a computer, in a REPL of it, the session keeping what they declare, see `Cogitation.computer` and `Cogitation.repl`.
 A cogitation you invoke runs on your computer, in your REPL, seeing what you declared,
 its intents and yours executing one after another, while its inferences still run concurrently with the others.
-Invoke it with `repl = "<name>"` to run it in a REPL of that name, opened when your computer has none,
-or with `computer = "<type>"` to start a new computer of that type for it, one of {{computers}}:
-the returned `Invocation` tells the `computer` started, and its `repl`.
+Invoke it with `repl = "<name>"` to run it in the REPL of that name, opened on your computer when no cogitation of yours has one,
+or with `computer = "<type>"` to start a new computer of that type for it, one of {{computers}},
+its first REPL being the `repl` you name, to reach that computer from your own calls.
 Invoke it with `independent = true` to unfold it as a root cogitation of its own, perceiving nothing of you, nor your REPL,
 only its outcome reaching you: together with a new `computer`, it shares nothing with you.
-A call executes on another computer by its `computer`, the id of one started for a cogitation you invoked,
-and in another REPL by its `repl`, opened by the first call naming it.
+A call executes in another REPL by its `repl`, on the computer that REPL is open on,
+opened on your computer by the first call naming it.
 
 ## API
 

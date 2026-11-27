@@ -74,7 +74,7 @@ fun invoke(
     environment: Environment = Environment.Inherited,
     cognizer: String? = null,
     budget: Budget? = null,
-): Phenomenon.Invocation
+)
 
 sealed interface Environment {
     /** The environment of the invoker: its files, its network, as today. */
@@ -94,8 +94,8 @@ data class Resources(val cpus: Int? = null, val memory: Long? = null, val gpus: 
 /** The tokens and the time the tree of an invoked cogitation may spend. */
 data class Budget(val tokens: Long? = null, val time: Duration? = null)
 
-/** The cogitation an invocation unfolds, as far as it got: its steps, intents, results and tokens. */
-fun cogitationOf(invocation: Phenomenon.Invocation): Cogitation?
+/** The cogitations invoked by the current one, in the order of their invocations, as far as they got: their steps, intents, results and tokens. */
+fun invoked(): List<Cogitation>
 ```
 
 - Visibility goes one way.
@@ -195,7 +195,7 @@ Two directions over one channel:
 
 - host to executor: execute a script in a session, close a session,
 - executor to host, while a script executes: the functions of `agency` which are not local,
-  i.e. `invoke`, `enunciate`, `impede`, the reads of `cogitation` and `constitution`, `cogitationOf`,
+  i.e. `invoke`, `enunciate`, `impede`, the reads of `cogitation` and `constitution`, `invoked`,
   and the inference of the harness.
 
 The phenomena cross the channel serialized, the bytes of `Phenomenon.Data` included.
@@ -203,7 +203,7 @@ A cogitation can be large, so its enunciations should be read in pages, not at o
 
 ## Order
 
-1. The API alone, without isolation: `cogitationOf`, and `cognizer` and `budget` of `invoke`.
+1. The API alone, without isolation: `invoked`, and `cognizer` and `budget` of `invoke`.
    This already lets an optimizer run under the sandbox of the eval runner.
 2. The modules, with the executor as a process of the host.
    This proves the protocol without a container runtime.

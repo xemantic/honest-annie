@@ -20,7 +20,6 @@ package com.xemantic.annie.harness.cognizer
 
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
-import com.xemantic.annie.Computer
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
@@ -120,7 +119,7 @@ class TurnsTest {
                     actant = computer,
                     initiated = initiated,
                     respondsTo = intent.id,
-                    phenomena = listOf(Phenomenon.Invocation("c1", "judge", ""))
+                    phenomena = listOf(Phenomenon.Text("Spent", "text/plain"))
                 ),
                 Enunciation(
                     actant = Actant.SELF,
@@ -142,10 +141,12 @@ class TurnsTest {
                 so far
 
                 <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
-                <annie:invocation id="c1"/>
+                <annie:text content-type="text/plain"/>
+                Spent
             """.trimIndent()))),
+            // the id of the invoked cogitation is never rendered, its outcome perceived in the order of the invocations
             Perceived.Text("""
-                <annie:actant type="self" name="self" initiated="2026-10-24T10:15:30Z" responds-to="c1"/>
+                <annie:actant type="self" name="self" initiated="2026-10-24T10:15:30Z"/>
                 judged
             """.trimIndent())
         ))
@@ -436,32 +437,6 @@ class TurnsTest {
                 "\n… 10 more characters omitted, the whole text being " +
                 "`(agency.cogitation().enunciations[2].phenomena[1] as Phenomenon.Text).text` in a Kotlin script"
         )))
-    }
-
-    @Test
-    fun `should perceive invocation starting a computer by its id, type and REPL`() {
-        // given
-        val intent = Phenomenon.Intent(script = "agency.invoke(\"sub\", computer = \"GPU64GB\")", id = "call_1")
-        val invocation = Phenomenon.Invocation(
-            id = "sub", prompt = "sub", constitution = "", computer = Computer(id = "gpu-1", type = "GPU64GB"), repl = "repl-1"
-        )
-        val cogitation = Cogitation(
-            constitution = "",
-            enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
-                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
-                Enunciation(actant = computer, initiated = initiated, respondsTo = intent.id, phenomena = listOf(invocation))
-            )
-        )
-
-        // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
-
-        // then
-        val result = (turns[2] as Turn.User).parts.single() as Perceived.Result
-        assert((result.parts.single() as Perceived.Text).text.endsWith(
-            "<annie:invocation id=\"sub\" computer=\"gpu-1\" computer-type=\"GPU64GB\" repl=\"repl-1\"/>"
-        ))
     }
 
     @Test
