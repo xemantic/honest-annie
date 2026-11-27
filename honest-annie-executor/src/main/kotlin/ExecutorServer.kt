@@ -31,8 +31,10 @@ import com.xemantic.annie.ScriptExecutor
 import com.xemantic.annie.decodeRequest
 import com.xemantic.annie.encodeMessage
 import com.xemantic.annie.invocation
+import com.xemantic.annie.randomId
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -73,10 +75,22 @@ class ExecutorServer(
     ): Unit = coroutineScope {
         val sessions = HashMap<String, Session>()
         val executions = ConcurrentHashMap<String, Job>()
+        val recalls = ConcurrentHashMap<String, CompletableDeferred<Cogitation?>>()
         val lock = Any()
         fun send(response: ExecutorResponse) {
             val line = response.encodeMessage()
             synchronized(lock) { respond(line) }
+        }
+        fun context(execution: String) = RecallingContext { parent ->
+            val recall = randomId()
+            val recalled = CompletableDeferred<Cogitation?>()
+            recalls[recall] = recalled
+            try {
+                send(ExecutorResponse.Recall(execution, recall, parent))
+                recalled.await()
+            } finally {
+                recalls.remove(recall)
+            }
         }
         try {
             for (line in lines) {
@@ -97,7 +111,7 @@ class ExecutorServer(
                         // started once registered, so that a quick execution is not removed before it is registered
                         val execution = launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
                             val response = try {
-                                session.mutex.withLock { execute(request, session.executor) }
+                                session.mutex.withLock { execute(request, session.executor, context(request.id)) }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
@@ -109,6 +123,7 @@ class ExecutorServer(
                         execution.invokeOnCompletion { executions.remove(request.id) }
                         execution.start()
                     }
+                    is ExecutorRequest.Recalled -> recalls[request.recall]?.complete(request.cogitation)
                     is ExecutorRequest.Cancel -> executions[request.id]?.cancel()
                     is ExecutorRequest.Close -> sessions.remove(request.session)?.executor?.close()
                 }
@@ -119,10 +134,34 @@ class ExecutorServer(
         }
     }
 
-    private suspend fun execute(request: ExecutorRequest.Execute, executor: ScriptExecutor): ExecutorResponse {
-        val (result, output) = executor.execute(request.intent, request.context)
+    private suspend fun execute(
+        request: ExecutorRequest.Execute,
+        executor: ScriptExecutor,
+        context: IntentContext
+    ): ExecutorResponse {
+        val (result, output) = executor.execute(request.intent, context)
         return ExecutorResponse.Executed(request.id, result, output)
     }
+
+}
+
+/**
+ * The [IntentContext] of an intent executed for a harness of another process, recalling the cogitations from it,
+ * the cogitation of the intent only once, as it is the same for the whole intent, see [Agency.cogitation].
+ */
+internal class RecallingContext(
+    private val recall: suspend (parent: Boolean) -> Cogitation?
+) : IntentContext {
+
+    private val mutex = Mutex()
+
+    private var cogitation: Cogitation? = null
+
+    override suspend fun cogitation(): Cogitation = mutex.withLock {
+        cogitation ?: checkNotNull(recall(false)) { "The harness recalled no cogitation of the intent" }.also { cogitation = it }
+    }
+
+    override suspend fun parentCogitation(): Cogitation? = recall(true)
 
 }
 
@@ -132,7 +171,7 @@ class ExecutorServer(
  * e.g. for a REPL of the process of the harness itself.
  */
 suspend fun ScriptExecutor.execute(intent: Phenomenon.Intent, context: IntentContext): ExecutedIntent =
-    execute(intent, context.cogitation, ProtocolAgency(context))
+    execute(intent, ProtocolAgency(context))
 
 /**
  * The agency of the harness of another process, as far as an intent acts through it within its cogitation:
@@ -144,13 +183,13 @@ internal class ProtocolAgency(
     private val context: IntentContext
 ) : Agency {
 
-    override val cogitation: Cogitation get() = context.cogitation
+    override suspend fun cogitation(): Cogitation = context.cogitation()
 
-    override val parentCogitation: Cogitation? get() = context.parentCogitation
+    override suspend fun parentCogitation(): Cogitation? = context.parentCogitation()
 
     override suspend fun invoke(
         prompt: String,
-        constitution: String,
+        constitution: String?,
         computer: String?,
         repl: String?,
         independent: Boolean

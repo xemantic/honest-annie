@@ -55,7 +55,7 @@ class InProcessComputerProviderTest {
 
         // when
         val executed = repl.execute(
-            Phenomenon.Intent(script = "agency.enunciate(\"depth ${'$'}{agency.cogitation.depth}\")\nagency.invoke(\"sub\")"),
+            Phenomenon.Intent(script = $$"agency.enunciate(\"depth ${agency.cogitation().depth}\")\nagency.invoke(\"sub\")"),
             context
         )
 

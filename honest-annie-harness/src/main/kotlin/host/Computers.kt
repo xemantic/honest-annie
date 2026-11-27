@@ -19,7 +19,6 @@
 package com.xemantic.annie.harness.host
 
 import com.xemantic.annie.Agency
-import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Computer
 import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.IntentContext
@@ -85,23 +84,25 @@ internal class Computers(private val provider: ComputerProvider) : ScriptExecuto
     // the edits are applied by the computer, to its files
     override suspend fun execute(
         intent: Phenomenon.Intent,
-        cogitation: Cogitation,
         agency: Agency
     ): ExecutedIntent {
+        val cogitation = agency.cogitation()
         val computer = intent.computer ?: cogitation.computer.id
         val started = started[computer] ?: return notRunning(intent)
         val name = intent.repl ?: if (computer == cogitation.computer.id) cogitation.repl else started.first
         val open = started.repl(name)
-        val context = IntentContext(cogitation = cogitation, parentCogitation = agency.parentCogitation)
+        val context = object : IntentContext {
+            override suspend fun cogitation() = cogitation
+            override suspend fun parentCogitation() = agency.parentCogitation()
+        }
         return open.mutex.withLock { open.repl.execute(intent, context) }
     }
 
     // the script of an intent of no edits, as the edits are applied by the computer
     override suspend fun executeScript(
         intent: Phenomenon.Intent,
-        cogitation: Cogitation,
         agency: Agency
-    ): ExecutedIntent = execute(intent.copy(edits = emptyList()), cogitation, agency)
+    ): ExecutedIntent = execute(intent.copy(edits = emptyList()), agency)
 
     private fun notRunning(intent: Phenomenon.Intent) = ExecutedIntent(listOf(Phenomenon.Impediment(
         "No computer of the id ${intent.computer} is running, but ${started.keys.joinToString()}, " +

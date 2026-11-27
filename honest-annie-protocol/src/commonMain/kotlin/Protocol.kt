@@ -26,6 +26,8 @@ import kotlinx.serialization.json.Json
  * the harness requests the intents of its cogitations to be executed, each cogitation in a session of its own,
  * and the executor responds with the result of each intent, together with what the intent did within its cogitation,
  * so that the harness enunciates it, as if the intent acted through the agency of the harness itself.
+ * While executing an intent, the executor recalls its cogitation from the harness, only when the intent asks for it,
+ * see [ExecutorResponse.Recall], as the cogitations stay with the harness, e.g. apart from an isolated computer.
  *
  * Each message is a line of JSON, see [encodeMessage], so that a single channel carries the requests of many sessions,
  * e.g. the standard input and output of the executor, the responses following in any order, matched by their id.
@@ -36,17 +38,23 @@ import kotlinx.serialization.json.Json
 sealed interface ExecutorRequest {
 
     /**
-     * Executes the [intent] in the [session] of its cogitation, created by its first intent,
-     * as [ScriptExecutor.execute] does, given what the agency of the harness tells of the cogitation, see [IntentContext],
+     * Executes the [intent] in the [session] of its cogitation, created by its first intent, as [ScriptExecutor.execute] does,
      * responded by [ExecutorResponse.Executed], or by [ExecutorResponse.Failed] when the executor fails to execute it,
-     * not when the intent fails, which is its result.
+     * not when the intent fails, which is its result,
+     * preceded by an [ExecutorResponse.Recall] whenever the intent asks for its cogitation, see [IntentContext].
      */
     @Serializable
     data class Execute(
         val id: String,
         val session: String,
-        val intent: Phenomenon.Intent,
-        val context: IntentContext
+        val intent: Phenomenon.Intent
+    ) : ExecutorRequest
+
+    /** The [cogitation] the [ExecutorResponse.Recall] of the [recall] id asks for. */
+    @Serializable
+    data class Recalled(
+        val recall: String,
+        val cogitation: Cogitation?
     ) : ExecutorRequest
 
     /** Cancels the execution of the [Execute] request of this [id], e.g. as the cogitation is impeded, responded by nothing. */
@@ -60,20 +68,36 @@ sealed interface ExecutorRequest {
 }
 
 /**
- * What the agency of the harness tells of the cogitation of an intent, see [Agency]:
- * a snapshot taken as the intent is requested.
+ * What the agency of the harness tells of the cogitation of an intent, see [Agency.cogitation] and [Agency.parentCogitation],
+ * recalled by an executor of another process only when the intent asks for it, see [ExecutorResponse.Recall].
  */
-@Serializable
-data class IntentContext(
-    val cogitation: Cogitation,
-    val parentCogitation: Cogitation?
-)
+interface IntentContext {
+    suspend fun cogitation(): Cogitation
+    suspend fun parentCogitation(): Cogitation?
+}
 
-/** A response of the executor to the [ExecutorRequest] of the same [id]. */
+/** The [IntentContext] of cogitations at hand, e.g. of a REPL in the process of the harness itself. */
+fun IntentContext(cogitation: Cogitation, parentCogitation: Cogitation?): IntentContext = object : IntentContext {
+    override suspend fun cogitation(): Cogitation = cogitation
+    override suspend fun parentCogitation(): Cogitation? = parentCogitation
+}
+
+/** A response of the executor to the [ExecutorRequest.Execute] of the same [id]. */
 @Serializable
 sealed interface ExecutorResponse {
 
     val id: String
+
+    /**
+     * Recalls the cogitation of the intent executing, or its parent one when [parent], see [IntentContext],
+     * answered by [ExecutorRequest.Recalled] of the same [recall] id, the intent still executing.
+     */
+    @Serializable
+    data class Recall(
+        override val id: String,
+        val recall: String,
+        val parent: Boolean = false
+    ) : ExecutorResponse
 
     /**
      * The [result] of the intent, see [ScriptExecutor.execute], the invocations it made included,
@@ -133,7 +157,7 @@ private fun String.message(): String? =
  */
 fun invocation(
     prompt: String,
-    constitution: String,
+    constitution: String?,
     computer: String?,
     repl: String?,
     independent: Boolean

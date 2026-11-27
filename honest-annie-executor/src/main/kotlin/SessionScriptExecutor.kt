@@ -94,11 +94,10 @@ class SessionScriptExecutor(
 
     override suspend fun executeScript(
         intent: Phenomenon.Intent,
-        cogitation: Cogitation,
         agency: Agency
     ): ExecutedIntent {
         return when (intent.language) {
-            Phenomenon.Intent.Language.KOTLIN -> kotlin(intent.script, intent.timeout, cogitation, agency)
+            Phenomenon.Intent.Language.KOTLIN -> kotlin(intent.script, intent.timeout, agency)
             Phenomenon.Intent.Language.PYTHON -> ExecutedIntent(python(intent.script, intent.timeout))
             Phenomenon.Intent.Language.BASH -> ExecutedIntent(bash(intent.script, intent.timeout ?: 1.minutes))
         }
@@ -107,10 +106,9 @@ class SessionScriptExecutor(
     private suspend fun kotlin(
         script: String,
         timeout: Duration?,
-        cogitation: Cogitation,
         agency: Agency
     ): ExecutedIntent {
-        val collecting = ExecutorAgency(agency, cogitation, this, introspector, http)
+        val collecting = ExecutorAgency(agency, this, introspector, http)
         this.agency.current = collecting
         val result: ScriptResult? = try {
             if (!imported) {
@@ -402,14 +400,13 @@ internal const val UNSUPPORTED_ESCAPE_HINT: String =
 
 /**
  * The agency of an intent: the [agency] of the host, collecting the invocations made through it,
- * and keeping what the intent enunciates as its [output], within the [cogitation] of the intent, and acting on the computer of the [executor] itself:
+ * and keeping what the intent enunciates as its [output], within the cogitation of the intent, and acting on the computer of the [executor] itself:
  * its Python, its processes, the declarations of its [introspector], and its [http] client.
  * Sealed once the intent is executed, so that a thread or a coroutine the intent left running
  * acts no more on the computer, as the host no longer awaits it.
  */
 private class ExecutorAgency(
     private val agency: Agency,
-    override val cogitation: Cogitation,
     private val executor: SessionScriptExecutor,
     private val introspector: KotlinIntrospector,
     override val http: HttpClient
@@ -434,7 +431,7 @@ private class ExecutorAgency(
 
     override suspend fun invoke(
         prompt: String,
-        constitution: String,
+        constitution: String?,
         computer: String?,
         repl: String?,
         independent: Boolean
@@ -491,12 +488,12 @@ internal class SwitchedAgency : Agency {
     @Volatile
     lateinit var current: Agency
 
-    override val cogitation: Cogitation get() = current.cogitation
-    override val parentCogitation: Cogitation? get() = current.parentCogitation
+    override suspend fun cogitation(): Cogitation = current.cogitation()
+    override suspend fun parentCogitation(): Cogitation? = current.parentCogitation()
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http
 
-    override suspend fun invoke(prompt: String, constitution: String, computer: String?, repl: String?, independent: Boolean) =
+    override suspend fun invoke(prompt: String, constitution: String?, computer: String?, repl: String?, independent: Boolean) =
         current.invoke(prompt, constitution, computer, repl, independent)
 
     override suspend fun enunciate(text: String, contentType: String) = current.enunciate(text, contentType)

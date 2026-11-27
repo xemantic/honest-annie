@@ -69,7 +69,7 @@ const val NOT_EXECUTED: String = "<annie:impediment/>\nThe intent was not execut
 /**
  * How many characters of each text of the result of an intent the model perceives, see [Perceived.Result]:
  * the cogitation keeps the whole text, perceived again at every later step, so that a single result would flood the context,
- * while a script can still read the rest of it from `agency.cogitation`, as the cut tells.
+ * while a script can still read the rest of it from `agency.cogitation()`, as the cut tells.
  *
  * The limit is the one of Claude Code for the output of a command, which its models are used to:
  * cut at 10,000 characters, a model reading source files in ranges spent a step on every cut file.
@@ -253,7 +253,7 @@ private fun Phenomenon.Text.cut(enunciationIndex: Int, phenomenonIndex: Int): Ph
     if (text.length <= MAX_RESULT_TEXT_LENGTH) return this
     return copy(text = text.take(MAX_RESULT_TEXT_LENGTH) +
             "\n… ${text.length - MAX_RESULT_TEXT_LENGTH} more characters omitted, the whole text being " +
-            "`(agency.cogitation.enunciations[$enunciationIndex].phenomena[$phenomenonIndex] as Phenomenon.Text).text` in a Kotlin script")
+            "`(agency.cogitation().enunciations[$enunciationIndex].phenomena[$phenomenonIndex] as Phenomenon.Text).text` in a Kotlin script")
 }
 
 private fun Phenomenon.toText(): String = when (this) {

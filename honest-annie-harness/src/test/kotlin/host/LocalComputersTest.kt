@@ -56,7 +56,7 @@ class LocalComputersTest {
                     cogitation.enunciations.size == 1 -> Phenomenon.Intent(script = "agency.invoke(\"sub\")")
                     // the task, the intent invoking, the response to the intent, and the one to the invocation
                     cogitation.enunciations.size == 4 -> Phenomenon.Intent(
-                        script = "agency.enunciate(\"got: \" + (agency.cogitation.enunciations[3].phenomena.single() as Phenomenon.Text).text)"
+                        script = "agency.enunciate(\"got: \" + (agency.cogitation().enunciations[3].phenomena.single() as Phenomenon.Text).text)"
                     )
                     // answering, so that the cogitation rests, rather than inferring again and again
                     else -> Phenomenon.Text("unexpected: ${cogitation.enunciations.last().phenomena}")

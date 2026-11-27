@@ -25,10 +25,10 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 interface Agency {
-    /** Current cogitation and what has already unfolded */
-    val cogitation: Cogitation
-    /** `null` for the root. */
-    val parentCogitation: Cogitation?
+    /** current cogitation */
+    suspend fun cogitation(): Cogitation
+    /** null for the root */
+    suspend fun parentCogitation(): Cogitation?
     /**
      * Invokes a child-cogitation under the [constitution].
      *
@@ -36,6 +36,7 @@ interface Agency {
      * of the current intent, and the outcome of the invoked cogitation is perceived later,
      * as an enunciation responding to its [Phenomenon.Invocation.id].
      *
+     * @param constitution of the invoked cogitation, the one of the current cogitation when `null`.
      * @param computer the type of a new computer to start for it, one the host offers, otherwise it runs on the current one.
      * @param repl the REPL to run in, opened when the computer has none of that name,
      * otherwise the current one, sharing its declarations, or a new one on a new [computer], or when [independent].
@@ -44,7 +45,7 @@ interface Agency {
      */
     suspend fun invoke(
         prompt: String,
-        constitution: String = cogitation.constitution,
+        constitution: String? = null,
         computer: String? = null,
         repl: String? = null,
         independent: Boolean = false
