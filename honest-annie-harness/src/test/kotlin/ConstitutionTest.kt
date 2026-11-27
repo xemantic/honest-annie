@@ -27,7 +27,7 @@ import kotlin.test.Test
 class ConstitutionTest {
 
     @Test
-    fun `should load the constitution filled with the API, cognition and harness sources`() {
+    fun `should load the constitution filled with the API and harness sources`() {
         // when
         val loaded = defaultConstitution
 
@@ -35,7 +35,7 @@ class ConstitutionTest {
         assert(loaded.startsWith("# The constitution of honest-annie\n\n## Identity\n\n"))
         assert("interface Agency" in loaded)
         assert("class Cogitation(" in loaded)
-        assert("{{api}}" !in loaded && "{{cognition}}" !in loaded)
+        assert("{{api}}" !in loaded)
         // the source of the harness, compiled into honest-annie, is part of the constitution
         assert("internal suspend fun unfold(" in loaded && "{{harness}}" !in loaded && "\n````\n\n## Your answer\n\n" in loaded)
     }
@@ -51,7 +51,7 @@ class ConstitutionTest {
         assert("\n## Judgment and computation\n" in loaded)
         assert("interface Agency" in loaded)
         assert("class Cogitation(" in loaded)
-        assert("{{api}}" !in loaded && "{{cognition}}" !in loaded)
+        assert("{{api}}" !in loaded)
         // the source of the harness, compiled into honest-annie, is part of the constitution
         assert("internal suspend fun unfold(" in loaded && "{{harness}}" !in loaded && "\n````\n\n## Your answer\n\n" in loaded)
     }
@@ -78,7 +78,7 @@ class ConstitutionTest {
         assert("\n## Changing files\n" in loaded)
         assert("interface Agency" in loaded)
         assert("class Cogitation(" in loaded)
-        assert("{{api}}" !in loaded && "{{cognition}}" !in loaded)
+        assert("{{api}}" !in loaded)
         // the source of the harness, compiled into honest-annie, is part of the constitution
         assert("internal suspend fun unfold(" in loaded && "{{harness}}" !in loaded && "\n````\n\n## Your answer\n\n" in loaded)
     }
@@ -101,7 +101,7 @@ class ConstitutionTest {
         assert(constitutions.values.all { it == kimi })
         assert(kimi != defaultConstitution)
         assert(kimi.startsWith("# The constitution of honest-annie\n\n## Identity\n\n"))
-        assert("{{api}}" !in kimi && "{{cognition}}" !in kimi)
+        assert("{{api}}" !in kimi)
         // the source of the harness, compiled into honest-annie, is part of the constitution
         assert("internal suspend fun unfold(" in kimi && "{{harness}}" !in kimi && "\n````\n\n## Your answer\n\n" in kimi)
     }
@@ -137,14 +137,14 @@ class ConstitutionTest {
     }
 
     @Test
-    fun `should show the cognition without the annotations of its serialization`() {
+    fun `should show the cogitation without the annotations of its serialization`() {
         // when
         val constitutions = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3")
             .map { constitution(model = it) }
 
         // then
         // the serialization is the protocol between the harness and the executor, not what a cognizer acts through
-        // the constitution teaches @Serializable for the JSON of HTTP, so only the declarations of the API and the cognition are checked
+        // the constitution teaches @Serializable for the JSON of HTTP, so only the declarations of the API are checked
         assert(constitutions.all { "\ndata class Cogitation(" in it && "\nsealed interface Phenomenon {" in it })
         assert(constitutions.none { "@Serializable\ndata class Cogitation(" in it || "@Serializable\nsealed interface Phenomenon {" in it })
     }

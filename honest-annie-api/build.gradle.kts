@@ -1,5 +1,5 @@
-// The API pasted into the constitutions, see generateConstitution of the harness: the cogitation, see Cognition.kt,
-// the agency of the scripts of intents, see Api.kt, and the navigation of JSON, see Json.kt,
+// The API pasted into the constitutions, see generateConstitution of the harness:
+// the agency of the scripts of intents and the cogitation, see Api.kt, and the navigation of JSON, see Json.kt,
 // what the harness and the executor share beyond it, and the implementations, being in honest-annie-protocol,
 // multiplatform, so that a harness, or a cognizer, of another platform than the JVM can use it,
 // and serializable, as the protocol between the harness and the executor carries the cogitation.

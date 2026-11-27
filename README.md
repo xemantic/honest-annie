@@ -132,8 +132,7 @@ and a writeup.
 ## Modules
 
 - [honest-annie-api](honest-annie-api): the API pasted into the constitutions:
-  the cogitation, see [Cognition.kt](honest-annie-api/src/commonMain/kotlin/Cognition.kt),
-  the `Agency` of the scripts of intents, see [Api.kt](honest-annie-api/src/commonMain/kotlin/Api.kt),
+  the `Agency` of the scripts of intents and the cogitation, see [Api.kt](honest-annie-api/src/commonMain/kotlin/Api.kt),
   and the navigation of JSON, see [Json.kt](honest-annie-api/src/commonMain/kotlin/Json.kt).
 - [honest-annie-protocol](honest-annie-protocol): what the harness and the executor share beyond the API:
   the protocol between them, see [Protocol.kt](honest-annie-protocol/src/commonMain/kotlin/Protocol.kt),
