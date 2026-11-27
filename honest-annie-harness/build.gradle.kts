@@ -12,10 +12,10 @@ plugins {
 }
 
 dependencies {
-    api(project(":honest-annie-api"))
-    // only on the classpath, not compiled against: the executor process is started of it, see ExecutorProcess,
+    api(project(":honest-annie-computer"))
+    // the computers of the host, each one an executor process started of the classpath of the harness, see LocalComputerProvider,
     // communicating with the harness through its standard input and output
-    runtimeOnly(project(":honest-annie-executor"))
+    implementation(project(":honest-annie-computer-local"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.anthropic.java)
     implementation(libs.openai.java)
@@ -26,8 +26,6 @@ dependencies {
 
     runtimeOnly(libs.logback.classic)
 
-    // the tests of the harness executing its intents in-process, see HarnessTest
-    testImplementation(project(":honest-annie-executor"))
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.xemantic.kotlin.test)
@@ -63,16 +61,18 @@ tasks.named<JavaExec>("run") {
     doFirst { (this as JavaExec).environment("VIRTUAL_ENV", virtualEnv) }
 }
 
-// Fills the constitution templates with the API, cognition and harness sources, as resources:
+// Fills the constitution templates with the API, JSON, cognition and harness sources, as resources,
+// the API without its implementation, being of expect declarations, whose actual ones the constitutions omit:
 // constitution.md, the default one, and constitutions/<family>.md, the ones of model families, see Constitution.kt.
 val generateConstitution = tasks.register("generateConstitution") {
     group = "annie"
-    description = "Generates the constitution resources from their templates and the API, cognition and harness sources"
+    description = "Generates the constitution resources from their templates and the API, JSON, cognition and harness sources"
     val default = layout.projectDirectory.file("src/main/constitution.md")
     val families = layout.projectDirectory.dir("src/main/constitutions")
     val apiSourceDir = rootProject.layout.projectDirectory.dir("honest-annie-api/src/commonMain/kotlin")
     val sources = mapOf(
         "api" to apiSourceDir.file("Api.kt"),
+        "json" to apiSourceDir.file("Json.kt"),
         "cognition" to apiSourceDir.file("Cognition.kt"),
         "harness" to layout.projectDirectory.file("src/main/kotlin/Harness.kt")
     )
@@ -85,9 +85,11 @@ val generateConstitution = tasks.register("generateConstitution") {
         val licenseHeader = Regex("""\A\s*/\*.*?\*/\s*""", RegexOption.DOT_MATCHES_ALL)
         // the serialization is the protocol between the harness and the executor, not what a cognizer acts through
         val serialization = Regex(
-            """^[ \t]*(@file:UseSerializers\(.*\)\n\n?|@Serializable\n|@SerialName\(.*\)\n|import kotlinx\.serialization\.(Serializable|SerialName|UseSerializers)\n)""",
+            """^[ \t]*(@Serializable\n|import kotlinx\.serialization\.Serializable\n)""",
             RegexOption.MULTILINE
         )
+        // the API is shown by its declarations, implemented by the actual ones of the implMain of the api
+        val expect = Regex("""^expect """, RegexOption.MULTILINE)
         val output = outputDir.get().asFile
         output.deleteRecursively()
         val templates = mapOf("constitution.md" to default.asFile) +
@@ -96,7 +98,7 @@ val generateConstitution = tasks.register("generateConstitution") {
             val constitution = sources.entries.fold(template.readText()) { text, (name, file) ->
                 val placeholder = "{{$name}}"
                 check(placeholder in text) { "No $placeholder in $template" }
-                text.replace(placeholder, file.asFile.readText().replaceFirst(licenseHeader, "").replace(serialization, "").trimEnd())
+                text.replace(placeholder, file.asFile.readText().replaceFirst(licenseHeader, "").replace(serialization, "").replace(expect, "").trimEnd())
             }
             output.resolve(path).apply { parentFile.mkdirs() }.writeText(constitution)
         }

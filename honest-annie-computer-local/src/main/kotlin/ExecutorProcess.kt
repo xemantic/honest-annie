@@ -16,16 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.xemantic.annie.harness.host
+package com.xemantic.annie.computer.local
 
-import com.xemantic.annie.Agency
-import com.xemantic.annie.Cogitation
 import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.ExecutorRequest
 import com.xemantic.annie.ExecutorResponse
 import com.xemantic.annie.IntentContext
 import com.xemantic.annie.Phenomenon
-import com.xemantic.annie.ScriptExecutor
+import com.xemantic.annie.computer.Repl
 import com.xemantic.annie.decodeResponse
 import com.xemantic.annie.encodeMessage
 import com.xemantic.annie.randomId
@@ -43,8 +41,8 @@ import kotlin.io.path.Path
 private val logger = KotlinLogging.logger {}
 
 /**
- * The executor as a process of its own, started by the [command], serving the sessions of the intents of the cogitations,
- * each [session] executing the intents of one cogitation, so that the harness and the executor can be apart,
+ * The executor as a process of its own, started by the [command], serving the REPLs of a computer of the host, see [LocalComputerProvider],
+ * each [repl] being a session of the process, so that the harness and the executor can be apart,
  * the harness only acting within the cogitations, see [com.xemantic.annie.ExecutorRequest] for the protocol.
  *
  * The process exits when closed, its sessions with it, or when it fails, failing the intents still executing,
@@ -142,35 +140,19 @@ class ExecutorProcess(
         }
     }
 
-    /** A [ScriptExecutor] of a session of its own in this process, see [ScriptExecutor.close]. */
-    fun session(): ScriptExecutor = Session(randomId())
+    /** A [Repl] of the [id], a session of its own in this process, see [Repl.close]. */
+    fun repl(id: String = randomId()): Repl = Session(id)
 
-    private inner class Session(private val id: String) : ScriptExecutor {
-
-        override suspend fun execute(
-            script: String,
-            cogitation: Cogitation,
-            agency: Agency
-        ): ExecutedIntent = execute(Phenomenon.Intent(script), cogitation, agency)
+    private inner class Session(override val id: String) : Repl {
 
         // the edits are applied by the executor, to the files of its computer
-        override suspend fun execute(
-            intent: Phenomenon.Intent,
-            cogitation: Cogitation,
-            agency: Agency
-        ): ExecutedIntent {
-            val context = IntentContext(
-                cogitation = cogitation,
-                parentCogitation = agency.parentCogitation,
-                allowance = agency.allowance
-            )
-            return when (val response = request(ExecutorRequest.Execute(randomId(), id, intent, context))) {
+        override suspend fun execute(intent: Phenomenon.Intent, context: IntentContext): ExecutedIntent =
+            when (val response = request(ExecutorRequest.Execute(randomId(), id, intent, context))) {
                 is ExecutorResponse.Executed -> ExecutedIntent(response.result, response.output)
                 is ExecutorResponse.Failed -> throw IllegalStateException(
                     "The executor failed to execute the intent:\n${response.reason}"
                 )
             }
-        }
 
         override fun close() {
             if (exited != null) return

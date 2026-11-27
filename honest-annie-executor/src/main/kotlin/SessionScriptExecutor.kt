@@ -19,17 +19,19 @@
 package com.xemantic.annie.executor
 
 import com.xemantic.annie.Agency
-import com.xemantic.annie.Allowance
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.Execution
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Python
 import com.xemantic.annie.ScriptExecutor
+import com.xemantic.annie.readNumbered
 import com.xemantic.kotlin.introspection.KotlinIntrospector
 import com.xemantic.kotlin.script.ScriptResult
 import io.ktor.client.HttpClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withTimeoutOrNull
 import com.xemantic.kotlin.script.ScriptSession
 import com.xemantic.kotlin.script.python.Python as Interpreter
 import org.intellij.lang.annotations.Language
@@ -38,6 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.io.path.createTempFile
 import kotlin.io.path.writeText
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 
 /**
  * The [ScriptExecutor] executing the intents of a single cogitation in a [ScriptSession],
@@ -60,7 +63,7 @@ class SessionScriptExecutor(
     private val interpreter = lazy {
         try {
             preparePython()
-            capturingOutput(Interpreter())
+            capturingOutput(Interpreter()).apply { exec(SPLIT_CELL) }
         } catch (e: Exception) {
             throw IllegalStateException(
                 "agency.python is unavailable, as the Python environment of the harness cannot be prepared:\n" +
@@ -89,29 +92,43 @@ class SessionScriptExecutor(
     // whether the API of annie is imported into the session, see DEFAULT_IMPORTS
     private var imported = false
 
-    override suspend fun execute(
+    override suspend fun executeScript(
+        intent: Phenomenon.Intent,
+        cogitation: Cogitation,
+        agency: Agency
+    ): ExecutedIntent {
+        return when (intent.language) {
+            Phenomenon.Intent.Language.KOTLIN -> kotlin(intent.script, intent.timeout, cogitation, agency)
+            Phenomenon.Intent.Language.PYTHON -> ExecutedIntent(python(intent.script, intent.timeout))
+            Phenomenon.Intent.Language.BASH -> ExecutedIntent(bash(intent.script, intent.timeout ?: 1.minutes))
+        }
+    }
+
+    private suspend fun kotlin(
         script: String,
+        timeout: Duration?,
         cogitation: Cogitation,
         agency: Agency
     ): ExecutedIntent {
         val collecting = ExecutorAgency(agency, cogitation, this, introspector, http)
         this.agency.current = collecting
-        val result = try {
+        val result: ScriptResult? = try {
             if (!imported) {
                 val imports = session.value.execute(DEFAULT_IMPORTS)
                 check(imports !is ScriptResult.Error) { "Cannot import the API of annie: ${(imports as ScriptResult.Error).message}" }
                 imported = true
             }
-            session.value.execute(script)
+            if (timeout == null) session.value.execute(script) else withTimeoutOrNull(timeout) { session.value.execute(script) }
         } finally {
             collecting.seal()
         }
         val printed = if (interpreter.isInitialized()) interpreter.value.printed() else null
         val phenomena = buildList {
             addAll(collecting.invoked)
-            addAll(listOfNotNull(printed))
+            printed?.let { add(Phenomenon.Text("Printed by Python:\n${it.digest("")}", "text/plain")) }
             addAll(
                 when (result) {
+                    null -> listOf(Phenomenon.Impediment(timedOut(timeout!!)))
                     is ScriptResult.Error -> listOf(Phenomenon.Impediment(result.message.digest().hinted()))
                     is ScriptResult.Value -> listOfNotNull(
                         when (val value = result.value) {
@@ -133,6 +150,56 @@ class SessionScriptExecutor(
                 })
         }
         return ExecutedIntent(result = phenomena, output = collecting.output.toList())
+    }
+
+    /**
+     * The result of the Python [script] of an intent, executed by the Python of the intents, like a cell of a notebook:
+     * what it printed, followed by the `repr` of the value of its last statement, unless `None`, or not an expression,
+     * or the impediment of its failure.
+     * Once the [timeout] elapses, it is no longer awaited, as the Python of the intents cannot be interrupted,
+     * so that the script runs on to its end, and the next intents using Python wait for it.
+     */
+    private suspend fun python(script: String, timeout: Duration?): List<Phenomenon> {
+        val python = try {
+            interpreter.value
+        } catch (e: IllegalStateException) {
+            return listOf(Phenomenon.Impediment(e.message ?: e.toString()))
+        }
+        val cell: suspend () -> Result<String?> = {
+            try {
+                runInterruptible { Result.success(python.cell(script)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+        val value = if (timeout == null) cell() else withTimeoutOrNull(timeout) { cell() }
+        // what it printed is taken only once it ended, as the Python of the intents runs one call at a time
+        if (value == null) return listOf(Phenomenon.Impediment(timedOut(timeout!!)))
+        return listOfNotNull(
+            python.printed()?.let { Phenomenon.Text(it.digest(""), "text/plain") },
+            value.fold(
+                onSuccess = { repr -> repr?.let { Phenomenon.Text(it.digest(""), "text/plain") } },
+                onFailure = { e -> Phenomenon.Impediment((e.message ?: e.toString()).digest()) }
+            )
+        )
+    }
+
+    /**
+     * The result of the bash [script] of an intent, executed as a process, destroyed once the [timeout] elapses:
+     * what it wrote to its standard output, and to its standard error, followed by its exit code.
+     */
+    private suspend fun bash(script: String, timeout: Duration): List<Phenomenon> {
+        val execution = runInterruptible {
+            executeProcess(listOf("bash", "-c", script), timeout = timeout, maxOutputLength = MAX_PROCESS_OUTPUT_LENGTH)
+        }
+        val text = listOfNotNull(
+            execution.output.trimEnd().ifEmpty { null },
+            execution.error.trimEnd().ifEmpty { null }?.let { "standard error:\n$it" },
+            execution.exitCode?.let { "exit code: $it" } ?: "destroyed as its timeout of $timeout elapsed"
+        ).joinToString("\n")
+        return listOf(Phenomenon.Text(text.digest(""), "text/plain"))
     }
 
     private val closed = AtomicBoolean(false)
@@ -203,24 +270,52 @@ _annie_capture_output()
 del _annie_capture_output
 """
 
-/** Takes what this Python printed since the last call, as a [Phenomenon.Text], digested, or `null` if nothing. */
-private fun Interpreter.printed(): Phenomenon.Text? {
-    val printed = eval<String>(
-        "(lambda buffer: (''.join(buffer), buffer.clear())[0])" +
-            "(__import__('sys').annie_output[__import__('threading').get_ident()])"
-    ).trimEnd()
-    if (printed.isEmpty()) return null
-    return Phenomenon.Text("Printed by Python:\n${printed.digest("")}", "text/plain")
+/** Takes what this Python printed since the last call, or `null` if nothing. */
+private fun Interpreter.printed(): String? = eval<String>(
+    "(lambda buffer: (''.join(buffer), buffer.clear())[0])" +
+        "(__import__('sys').annie_output[__import__('threading').get_ident()])"
+).trimEnd().ifEmpty { null }
+
+/**
+ * Executes the Python [code] like a cell of a notebook, its dependencies installed, see [Python],
+ * returning the `repr` of the value of its last statement, or `null` when it is `None`, or not an expression,
+ * so that the value is perceived as Python renders it, rather than converted to Kotlin.
+ */
+private fun Interpreter.cell(code: String): String? {
+    this["_annie_cell"] = code
+    val (statements, expression) = eval<List<*>>("_annie_split_cell(_annie_cell)").map { it as String }
+    if (statements.isNotBlank()) exec(statements)
+    if (expression.isEmpty()) return null
+    return this("(lambda value: None if value is None else repr(value))(\n$expression\n)") as String?
 }
 
 /**
- * The first [MAX_RESULT_LENGTH] characters of this text perceived in the result of an intent,
+ * Declares `_annie_split_cell`, splitting Python code into its statements and its last expression, empty when there is none,
+ * so that the expression is evaluated on its own, see [cell].
+ * Code failing to parse is all statements, so that executing it raises its `SyntaxError`.
+ */
+@Language("python")
+private const val SPLIT_CELL = """
+def _annie_split_cell(code):
+    import ast
+    try:
+        body = ast.parse(code).body
+    except SyntaxError:
+        return [code, '']
+    if not body or not isinstance(body[-1], ast.Expr):
+        return [code, '']
+    last = body[-1]
+    lines = code.splitlines(keepends=True)
+    head = ''.join(lines[:last.lineno - 1]) + lines[last.lineno - 1].encode()[:last.col_offset].decode()
+    return [head, code[len(head):]]
+"""
+
+/**
+ * The first [MAX_RESULT_LENGTH] characters of this text of the result of an intent,
  * telling how many more are omitted and the file holding the whole text, followed by the [advice],
- * so that a single result does not flood the cogitation, where it would be perceived again at every later step,
+ * so that a runaway value does not swamp the cogitation, sent with every intent and recorded,
  * while the rest can still be read, e.g. by `sed -n`, without executing the script again.
- *
- * The limit is the one of Claude Code for the output of a command, which its models are used to:
- * cut at 10,000 characters, a model reading source files in ranges spent a step on every cut file.
+ * How much of a result the model perceives is up to the cognizer, which cuts each text far shorter.
  */
 private fun String.digest(advice: String): String {
     if (length <= MAX_RESULT_LENGTH) return this
@@ -229,7 +324,20 @@ private fun String.digest(advice: String): String {
         "\n… ${length - MAX_RESULT_LENGTH} more characters omitted, the whole text being in $whole$advice"
 }
 
-private const val MAX_RESULT_LENGTH = 30_000
+/** How many characters of each text of the result of an intent the cogitation keeps, see [digest]. */
+private const val MAX_RESULT_LENGTH = 1_000_000
+
+/**
+ * How many characters of each output of a process, of [Agency.execute] or of a bash script, are kept,
+ * only so that a runaway process does not exhaust the memory of the executor:
+ * how much of it the model perceives is up to the cognizer.
+ */
+private const val MAX_PROCESS_OUTPUT_LENGTH = 10_000_000
+
+/** The impediment of an intent cancelled once its [timeout] elapsed. */
+private fun timedOut(timeout: Duration): String =
+    "The intent did not complete within its timeout of $timeout, so that it was cancelled: " +
+        "code blocking its thread, rather than suspending, may still be running, and the next intents wait for it."
 
 /**
  * What the session of the intents imports before the first one, so that a script uses the API of annie,
@@ -326,10 +434,13 @@ private class ExecutorAgency(
 
     override suspend fun invoke(
         prompt: String,
-        constitution: String
+        constitution: String,
+        computer: String?,
+        repl: String?,
+        independent: Boolean
     ): Phenomenon.Invocation {
         checkNotSealed()
-        return agency.invoke(prompt, constitution).also { invoked += it }
+        return agency.invoke(prompt, constitution, computer, repl, independent).also { invoked += it }
     }
 
     // refused once sealed, as the output of the intent is already returned to the harness
@@ -359,13 +470,15 @@ private class ExecutorAgency(
         input: String?,
         directory: String?,
         environment: Map<String, String>,
-        timeout: Duration,
-        maxOutputLength: Int
+        timeout: Duration
     ): Execution {
         checkNotSealed()
         // the thread of the session is not interrupted as the intent is cancelled, so that the process is destroyed by interrupting it here
-        return runInterruptible { executeProcess(command, input, directory, environment, timeout, maxOutputLength) }
+        return runInterruptible { executeProcess(command, input, directory, environment, timeout, MAX_PROCESS_OUTPUT_LENGTH) }
     }
+
+    override suspend fun read(path: String, vararg lines: IntRange): String =
+        runInterruptible { readNumbered(path, lines.toList()) }
 
 }
 
@@ -380,11 +493,11 @@ internal class SwitchedAgency : Agency {
 
     override val cogitation: Cogitation get() = current.cogitation
     override val parentCogitation: Cogitation? get() = current.parentCogitation
-    override val allowance: Allowance get() = current.allowance
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http
 
-    override suspend fun invoke(prompt: String, constitution: String) = current.invoke(prompt, constitution)
+    override suspend fun invoke(prompt: String, constitution: String, computer: String?, repl: String?, independent: Boolean) =
+        current.invoke(prompt, constitution, computer, repl, independent)
 
     override suspend fun enunciate(text: String, contentType: String) = current.enunciate(text, contentType)
 
@@ -404,8 +517,9 @@ internal class SwitchedAgency : Agency {
         input: String?,
         directory: String?,
         environment: Map<String, String>,
-        timeout: Duration,
-        maxOutputLength: Int
-    ) = current.execute(command, input, directory, environment, timeout, maxOutputLength)
+        timeout: Duration
+    ) = current.execute(command, input, directory, environment, timeout)
+
+    override suspend fun read(path: String, vararg lines: IntRange) = current.read(path, *lines)
 
 }

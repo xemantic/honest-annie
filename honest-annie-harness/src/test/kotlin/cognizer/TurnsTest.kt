@@ -20,6 +20,7 @@ package com.xemantic.annie.harness.cognizer
 
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Computer
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
@@ -37,7 +38,7 @@ class TurnsTest {
     @Test
     fun `should head first turn with depth of cogitation and each enunciation with its actant`() {
         // given
-        val intent = Phenomenon.Intent("6 * 7", id = "call_1")
+        val intent = Phenomenon.Intent(script = "6 * 7", id = "call_1")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
@@ -108,7 +109,7 @@ class TurnsTest {
     @Test
     fun `should perceive output enunciated by intent and response to it as result of its tool call, and later outcomes after it`() {
         // given
-        val intent = Phenomenon.Intent("agency.invoke(\"judge\")", id = "call_1")
+        val intent = Phenomenon.Intent(script = "agency.invoke(\"judge\")", id = "call_1")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
@@ -153,7 +154,7 @@ class TurnsTest {
     @Test
     fun `should perceive image responding to intent within result of its tool call`() {
         // given
-        val intent = Phenomenon.Intent("render()", id = "call_1")
+        val intent = Phenomenon.Intent(script = "render()", id = "call_1")
         val image = Phenomenon.Data(redPixelPng, "image/png")
         val cogitation = Cogitation(
             constitution = "",
@@ -180,7 +181,7 @@ class TurnsTest {
     @Test
     fun `should tell tool call of intent never executed as such, since every tool call needs its result`() {
         // given
-        val intent = Phenomenon.Intent("6 * 7", id = "call_1")
+        val intent = Phenomenon.Intent(script = "6 * 7", id = "call_1")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
@@ -348,7 +349,7 @@ class TurnsTest {
     fun `should replay text expressed by the cognizer in assistant turns, as commentary of an intent and as an answer`() {
         // given
         val inference = Inference(model = "scripted", provider = "test")
-        val intent = Phenomenon.Intent("6 * 7", id = "call_1")
+        val intent = Phenomenon.Intent(script = "6 * 7", id = "call_1")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
@@ -384,7 +385,7 @@ class TurnsTest {
     @Test
     fun `should perceive output enunciated by an intent in the result of its tool call, not as assistant text`() {
         // given
-        val intent = Phenomenon.Intent("agency.enunciate(\"42\")", id = "call_1")
+        val intent = Phenomenon.Intent(script = "agency.enunciate(\"42\")", id = "call_1")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
@@ -402,6 +403,81 @@ class TurnsTest {
         assert((turns[1] as Turn.Assistant).parts == listOf("agency.enunciate(\"42\")"))
         val result = (turns[2] as Turn.User).parts.single() as Perceived.Result
         assert((result.parts.single() as Perceived.Text).text.endsWith("\n42"))
+    }
+
+
+    @Test
+    fun `should cut text of tool result beyond 30000 characters, telling where the whole text is in the cogitation`() {
+        // given
+        val intent = Phenomenon.Intent(script = "\"a\".repeat(30_010)", id = "call_1")
+        val cogitation = Cogitation(
+            constitution = "",
+            enunciations = listOf(
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
+                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
+                Enunciation(
+                    actant = computer,
+                    initiated = initiated,
+                    respondsTo = intent.id,
+                    phenomena = listOf(Phenomenon.Text("short", "text/plain"), Phenomenon.Text("a".repeat(30_010), "text/plain"))
+                )
+            )
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+
+        // then
+        val result = (turns[2] as Turn.User).parts.single() as Perceived.Result
+        assert(result.parts == listOf(Perceived.Text(
+            "<annie:actant type=\"computer\" name=\"user's computer\" initiated=\"2026-10-24T10:15:30Z\"/>\n" +
+                "<annie:text content-type=\"text/plain\"/>\nshort\n\n" +
+                "<annie:text content-type=\"text/plain\"/>\n" + "a".repeat(30_000) +
+                "\n… 10 more characters omitted, the whole text being " +
+                "`(agency.cogitation.enunciations[2].phenomena[1] as Phenomenon.Text).text` in a Kotlin script"
+        )))
+    }
+
+    @Test
+    fun `should perceive invocation starting a computer by its id, type and REPL`() {
+        // given
+        val intent = Phenomenon.Intent(script = "agency.invoke(\"sub\", computer = \"GPU64GB\")", id = "call_1")
+        val invocation = Phenomenon.Invocation(
+            id = "sub", prompt = "sub", constitution = "", computer = Computer(id = "gpu-1", type = "GPU64GB"), repl = "repl-1"
+        )
+        val cogitation = Cogitation(
+            constitution = "",
+            enunciations = listOf(
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
+                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
+                Enunciation(actant = computer, initiated = initiated, respondsTo = intent.id, phenomena = listOf(invocation))
+            )
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+
+        // then
+        val result = (turns[2] as Turn.User).parts.single() as Perceived.Result
+        assert((result.parts.single() as Perceived.Text).text.endsWith(
+            "<annie:invocation id=\"sub\" computer=\"gpu-1\" computer-type=\"GPU64GB\" repl=\"repl-1\"/>"
+        ))
+    }
+
+    @Test
+    fun `should perceive whole text of task beyond 30000 characters`() {
+        // given
+        val task = "a".repeat(40_000)
+        val cogitation = Cogitation(
+            constitution = "",
+            enunciations = listOf(Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text(task))))
+        )
+
+        // when
+        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+
+        // then
+        assert(((turns.single() as Turn.User).parts.single() as Perceived.Text).text.endsWith(task))
     }
 
 }

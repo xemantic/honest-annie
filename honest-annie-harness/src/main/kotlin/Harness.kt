@@ -35,6 +35,9 @@ import com.xemantic.annie.ScriptExecutor
 // and the value of its last expression is its result. `agency` is provided: the Agency within the
 // cogitation, whose `cogitation` includes the enunciation carrying the intent, invoking new cogitations,
 // enunciating its output and resolving the Kotlin API.
+// An intent of the `language` python is executed by the Python of the intents, see `Agency.python`, and one of bash as a process,
+// neither of them through `agency`, their result being what they printed, and the value of the last line of Python,
+// or the exit code of bash. The `timeout` of an intent cancels its script.
 //
 // An inference expressing text, and no intent, answers with it: the text is the output of the cogitation, which rests.
 // What an intent enunciates through `agency` is the output of the cogitation too, enunciated by self after the intent,
@@ -46,7 +49,7 @@ import com.xemantic.annie.ScriptExecutor
 // An intent with an empty result, enunciating nothing, is responded with a text telling that nothing of it is perceived,
 // e.g. what it printed, instead of resting the cogitation with no output.
 // Each response ends with what the cogitation spent so far, its inferences and their tokens,
-// and, once a fifth or less is left of what its host limits, what its whole tree may still spend, see `Agency.allowance`,
+// and, once a fifth or less is left of what its host limits, what its whole tree may still spend, see `Allowance`,
 // so that the cognizer weighs further steps against what it already knows, and secures its result in time.
 // A refused inference is followed by inferring once more, as a refusal might be a false positive of a filter of the provider,
 // e.g. by a fallback model of the cognizer, see `ClaudeInference`: the refused inference stays in the cogitation,
@@ -62,13 +65,15 @@ import kotlin.time.Clock
 
 /**
  * Unfolds the cogitation of the [agency] by a single step, see [Cogitation]:
- * an inference of the [cognizer], and the intent it expresses, executed by the [executor].
+ * an inference of the [cognizer], and the intent it expresses, executed by the [executor],
+ * telling what the whole tree may still spend, by the [allowance] its host gives, once little is left.
  * This source is part of every constitution, see `generateConstitution`, so that the cognizer knows how it is unfolded.
  */
 internal suspend fun unfold(
     cognizer: Cognizer,
     executor: ScriptExecutor,
-    agency: Agency
+    agency: Agency,
+    allowance: () -> Allowance
 ): Cogitation {
     val cogitation = agency.cogitation
     val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
@@ -79,7 +84,7 @@ internal suspend fun unfold(
     )
     fun spent(cogitation: Cogitation): Phenomenon.Text {
         val inferences = cogitation.enunciations.mapNotNull { it.inference }
-        val allowance = agency.allowance
+        val allowance = allowance()
         val tokensLeft = allowance.tokensLeft
         val timeLeft = allowance.timeLeft
         val left = listOfNotNull(

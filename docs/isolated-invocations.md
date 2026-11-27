@@ -168,13 +168,16 @@ and its counting of tokens a reading of its inferences.
 
 | Module | Holds | Depends on |
 |---|---|---|
-| `honest-annie-api` | `Api.kt` and `Cognition.kt`, what scripts compile against, serializable, and `ScriptExecutor` | nothing |
-| `honest-annie-executor` | the sessions of scripts, Python, processes, `RemoteAgency`, a `main` speaking the protocol | `api` |
+| `honest-annie-api` | `Api.kt`, `Json.kt` and `Cognition.kt`, what scripts compile against, serializable, pasted into the constitutions | nothing |
+| `honest-annie-protocol` | `Protocol.kt`, `ScriptExecutor`, and the edits of intents | `api` |
+| `honest-annie-executor` | the sessions of scripts, Python, processes, `RemoteAgency`, a `main` speaking the protocol | `protocol` |
+| `honest-annie-computer` | `ComputerProvider`, the plugins starting computers and opening REPLs on them, and their aggregate | `protocol` |
+| `honest-annie-computer-local` | the computers of the host, each one an executor process, see `ExecutorProcess` | `computer`, `executor` |
 | `executor-image` | the OCI image of the executor | `executor` |
-| `honest-annie-harness` | `HarnessHost`, the cognizers, the recorder, the environments, the server of the protocol, and `Main` | `api` |
+| `honest-annie-harness` | `HarnessHost`, the cognizers, the recorder, the server of the protocol, and `Main`, wiring the computer providers | `computer`, `computer-local` |
 
-The `api`, `executor` and `harness` modules exist,
-and the executor runs as a process of the host, see `ExecutorProcess`,
+The `api`, `protocol`, `computer`, `computer-local`, `executor` and `harness` modules exist,
+and the executor runs as a process of the host for each computer, see `LocalComputerProvider`,
 speaking the protocol of `Protocol.kt` over its standard input and output,
 the harness only having it on its classpath, to start the process from.
 The protocol is request and response, without calls back to the host:

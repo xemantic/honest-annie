@@ -61,7 +61,7 @@ internal fun applyEdits(edits: List<Edit>): String {
             edited.failure?.let { fail(if (edit.all) it else it.replaceFirst("occur once", "occur once, or replace all")) }
             texts[file] = edited.text
             "Edited ${edit.path} at line${if (edited.lines.size == 1) "" else "s"} ${edited.lines.joinToString()}, as:\n" +
-                edited.text.numbered(edited.spans)
+                edited.text.numberedEdit(edited.spans)
         }
     }
     texts.forEach { (file, text) ->
@@ -103,7 +103,7 @@ private fun String.edited(path: String, old: String, new: String, all: Boolean):
         return Edited(this, failure =
             "the old text occurs ${occurrences.size} times in $path, at lines ${occurrences.joinToString { "${line(it)}" }}: extend it to occur once" +
                 ", the file around ${if (shown.size < occurrences.size) "the first ${shown.size} of them" else "them"} being:\n" +
-                numbered(spans)
+                numberedEdit(spans)
         )
     }
     val text = buildString {
@@ -147,7 +147,7 @@ private fun String.absence(path: String, old: String): String {
         when (found.size) {
             0 -> {}
             1 -> return "the old text does not occur in $path, but does with other whitespace, at line ${found.single() + 1}, as:\n" +
-                numbered(listOf(found.single() + 1..found.single() + wanted.size), context = 0)
+                numberedEdit(listOf(found.single() + 1..found.single() + wanted.size), context = 0)
             else -> return "the old text does not occur in $path, but does with other whitespace, " +
                 "at lines ${found.joinToString { "${it + 1}" }}"
         }
@@ -157,26 +157,9 @@ private fun String.absence(path: String, old: String): String {
     return "the old text does not occur in $path, its closest line being ${closest + 1}: \"${lines[closest]}\""
 }
 
-/**
- * The lines of this text in the [spans], numbered as by `cat -n`, with [context] lines around them,
- * spans overlapping or adjacent after adding it shown as one, and the middle of one longer than [spanLines] omitted.
- */
-internal fun String.numbered(spans: List<IntRange>, context: Int = EDIT_CONTEXT, spanLines: Int = EDIT_SPAN_LINES): String {
-    val lines = lines().let { if (endsWith('\n')) it.dropLast(1) else it }
-    val merged = mutableListOf<IntRange>()
-    spans.map { maxOf(1, it.first - context)..minOf(lines.size, it.last + context) }.filterNot { it.isEmpty() }.sortedBy { it.first }.forEach { span ->
-        val last = merged.lastOrNull()
-        if (last != null && span.first <= last.last + 1) merged[merged.lastIndex] = last.first..maxOf(last.last, span.last)
-        else merged += span
-    }
-    fun line(number: Int) = "${number.toString().padStart(6)}\t${lines[number - 1]}"
-    return merged.joinToString("\n     …\n") { span ->
-        if (span.count() <= spanLines) span.joinToString("\n", transform = ::line)
-        else (span.first until span.first + spanLines / 2).joinToString("\n", transform = ::line) +
-            "\n     …\t${span.count() - spanLines} lines omitted\n" +
-            (span.last - spanLines / 2 + 1..span.last).joinToString("\n", transform = ::line)
-    }
-}
+/** The lines of this text in the [spans], numbered as an edit reports them, see [numbered]. */
+private fun String.numberedEdit(spans: List<IntRange>, context: Int = EDIT_CONTEXT): String =
+    numbered(spans, context, EDIT_SPAN_LINES)
 
 /** The number of lines of this text, the last one counted also when not ended by a line break. */
 private val String.lineCount: Int get() = count { it == '\n' } + if (isEmpty() || endsWith('\n')) 0 else 1

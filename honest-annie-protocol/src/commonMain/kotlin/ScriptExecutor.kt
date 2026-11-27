@@ -31,36 +31,39 @@ package com.xemantic.annie
  */
 interface ScriptExecutor : AutoCloseable {
     /**
-     * Executes the [script] of an intent expressed in the [cogitation], given the [agency] of the current step
-     * of the harness, provided to the script as `agency`, with this [cogitation] as its [Agency.cogitation],
-     * and collecting the invocations made through it, e.g. `executor.execute(intent.script, inferred, agency)`.
-     *
-     * Only the invocations made through the script form the result, not those of the [agency] itself.
-     * What the script enunciates is not part of its result, but its output, see [ExecutedIntent.output].
-     *
-     * @return the [ExecutedIntent.result]: the invocations the script made, in their order,
-     * followed by what the Python of the intents printed, see [Agency.python], if anything, as a [Phenomenon.Text],
-     * by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
-     * unless it is `Unit`, `null`, an invocation, or a collection of nothing else,
-     * or [Phenomenon.Data] as is, e.g. an image the cognizer sees,
-     * and by the versions resolved for the dependencies the script declared without a version, if any.
-     * If the script failed, the [Phenomenon.Impediment] describing the failure follows the invocations instead.
+     * Executes the Kotlin [script] of an intent expressed in the [cogitation], as an intent of nothing else, see the [execute] of an intent.
      */
     suspend fun execute(
         script: String,
         cogitation: Cogitation,
         agency: Agency
-    ): ExecutedIntent
+    ): ExecutedIntent = execute(Phenomenon.Intent(script = script), cogitation, agency)
 
     /**
      * Executes the [intent] expressed in the [cogitation], e.g. `executor.execute(intent, inferred, agency)`:
      * its edits applied first, all of them or none, see [Phenomenon.Intent.edits],
-     * then its script, as by the [execute] of a script, unless an edit failed, or the script is blank.
+     * then its script, unless an edit failed, or the script is blank, in the [Phenomenon.Intent.language] of the intent.
+     *
+     * A Kotlin script is executed given the [agency] of the current step of the harness,
+     * provided to the script as `agency`, with this [cogitation] as its [Agency.cogitation],
+     * collecting the invocations made through it.
+     * Only the invocations made through the script form the result, not those of the [agency] itself.
+     * What the script enunciates is not part of its result, but its output, see [ExecutedIntent.output].
+     * A Python or bash script acts through no agency, so that its result is all of it.
      *
      * @return the [ExecutedIntent.result]: the report of the edits, if any, as a [Phenomenon.Text] telling where each one was applied,
-     * followed by the result of the script,
-     * or only the [Phenomenon.Impediment] of the edit failing, no file being changed, and the script not executed;
-     * and the [ExecutedIntent.output] of the script.
+     * followed by the result of the script:
+     * of a Kotlin script, the invocations it made, in their order,
+     * followed by what the Python of the intents printed, see [Agency.python], if anything, as a [Phenomenon.Text],
+     * by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
+     * unless it is `Unit`, `null`, an invocation, or a collection of nothing else,
+     * or [Phenomenon.Data] as is, e.g. an image the cognizer sees,
+     * and by the versions resolved for the dependencies the script declared without a version, if any;
+     * of a Python script, what it printed, followed by the `repr` of the value of its last statement, unless `None`, or not an expression;
+     * of a bash script, what its process wrote to its standard output and error, followed by its exit code.
+     * If the script failed, or timed out, the [Phenomenon.Impediment] describing it follows the invocations instead.
+     * If an edit failed, its [Phenomenon.Impediment] is the only phenomenon, no file being changed, and the script not executed.
+     * The [ExecutedIntent.output] is what the script enunciated.
      */
     suspend fun execute(
         intent: Phenomenon.Intent,
@@ -72,9 +75,19 @@ interface ScriptExecutor : AutoCloseable {
         } catch (e: Exception) {
             return ExecutedIntent(listOf(Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed.")))
         }
-        val executed = if (intent.script.isBlank()) ExecutedIntent(emptyList()) else execute(intent.script, cogitation, agency)
+        val executed = if (intent.script.isBlank()) ExecutedIntent(emptyList()) else executeScript(intent, cogitation, agency)
         return executed.copy(result = listOfNotNull(edited) + executed.result)
     }
+
+    /**
+     * Executes the script of the [intent] in its [Phenomenon.Intent.language],
+     * its edits already applied, see the [execute] of an intent, returning the result of the script and its output.
+     */
+    suspend fun executeScript(
+        intent: Phenomenon.Intent,
+        cogitation: Cogitation,
+        agency: Agency
+    ): ExecutedIntent
 
     /** Releases the session of the intents, closing it again having no effect. */
     override fun close() {}

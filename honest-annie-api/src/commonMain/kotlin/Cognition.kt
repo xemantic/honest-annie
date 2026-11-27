@@ -16,13 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-@file:UseSerializers(Base64Serializer::class)
-
 package com.xemantic.annie
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.UseSerializers
 import kotlin.uuid.Uuid
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -52,29 +48,48 @@ sealed interface Phenomenon {
         val id: String
     }
     /**
-     * Request to apply the [edits] of files, and then to execute the Kotlin [script], unless blank,
+     * Request to apply the [edits] of files, and then to execute the [script] of the [language], unless blank,
+     * on the [computer] of the id given, and in the [repl] it names, by default the ones of its cogitation, see [Cogitation.computer],
+     * a REPL of another name being opened by the first intent naming it,
+     * its properties in the order of the execution, like the arguments of the tool expressing it,
      * responded by where the edits were applied, followed by the result of the script, unless it produced no phenomena, see [Cogitation].
      * When an edit fails, no file is changed, nor the script executed.
+     *
+     * The [language] is [Language.KOTLIN], the script executed in the session of the intents, coded against the API of the constitution,
+     * [Language.PYTHON], executed by the Python of the intents, see [Agency.python], or [Language.BASH], executed as a process.
+     * The script is cancelled once its [timeout] elapses, by default never, but for bash after a minute:
+     * a bash process is destroyed, while a Kotlin or Python script blocking its thread, rather than suspending, runs to its end,
+     * and the next intents wait for it.
+     * Its result is kept whole in the cogitation, while the cognizer perceives at most 30,000 characters of each text of it,
+     * the cut telling where in `agency.cogitation` the whole text is.
      * A [Text] the cognizer expresses along it, in the same enunciation, is its commentary, not an output.
      * The cognizer expresses it by calling the only tool it is offered, whose result is the response,
      * the call being replayed with the [id] of the intent, rather than the one the cognizer gave it.
      */
     @Serializable
-    @SerialName("intent")
     data class Intent(
-        val script: String,
+        val computer: String? = null,
+        val repl: String? = null,
         val edits: List<Edit> = emptyList(),
+        val language: Language = Language.KOTLIN,
+        val script: String,
+        val timeout: Duration? = null,
         override val id: String = randomId()
-    ) : Request
+    ) : Request {
+        /** The language of the [script] of an [Intent]. */
+        enum class Language {
+            KOTLIN,
+            PYTHON,
+            BASH
+        }
+    }
     /**
      * Text, e.g. the prompt of a task, the value of an intent, or what the cognizer says:
      * an inference expressing text, and no [Intent], answers with it, which is the output of its cogitation.
      */
     @Serializable
-    @SerialName("text")
     data class Text(val text: String, val contentType: String = "text/markdown") : Phenomenon
     @Serializable
-    @SerialName("data")
     class Data(val bytes: ByteArray, val contentType: String? = null) : Phenomenon {
         override fun equals(other: Any?): Boolean = other is Data
                 && contentType == other.contentType && bytes.contentEquals(other.bytes)
@@ -84,19 +99,25 @@ sealed interface Phenomenon {
     /**
      * Request to unfold a new cogitation, see [Agency.invoke], also used as the id of that cogitation.
      * Its outcome is perceived later, as an [Enunciation] responding to this [id], see [Cogitation].
+     *
+     * @property computer the new computer started for the invoked cogitation, `null` when it runs on the one of its invoker.
+     * @property repl the REPL the invoked cogitation runs in, `null` when it is the one of its invoker,
+     * the first one of the [computer] when a new one is started.
+     * @property independent whether the invoked cogitation perceives no invoker, see [Agency.invoke].
      */
     @Serializable
-    @SerialName("invocation")
     data class Invocation(
         override val id: String,
         val prompt: String,
-        val constitution: String
+        val constitution: String,
+        val computer: Computer? = null,
+        val repl: String? = null,
+        val independent: Boolean = false
     ) : Request {
         override fun toString(): String = "Invocation(id=$id)"
     }
     /** What impeded the cogitation, or an intent, as the [reason] for it, see [Agency.impede]. */
     @Serializable
-    @SerialName("impediment")
     data class Impediment(val reason: String) : Phenomenon
     /**
      * What the cognizer thought before expressing anything else in the same inference, as far as its provider reveals it:
@@ -107,7 +128,6 @@ sealed interface Phenomenon {
      * whatever the provider needs to replay the monologue exactly is kept by the cognizer under this id, not here.
      */
     @Serializable
-    @SerialName("monologue")
     data class Monologue(
         val text: String,
         val id: String = randomId()
@@ -221,6 +241,17 @@ data class Inference(
 }
 
 /**
+ * A computer the intents of cogitations execute on, see [Cogitation.computer], identified by its [id],
+ * of a [type] the host offers, e.g. one with a GPU, a new one being started for an invoked cogitation, see [Agency.invoke].
+ * Each computer runs REPLs, sessions keeping the declarations of the intents executed in them, see [Cogitation.repl].
+ */
+@Serializable
+data class Computer(
+    val id: String = randomId(),
+    val type: String = "default"
+)
+
+/**
  * A cogitation is unfolded by the harness, the `unfold` function of `Harness.kt`, compiled into honest-annie,
  * whose source is part of the [constitution], and called by the host at each step with:
  * - `agency`: [Agency] within this cogitation, its [Agency.cogitation] being the one to unfold,
@@ -234,6 +265,7 @@ data class Inference(
  *   executes an intent expressed in the `cogitation`: it applies the edits of the `intent` first, all of them or none,
  *   returning where each one was applied as a [Phenomenon.Text], or only the [Phenomenon.Impediment] of the edit failing,
  *   no file being changed, and the script not executed; then it executes the script, unless blank,
+ *   in the [Phenomenon.Intent.language] of the intent, a Python or bash one acting through no agency, while a Kotlin one is executed
  *   in the session of the intents of this cogitation, providing it with the `agency`, whose [Agency.cogitation] is the given one,
  *   collecting the invocations made through it, and returns
  *   `data class ExecutedIntent(val result: List<Phenomenon>, val output: List<Phenomenon>)`:
@@ -255,12 +287,17 @@ data class Inference(
  * with the reason enunciated as a [Phenomenon.Impediment].
  *
  * @property depth how deep this cogitation is in its tree: 0 for the root one, 1 for one it invokes, and so on.
+ * @property computer the computer its intents execute on, unless an intent names another one, see [Phenomenon.Intent.computer].
+ * @property repl the REPL of the [computer] its intents execute in, keeping their declarations,
+ * shared with the cogitations it invokes, unless they run in another one, see [Agency.invoke].
  */
 @Serializable
 data class Cogitation(
     val constitution: String,
     val enunciations: List<Enunciation>,
-    val depth: Int = 0
+    val depth: Int = 0,
+    val computer: Computer = Computer(),
+    val repl: String = randomId()
 ) {
     operator fun plus(enunciation: Enunciation): Cogitation = copy(
         enunciations = enunciations + enunciation

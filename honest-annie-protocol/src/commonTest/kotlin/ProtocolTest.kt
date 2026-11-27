@@ -21,6 +21,7 @@ package com.xemantic.annie
 import com.xemantic.kotlin.test.assert
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 class ProtocolTest {
@@ -37,18 +38,21 @@ class ProtocolTest {
     private val execute = ExecutorRequest.Execute(
         id = "request-1",
         session = "session-1",
-        intent = Phenomenon.Intent(script = "1 + 1", edits = listOf(Edit(path = "a.py", new = "x = 1\n"))),
+        intent = Phenomenon.Intent(edits = listOf(Edit(path = "a.py", new = "x = 1\n")), script = "1 + 1"),
         context = IntentContext(
             cogitation = cogitation,
-            parentCogitation = null,
-            allowance = Allowance(tokens = 100, time = 5.minutes, started = Instant.parse("2026-11-24T12:00:00Z"))
+            parentCogitation = null
         )
     )
 
     @Test
     fun `should encode each request as a single line and decode it back`() {
         // given
-        val requests = listOf(execute, ExecutorRequest.Cancel("request-1"), ExecutorRequest.Close("session-1"))
+        val python = execute.copy(
+            id = "request-2",
+            intent = Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "print(1)", timeout = 90.seconds)
+        )
+        val requests = listOf(execute, python, ExecutorRequest.Cancel("request-1"), ExecutorRequest.Close("session-1"))
 
         // when
         val lines = requests.map { it.encodeMessage() }

@@ -70,7 +70,11 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 - `ScriptSession` of xemantic-kotlin-script offers no default imports beyond `kotlinx.coroutines.*`, so `SessionScriptExecutor` imports annie's API in a snippet of its own before the first intent:
   the snippets of the intents are numbered from `snippet2`, which compilation errors name, so never assert on `snippet1`.
 
-- `Api.kt` must import the `kotlinx.serialization.json` extensions (`booleanOrNull`, `intOrNull`, …) explicitly, never as `kotlinx.serialization.json.*`:
+- `honest-annie-api` holds only what `generateConstitution` pastes into the constitutions, every line of it costing the context of each cognizer:
+  a function of the scripts whose body is more than a delegation is declared on `Agency` when it acts on the computer, e.g. `Agency.read`, implemented by the agency of the executor,
+  and otherwise as an `expect` declaration, e.g. of `Json.kt`, its `actual` one in `implMain`, the source set shared by every target, the generator stripping the `expect` keyword.
+  A class of the API whose implementation is hidden is an interface, e.g. `Appending`, `expect class` still being Beta.
+- `JsonImpl.kt` must import the `kotlinx.serialization.json` extensions (`booleanOrNull`, `intOrNull`, …) explicitly, never as `kotlinx.serialization.json.*`:
   a star import ranks below the declarations of the same package, so annie's own `JsonElement` extensions of the same names would call themselves, failing `JsonNavigationTest` with a `StackOverflowError`.
   The IDE collapses 5 or more imports of a package into a star import on optimizing them.
 

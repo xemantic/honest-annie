@@ -131,11 +131,21 @@ and a writeup.
 
 ## Modules
 
-- [honest-annie-api](honest-annie-api): what the harness and the executor share:
+- [honest-annie-api](honest-annie-api): the API pasted into the constitutions:
   the cogitation, see [Cognition.kt](honest-annie-api/src/commonMain/kotlin/Cognition.kt),
   the `Agency` of the scripts of intents, see [Api.kt](honest-annie-api/src/commonMain/kotlin/Api.kt),
-  and the `ScriptExecutor` executing them.
-- [honest-annie-harness](honest-annie-harness): the host unfolding cogitations by the harness,
+  and the navigation of JSON, see [Json.kt](honest-annie-api/src/commonMain/kotlin/Json.kt).
+- [honest-annie-protocol](honest-annie-protocol): what the harness and the executor share beyond the API:
+  the protocol between them, see [Protocol.kt](honest-annie-protocol/src/commonMain/kotlin/Protocol.kt),
+  the `ScriptExecutor` both sides implement, and the edits of intents it applies.
+- [honest-annie-computer](honest-annie-computer): the computers the intents execute on,
+  see [ComputerProvider.kt](honest-annie-computer/src/commonMain/kotlin/ComputerProvider.kt):
+  the interface of the plugins providing them, starting computers of the types they offer, and opening REPLs on them,
+  each REPL executing an intent with what it is told of its cogitation, returning its result and what it enunciated,
+  and the `AggregateComputerProvider` offering the types of many providers.
+- [honest-annie-computer-local](honest-annie-computer-local): the computers of the host itself, without isolation:
+  each one an executor process of its own, see `LocalComputerProvider`, or, for the tests, the process of the host, see `InProcessComputerProvider`.
+- [honest-annie-harness](honest-annie-harness): the host unfolding cogitations by the harness, on the computers of a `ComputerProvider`,
   inferring through the APIs of the providers, storing and recording every cogitation,
   and the application, see [Main.kt](honest-annie-harness/src/main/kotlin/host/Main.kt).
 - [honest-annie-executor](honest-annie-executor): the execution of intents,
@@ -191,6 +201,10 @@ so that the cognizer secures its result in time:
 it is not told before, since a model told a large allowance at every step spends more of it.
 When `ANNIE_PARALLELISM` is set, at most that many of them step at a time, e.g. `1` for one inference at a time,
 the others waiting in the queue.
+`ANNIE_COMPUTER_TYPES` lists, separated by commas, the types of computers a cogitation may start for the ones it invokes,
+`default` when not set, told to the model in the constitution, the root cogitation running on a computer of the first one.
+For the time being every computer, whatever its type, is the one honest-annie runs on,
+each started computer only getting REPLs of its own.
 An inference calling no tool answers with its text, which rests the cogitation.
 `ANNIE_EFFORT` sets how much effort the model puts into its reasoning and response,
 one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,

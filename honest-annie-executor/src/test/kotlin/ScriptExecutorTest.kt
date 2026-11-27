@@ -38,6 +38,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -61,7 +62,7 @@ class ScriptExecutorTest {
         override val cogitation = Cogitation(constitution = "", enunciations = emptyList())
         override val parentCogitation: Cogitation? = null
         val invoked = mutableListOf<Phenomenon.Invocation>()
-        override suspend fun invoke(prompt: String, constitution: String) = Phenomenon.Invocation(
+        override suspend fun invoke(prompt: String, constitution: String, computer: String?, repl: String?, independent: Boolean) = Phenomenon.Invocation(
             id = "invocation-${invoked.size + 1}",
             prompt = prompt,
             constitution = constitution
@@ -76,9 +77,10 @@ class ScriptExecutorTest {
             input: String?,
             directory: String?,
             environment: Map<String, String>,
-            timeout: Duration,
-            maxOutputLength: Int
+            timeout: Duration
         ): Execution = throw UnsupportedOperationException()
+        // the files of the intents are read by the executor
+        override suspend fun read(path: String, vararg lines: IntRange): String = throw UnsupportedOperationException()
         // the Python of the intents is the one of the executor
         override val python: Python get() = throw UnsupportedOperationException()
         override val http = annieHttpClient
@@ -177,26 +179,26 @@ class ScriptExecutorTest {
     }
 
     @Test
-    fun `should perceive whole value of intent up to 30,000 characters`() = runTest(timeout = 5.minutes) {
+    fun `should keep whole value of intent up to 1,000,000 characters`() = runTest(timeout = 5.minutes) {
         // when
-        val phenomena = executor.execute("\"a\".repeat(30_000)", cogitation, TestAgency()).result
+        val phenomena = executor.execute("\"a\".repeat(1_000_000)", cogitation, TestAgency()).result
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("a".repeat(30_000), "text/plain")))
+        assert(phenomena == listOf(Phenomenon.Text("a".repeat(1_000_000), "text/plain")))
     }
 
     @Test
     fun `should digest longer value of intent, telling the file of the whole value`() = runTest(timeout = 5.minutes) {
         // when
-        val phenomena = executor.execute("(0 until 100_000).joinToString(\"\\n\")", cogitation, TestAgency()).result
+        val phenomena = executor.execute("(0 until 200_000).joinToString(\"\\n\")", cogitation, TestAgency()).result
 
         // then
         val value = (phenomena.single() as Phenomenon.Text).text
-        assert(value.length in 30_000..31_000)
+        assert(value.length in 1_000_000..1_001_000)
         assert(value.startsWith("0\n1\n2\n"))
         assert(value.contains(Regex("\\d+ more characters omitted")))
         val file = Regex("the whole text being in (\\S+);").find(value)?.groupValues?.get(1)
-        assert(file != null && Path(file).readText() == (0 until 100_000).joinToString("\n"))
+        assert(file != null && Path(file).readText() == (0 until 200_000).joinToString("\n"))
         assert(value.contains("val"))
     }
 
@@ -311,10 +313,22 @@ class ScriptExecutorTest {
     }
 
     @Test
+    fun `should read numbered lines of a file through the agency`() = runTest(timeout = 5.minutes) {
+        // given
+        val file = createTempFile(suffix = ".py").apply { writeText("a\nb\nc\nd\n") }
+
+        // when
+        val result = executor.execute("agency.read(\"$file\", 2..3)", cogitation, TestAgency()).result
+
+        // then
+        assert(result == listOf(Phenomenon.Text("     2\tb\n     3\tc", "text/plain")))
+    }
+
+    @Test
     fun `should apply the edits of an intent, then execute its script`() = runTest(timeout = 5.minutes) {
         // given
         val file = createTempFile(suffix = ".ts").apply { writeText("a\n") }
-        val intent = Phenomenon.Intent(script = "Path(\"$file\").readText()", edits = listOf(Edit(path = file.toString(), old = "a", new = "b")))
+        val intent = Phenomenon.Intent(edits = listOf(Edit(path = file.toString(), old = "a", new = "b")), script = "Path(\"$file\").readText()")
 
         // when
         val phenomena = executor.execute(intent, cogitation, TestAgency()).result
@@ -331,8 +345,8 @@ class ScriptExecutorTest {
         // given
         val file = createTempFile(suffix = ".ts").apply { writeText("a\n") }
         val intent = Phenomenon.Intent(
-            script = "Path(\"$file\").writeText(\"script\")",
-            edits = listOf(Edit(path = file.toString(), old = "a", new = "b"), Edit(path = file.toString(), old = "x", new = "y"))
+            edits = listOf(Edit(path = file.toString(), old = "a", new = "b"), Edit(path = file.toString(), old = "x", new = "y")),
+            script = "Path(\"$file\").writeText(\"script\")"
         )
 
         // when
@@ -1115,18 +1129,18 @@ class ScriptExecutorTest {
     fun `should digest what Python printed`() = runTest(timeout = 5.minutes) {
         // when
         val phenomena = executor.execute(
-            "agency.python(\"for i in range(100000): print(i)\")",
+            "agency.python(\"for i in range(200000): print(i)\")",
             cogitation,
             TestAgency()
         ).result
 
         // then
         val printed = (phenomena.single() as Phenomenon.Text).text
-        assert(printed.length in 30_000..31_000)
+        assert(printed.length in 1_000_000..1_001_000)
         assert(printed.startsWith("Printed by Python:\n0\n1\n"))
         assert(printed.contains(Regex("\\d+ more characters omitted")))
         val file = Regex("the whole text being in (\\S+)$").find(printed)?.groupValues?.get(1)
-        assert(file != null && Path(file).readText() == (0 until 100_000).joinToString("\n"))
+        assert(file != null && Path(file).readText() == (0 until 200_000).joinToString("\n"))
     }
 
     @Test
@@ -1183,6 +1197,125 @@ class ScriptExecutorTest {
         // then
         val refusal = "The intent is executed, its agency cannot be used anymore"
         assert(System.getProperty(stray) == "$refusal\n$refusal")
+    }
+
+    @Test
+    fun `should perceive what Python script of intent printed and the repr of its value`() = runTest(timeout = 5.minutes) {
+        // given
+        val intent = Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "print('hello')\nitems = [1, 'a', None]\n{'items': items, 'ok': True}")
+
+        // when
+        val phenomena = executor.execute(intent, cogitation, TestAgency()).result
+
+        // then
+        assert(phenomena == listOf(
+            Phenomenon.Text("hello", "text/plain"),
+            Phenomenon.Text("{'items': [1, 'a', None], 'ok': True}", "text/plain")
+        ))
+    }
+
+    @Test
+    fun `should perceive nothing of Python script ending with statement or None`() = runTest(timeout = 5.minutes) {
+        // when
+        val statement = executor.execute(Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "x = 1"), cogitation, TestAgency()).result
+        val none = executor.execute(Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "None"), cogitation, TestAgency()).result
+
+        // then
+        assert(statement.isEmpty())
+        assert(none.isEmpty())
+    }
+
+    @Test
+    fun `should share state between Python scripts and agency python of Kotlin scripts`() = runTest(timeout = 5.minutes) {
+        // given
+        executor.execute(Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "import math\nfactor = 6"), cogitation, TestAgency())
+
+        // when
+        val phenomena = executor.execute("agency.python(\"math.prod([factor, 7])\")", cogitation, TestAgency()).result
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("42", "text/plain")))
+    }
+
+    @Test
+    fun `should impede Python script failing`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "1 / 0"), cogitation, TestAgency()).result
+
+        // then
+        assert("ZeroDivisionError" in (phenomena.single() as Phenomenon.Impediment).reason)
+    }
+
+    @Test
+    fun `should perceive output error and exit code of bash script of intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val intent = Phenomenon.Intent(language = Phenomenon.Intent.Language.BASH, script = "echo out\necho err >&2\nexit 3")
+
+        // when
+        val phenomena = executor.execute(intent, cogitation, TestAgency()).result
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("out\nstandard error:\nerr\nexit code: 3", "text/plain")))
+    }
+
+    @Test
+    fun `should perceive only exit code of bash script printing nothing`() = runTest(timeout = 5.minutes) {
+        // when
+        val phenomena = executor.execute(Phenomenon.Intent(language = Phenomenon.Intent.Language.BASH, script = "true"), cogitation, TestAgency()).result
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("exit code: 0", "text/plain")))
+    }
+
+    @Test
+    fun `should apply edits before bash script of intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val file = createTempDirectory().resolve("notes.txt")
+        val intent = Phenomenon.Intent(edits = listOf(Edit(path = file.toString(), new = "edited\n")), language = Phenomenon.Intent.Language.BASH, script = "cat $file")
+
+        // when
+        val phenomena = executor.execute(intent, cogitation, TestAgency()).result
+
+        // then
+        assert(phenomena.size == 2)
+        assert((phenomena.first() as Phenomenon.Text).text.startsWith("Wrote $file"))
+        assert(phenomena.last() == Phenomenon.Text("edited\nexit code: 0", "text/plain"))
+    }
+
+    @Test
+    fun `should destroy bash script of intent once its timeout elapses`() = runTest(timeout = 5.minutes) {
+        // given
+        val intent = Phenomenon.Intent(language = Phenomenon.Intent.Language.BASH, script = "echo started\nsleep 600", timeout = 1.seconds)
+
+        // when
+        val phenomena = executor.execute(intent, cogitation, TestAgency()).result
+
+        // then
+        assert(phenomena == listOf(Phenomenon.Text("started\ndestroyed as its timeout of 1s elapsed", "text/plain")))
+    }
+
+    @Test
+    fun `should impede Kotlin script of intent suspended once its timeout elapses`() = runTest(timeout = 5.minutes) {
+        // given
+        val intent = Phenomenon.Intent(script = "delay(600_000)", timeout = 1.seconds)
+
+        // when
+        val phenomena = withContext(Dispatchers.Default) { executor.execute(intent, cogitation, TestAgency()).result }
+
+        // then
+        assert("timeout of 1s" in (phenomena.single() as Phenomenon.Impediment).reason)
+    }
+
+    @Test
+    fun `should impede Python script of intent once its timeout elapses`() = runTest(timeout = 5.minutes) {
+        // given
+        val intent = Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "import time\ntime.sleep(3)", timeout = 1.seconds)
+
+        // when
+        val phenomena = withContext(Dispatchers.Default) { executor.execute(intent, cogitation, TestAgency()).result }
+
+        // then
+        assert("timeout of 1s" in (phenomena.single() as Phenomenon.Impediment).reason)
     }
 
 }

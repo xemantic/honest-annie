@@ -19,8 +19,8 @@
 package com.xemantic.annie.executor
 
 import com.xemantic.annie.Agency
-import com.xemantic.annie.Allowance
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.Execution
 import com.xemantic.annie.ExecutorRequest
 import com.xemantic.annie.ExecutorResponse
@@ -30,7 +30,7 @@ import com.xemantic.annie.Python
 import com.xemantic.annie.ScriptExecutor
 import com.xemantic.annie.decodeRequest
 import com.xemantic.annie.encodeMessage
-import com.xemantic.annie.randomId
+import com.xemantic.annie.invocation
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -120,12 +120,19 @@ class ExecutorServer(
     }
 
     private suspend fun execute(request: ExecutorRequest.Execute, executor: ScriptExecutor): ExecutorResponse {
-        val agency = ProtocolAgency(request.context)
-        val (result, output) = executor.execute(request.intent, request.context.cogitation, agency)
+        val (result, output) = executor.execute(request.intent, request.context)
         return ExecutorResponse.Executed(request.id, result, output)
     }
 
 }
+
+/**
+ * Executes the [intent] as for a harness of another process, given what its agency tells of the cogitation, the [context]:
+ * the invocations the intent makes form its result, and what it enunciates its output, see [ProtocolAgency],
+ * e.g. for a REPL of the process of the harness itself.
+ */
+suspend fun ScriptExecutor.execute(intent: Phenomenon.Intent, context: IntentContext): ExecutedIntent =
+    execute(intent, context.cogitation, ProtocolAgency(context))
 
 /**
  * The agency of the harness of another process, as far as an intent acts through it within its cogitation:
@@ -141,10 +148,13 @@ internal class ProtocolAgency(
 
     override val parentCogitation: Cogitation? get() = context.parentCogitation
 
-    override val allowance: Allowance get() = context.allowance
-
-    override suspend fun invoke(prompt: String, constitution: String): Phenomenon.Invocation =
-        Phenomenon.Invocation(id = randomId(), prompt = prompt, constitution = constitution)
+    override suspend fun invoke(
+        prompt: String,
+        constitution: String,
+        computer: String?,
+        repl: String?,
+        independent: Boolean
+    ): Phenomenon.Invocation = invocation(prompt, constitution, computer, repl, independent)
 
     override suspend fun enunciate(text: String, contentType: String): Unit = byExecutor()
 
@@ -161,9 +171,10 @@ internal class ProtocolAgency(
         input: String?,
         directory: String?,
         environment: Map<String, String>,
-        timeout: Duration,
-        maxOutputLength: Int
+        timeout: Duration
     ): Execution = onComputer()
+
+    override suspend fun read(path: String, vararg lines: IntRange): String = onComputer()
 
     override val python: Python get() = onComputer()
 

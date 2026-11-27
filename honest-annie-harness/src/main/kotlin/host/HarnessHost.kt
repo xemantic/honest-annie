@@ -23,12 +23,14 @@ import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Execution
 import com.xemantic.annie.Agency
-import com.xemantic.annie.Allowance
+import com.xemantic.annie.harness.Allowance
 import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.ScriptExecutor
+import com.xemantic.annie.computer.ComputerProvider
 import com.xemantic.annie.Python
 import com.xemantic.annie.harness.cognizer.Cognizer
+import com.xemantic.annie.invocation
 import com.xemantic.annie.randomId
 import com.xemantic.annie.harness.unfold
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -51,6 +53,12 @@ private val logger = KotlinLogging.logger {}
 
 private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
 
+/** The actant of the prompt of an independent cogitation, which perceives no invoker, see [Agency.invoke]. */
+private val unidentified = Actant(type = Actant.Type.UNIDENTIFIED, name = "unidentified")
+
+/** The placeholder of a constitution the host replaces with the computer types it offers, see [HarnessHost]. */
+const val COMPUTERS_PLACEHOLDER: String = "{{computers}}"
+
 /**
  * Hosts the harness unfolding cogitations, see [Cogitation] and [unfold].
  *
@@ -64,10 +72,11 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * are answered, the invoking cogitation is queued again. The state of every unfolding is kept
  * in the [store] at each step.
  *
- * Each cogitation has a script executor of its own, created by the [executors], executing its intents, see [ScriptExecutor],
- * so that their declarations stay visible across the steps, until the cogitation rests,
- * when the executor is closed, together with the ones of all the cogitations it invoked,
- * the coroutines launched in them being cancelled.
+ * The intents of a cogitation execute on its computer, in its REPL, see [Cogitation.computer] and [Computers],
+ * shared with the cogitations it invokes, unless they start a computer of one of the types of the [computers], or name another REPL,
+ * so that their declarations stay visible across the steps, and to the invoked cogitations,
+ * each computer being started by the [computers] when an intent first executes on it,
+ * and stopped once the whole tree of cogitations rests, its REPLs closed, the coroutines launched in them being cancelled.
  * What an intent does on a computer, e.g. executing a process, or its Python, see [Agency.python],
  * is done by its executor, not by the host, which only acts within the cogitations, see [HostedAgency].
  *
@@ -83,10 +92,12 @@ private val host = Actant(type = Actant.Type.COMPUTER, name = "harness host")
  * the inferences still in progress being the only ones exceeding it.
  * @param timeLimit how long a tree of cogitations may unfold, from when [cognize] is called, `null` for no limit.
  * Once passed, every cogitation of the tree is impeded at its next step, like once the [tokenBudget] is spent.
- * What is left of both is told to the cogitations by their [Agency.allowance].
+ * What is left of both is told to the harness at each step, see [Allowance].
  * @param parallelism how many steps of a tree of cogitations may execute at a time, `null` for no limit.
  * The steps beyond it wait in the queue.
- * @param executors creating the [ScriptExecutor] of each cogitation, closed once the cogitation rests.
+ * @param computers providing the computers of the cogitations, see [ComputerProvider]: the one of the root cogitation,
+ * and the ones a cogitation may start for the ones it invokes, see [Agency.invoke], of its types,
+ * told to the cognizer in the constitution, by its `{{computers}}`.
  */
 class HarnessHost(
     private val cognizer: Cognizer,
@@ -95,8 +106,10 @@ class HarnessHost(
     private val tokenBudget: Long? = null,
     private val timeLimit: Duration? = null,
     private val parallelism: Int? = null,
-    private val executors: () -> ScriptExecutor
+    private val computers: ComputerProvider
 ) {
+
+    private val computerTypes: List<String> get() = computers.types
 
     private val runtimes = ConcurrentHashMap<String, Runtime>()
 
@@ -110,7 +123,7 @@ class HarnessHost(
      * @property queue of the ids of unfoldings ready for the next step, shared by the whole tree of cogitations.
      * @property spent the tokens inferred so far, shared by the whole tree of cogitations.
      * @property started when the whole tree of cogitations started unfolding.
-     * @property executor of the intents, in a session of their own, see [ScriptExecutor].
+     * @property computers the computers of the whole tree of cogitations, and their REPLs, executing the intents.
      * @property inferred by the current step of the harness, see [recordingCognizer].
      */
     private class Runtime(
@@ -121,19 +134,13 @@ class HarnessHost(
         val spent: AtomicLong,
         val started: Instant,
         handler: CoroutineExceptionHandler,
-        val executor: ScriptExecutor
+        val computers: Computers
     ) {
         val mutex = Mutex()
         val scope = CoroutineScope(job + handler)
         val invoked = CopyOnWriteArrayList<Runtime>()
         @Volatile
         var inferred: MutableList<Enunciation> = CopyOnWriteArrayList()
-
-        /** Releases the session of this runtime, and of all its [invoked] runtimes, and theirs. */
-        fun close() {
-            executor.close()
-            invoked.forEach { it.close() }
-        }
     }
 
     /**
@@ -144,7 +151,10 @@ class HarnessHost(
     suspend fun cognize(
         cogitation: Cogitation
     ): Enunciation = coroutineScope {
-        val root = Unfolding(id = randomId(), cogitation = cogitation)
+        val told = cogitation.copy(constitution = cogitation.constitution.replace(
+            COMPUTERS_PLACEHOLDER, computerTypes.joinToString { "`$it`" }
+        ))
+        val root = Unfolding(id = randomId(), cogitation = told)
         logger.info { "[${root.id}] Cognizing root cogitation of ${cogitation.enunciations.size} enunciation(s)" }
         val rested = CompletableDeferred<Enunciation>()
         val job = SupervisorJob(coroutineContext[Job])
@@ -157,7 +167,7 @@ class HarnessHost(
             spent = AtomicLong(),
             started = Clock.System.now(),
             handler = CoroutineExceptionHandler { _, e -> rested.completeExceptionally(e) },
-            executor = executors()
+            computers = Computers(computers).apply { start(told.computer, told.repl) }
         )
         runtimes[root.id] = runtime
         store.save(root)
@@ -177,7 +187,7 @@ class HarnessHost(
         } finally {
             queue.close()
             job.cancel()
-            runtime.close()
+            runtime.computers.close()
         }
     }
 
@@ -201,13 +211,15 @@ class HarnessHost(
             val started = Clock.System.now()
             val agency = HostedAgency(
                 unfolding = unfolding,
-                parentCogitation = unfolding.parent?.let { store.load(it)?.cogitation },
+                parentCogitation = unfolding.parent?.takeUnless { unfolding.invocation?.independent == true }?.let { store.load(it)?.cogitation },
                 runtime = runtime
             )
             val inferred = CopyOnWriteArrayList<Enunciation>()
             runtime.inferred = inferred
             val failure = try {
-                unfolding = unfolding.copy(cogitation = unfold(recordingCognizer(id, runtime), runtime.executor, agency))
+                unfolding = unfolding.copy(cogitation = unfold(recordingCognizer(id, runtime), runtime.computers, agency) {
+                    Allowance(tokens = tokenBudget, spentTokens = runtime.spent.get(), time = timeLimit, started = runtime.started)
+                })
                 null
             } catch (e: CancellationException) {
                 throw e
@@ -283,20 +295,39 @@ class HarnessHost(
                     spent = runtime.spent,
                     started = runtime.started,
                     handler = CoroutineExceptionHandler { _, e -> runtime.rested.completeExceptionally(e) },
-                    executor = executors()
+                    computers = runtime.computers
                 )
                 runtime.invoked += invoked
+                val computer = invocation.computer
+                if (computer != null && computer.type !in computerTypes) {
+                    logger.warn { "[${unfolding.id}] Invocation ${invocation.id} of the computer type ${computer.type} not offered" }
+                    invoked.scope.launch {
+                        respond(unfolding.id, Enunciation(
+                            actant = host,
+                            respondsTo = invocation.id,
+                            phenomena = listOf(Phenomenon.Impediment(
+                                "No computer of the type ${computer.type} can be started, but of ${computerTypes.joinToString()}, " +
+                                        "so that the cogitation was not invoked."
+                            ))
+                        ))
+                    }
+                    return@forEach
+                }
+                if (computer != null) runtime.computers.start(computer, checkNotNull(invocation.repl))
                 logger.info { "[${unfolding.id}] Dispatching invocation ${invocation.id}" }
                 invoked.scope.launch {
                     val child = store.load(invocation.id) ?: Unfolding(
                         id = invocation.id,
                         cogitation = Cogitation(
                             constitution = invocation.constitution,
+                            // an independent cogitation perceives itself as a root, see Agency.invoke
                             enunciations = listOf(Enunciation(
-                                actant = Actant.INVOKER,
+                                actant = if (invocation.independent) unidentified else Actant.INVOKER,
                                 phenomena = listOf(Phenomenon.Text(invocation.prompt))
                             )),
-                            depth = unfolding.cogitation.depth + 1
+                            depth = if (invocation.independent) 0 else unfolding.cogitation.depth + 1,
+                            computer = computer ?: unfolding.cogitation.computer,
+                            repl = invocation.repl ?: unfolding.cogitation.repl
                         ),
                         parent = unfolding.id,
                         invocation = invocation
@@ -319,7 +350,6 @@ class HarnessHost(
                     "${unfolding.cogitation.enunciations.size} enunciation(s), output: ${output.kinds()}"
         }
         runtime.invoked.forEach { it.job.cancel() }
-        runtime.close()
         val parent = unfolding.parent
         val invocation = unfolding.invocation
         val now = Clock.System.now()
@@ -396,7 +426,7 @@ class HarnessHost(
 
     /**
      * [Agency] of a single step of the harness unfolding the [unfolding], see [seal],
-     * acting only within the cogitations: invoking, and telling the allowance.
+     * acting only within the cogitations: invoking.
      * What an intent does on a computer, e.g. executing a process, and what it enunciates, the executor of the intent does,
      * through the agency it provides the intent with, see [ScriptExecutor].
      */
@@ -411,10 +441,6 @@ class HarnessHost(
 
         override val cogitation: Cogitation = unfolding.cogitation
 
-        override val allowance: Allowance get() = Allowance(
-            tokens = tokenBudget, spentTokens = runtime.spent.get(), time = timeLimit, started = runtime.started
-        )
-
         /** Seals this agency once the step of the harness is over. */
         fun seal() {
             sealed = true
@@ -426,14 +452,13 @@ class HarnessHost(
 
         override suspend fun invoke(
             prompt: String,
-            constitution: String
+            constitution: String,
+            computer: String?,
+            repl: String?,
+            independent: Boolean
         ): Phenomenon.Invocation {
             checkNotSealed()
-            return Phenomenon.Invocation(
-                id = randomId(),
-                prompt = prompt,
-                constitution = constitution
-            ).also {
+            return invocation(prompt, constitution, computer, repl, independent).also {
                 logger.info { "[${unfolding.id}] Intent invoked ${it.id}" }
             }
         }
@@ -453,9 +478,10 @@ class HarnessHost(
             input: String?,
             directory: String?,
             environment: Map<String, String>,
-            timeout: Duration,
-            maxOutputLength: Int
+            timeout: Duration
         ): Execution = onComputer()
+
+        override suspend fun read(path: String, vararg lines: IntRange): String = onComputer()
 
         override val python: Python get() = onComputer()
 

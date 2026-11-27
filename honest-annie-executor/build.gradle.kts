@@ -7,9 +7,10 @@ plugins {
 }
 
 dependencies {
-    api(project(":honest-annie-api"))
+    api(project(":honest-annie-protocol"))
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.xemantic.kotlin.introspection)
+    // the introspector of the scripts, a parameter of SessionScriptExecutor
+    api(libs.xemantic.kotlin.introspection)
     implementation(libs.xemantic.kotlin.script)
     implementation(libs.xemantic.kotlin.script.python)
     // not used by the executor itself, but by the scripts of cognizers, see the constitution

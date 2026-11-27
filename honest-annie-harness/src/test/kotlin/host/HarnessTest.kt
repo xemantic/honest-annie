@@ -26,8 +26,7 @@ import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.harness.cognizer.Cognized
 import com.xemantic.annie.harness.cognizer.Cognizer
-import com.xemantic.annie.executor.PythonVenv
-import com.xemantic.annie.executor.SessionScriptExecutor
+import com.xemantic.annie.computer.local.InProcessComputerProvider
 import com.xemantic.annie.responseId
 import com.xemantic.kotlin.test.assert
 import java.util.concurrent.atomic.AtomicInteger
@@ -50,7 +49,10 @@ class HarnessTest {
 
     private val store = InMemoryCogitationStore()
 
-    private val executors = { SessionScriptExecutor(PythonVenv::prepare) }
+    private val computers = InProcessComputerProvider()
+
+    /** Computers of two types, so that a cogitation can start one for the cogitation it invokes. */
+    private val gpuComputers = InProcessComputerProvider(types = listOf("default", "GPU64GB"))
 
     /**
      * Expresses the next of its [intents] on each inference of the root cogitation, recording the cogitations it perceived,
@@ -68,7 +70,7 @@ class HarnessTest {
             if (cogitation.depth > 0) return Cognized(listOf(invoked(cogitation)))
             perceived += cogitation
             return Cognized(
-                phenomena = listOf(Phenomenon.Intent(intents[perceived.size - 1])),
+                phenomena = listOf(Phenomenon.Intent(script = intents[perceived.size - 1])),
                 inference = Inference(
                     model = "scripted",
                     provider = "test",
@@ -83,7 +85,7 @@ class HarnessTest {
     private suspend fun cognize(
         cognizer: Cognizer,
         cogitation: Cogitation
-    ) = HarnessHost(cognizer, store, executors = executors).cognize(cogitation)
+    ) = HarnessHost(cognizer, store, computers = computers).cognize(cogitation)
 
     private fun cogitation() = Cogitation(
         constitution = "",
@@ -310,7 +312,7 @@ class HarnessTest {
             Cognized(
                 if (perceived.size == 1) listOf(
                     Phenomenon.Text("Found it: the retry frame."),
-                    Phenomenon.Impediment("Your call of kotlin_script carried no script")
+                    Phenomenon.Impediment("Your call of execute carried no script")
                 )
                 else listOf(Phenomenon.Text("The answer is 42.")),
                 Inference(model = "scripted", provider = "test", tokens = emptyMap())
@@ -325,7 +327,7 @@ class HarnessTest {
         assert(perceived.size == 2)
         val response = perceived[1].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
-        assert(response.phenomena.first() == Phenomenon.Impediment("Your call of kotlin_script carried no script"))
+        assert(response.phenomena.first() == Phenomenon.Impediment("Your call of execute carried no script"))
     }
 
     @Test
@@ -335,7 +337,7 @@ class HarnessTest {
         val cognizer = Cognizer { cogitation ->
             perceived += cogitation
             Cognized(
-                if (perceived.size == 1) listOf(Phenomenon.Text("Computing it."), Phenomenon.Intent("6 * 7"))
+                if (perceived.size == 1) listOf(Phenomenon.Text("Computing it."), Phenomenon.Intent(script = "6 * 7"))
                 else listOf(Phenomenon.Text("The answer is 42."))
             )
         }
@@ -358,8 +360,8 @@ class HarnessTest {
             Cognized(
                 when {
                     cogitation.depth == 1 -> listOf(Phenomenon.Monologue("A label."), Phenomenon.Text("1: NUM"))
-                    cogitation.enunciations.size == 1 -> listOf(Phenomenon.Intent("agency.invoke(\"judge\").id"))
-                    else -> listOf(Phenomenon.Intent(respondedIntent))
+                    cogitation.enunciations.size == 1 -> listOf(Phenomenon.Intent(script = "agency.invoke(\"judge\").id"))
+                    else -> listOf(Phenomenon.Intent(script = respondedIntent))
                 }
             )
         }
@@ -623,7 +625,7 @@ class HarnessTest {
     fun `should tell cognizer what its tree may still spend of the token budget and time only once little is left`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer("6 * 7", "6 * 8", restingIntent)
-        val host = HarnessHost(cognizer, store, tokenBudget = 5, timeLimit = 90.minutes, executors = executors)
+        val host = HarnessHost(cognizer, store, tokenBudget = 5, timeLimit = 90.minutes, computers = computers)
 
         // when
         host.cognize(cogitation())
@@ -645,7 +647,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, timeLimit = Duration.ZERO, executors = executors).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, timeLimit = Duration.ZERO, computers = computers).cognize(cogitation())
 
         // then
         assert(cognizer.perceived.isEmpty())
@@ -658,7 +660,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, tokenBudget = 1, executors = executors).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, tokenBudget = 1, computers = computers).cognize(cogitation())
 
         // then
         assert(cognizer.perceived.size == 1)
@@ -673,7 +675,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("agency.invoke(\"sub\")", "6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, tokenBudget = 2, executors = executors).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, tokenBudget = 2, computers = computers).cognize(cogitation())
 
         // then
         // the root and the invoked cogitation inferred once each, 1 token each, then both were impeded
@@ -703,11 +705,11 @@ class HarnessTest {
                 inFlight.decrementAndGet()
                 restingIntent
             }
-            Cognized(phenomena = listOf(Phenomenon.Intent(intent)))
+            Cognized(phenomena = listOf(Phenomenon.Intent(script = intent)))
         }
 
         // when
-        HarnessHost(cognizer, store, parallelism = 1, executors = executors).cognize(cogitation())
+        HarnessHost(cognizer, store, parallelism = 1, computers = computers).cognize(cogitation())
 
         // then
         assert(maxInFlight.get() == 1)
@@ -719,7 +721,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub at depth ${'$'}{agency.cogitation.depth}\")",
             respondedIntent,
-            invoked = { Phenomenon.Intent("agency.enunciate(\"depth \" + agency.cogitation.depth)") }
+            invoked = { Phenomenon.Intent(script = "agency.enunciate(\"depth \" + agency.cogitation.depth)") }
         )
 
         // when
@@ -760,7 +762,7 @@ class HarnessTest {
         )
 
         // when
-        HarnessHost(cognizer, store, recordingDir, executors = executors).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir, computers = computers).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -784,16 +786,16 @@ class HarnessTest {
         // refused at first, so that the harness infers once more, discarding what the refused inference expressed
         val cognizer = Cognizer {
             if (inferences.incrementAndGet() == 1) Cognized(
-                listOf(Phenomenon.Intent("error(\"discarded\")")),
+                listOf(Phenomenon.Intent(script = "error(\"discarded\")")),
                 Inference(model = "refusing", provider = "test", stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal"))
             ) else Cognized(
-                listOf(Phenomenon.Intent("agency.enunciate(\"fetched\")")),
+                listOf(Phenomenon.Intent(script = "agency.enunciate(\"fetched\")")),
                 Inference(model = "falling back", provider = "test", stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn"))
             )
         }
 
         // when
-        HarnessHost(cognizer, store, recordingDir, executors = executors).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir, computers = computers).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -809,7 +811,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("agency.enunciate(\"answer is 42\")")
 
         // when
-        HarnessHost(cognizer, store, recordingDir, executors = executors).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir, computers = computers).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -835,24 +837,203 @@ class HarnessTest {
         assert(output.phenomena == listOf(Phenomenon.Text("answer is 42")))
     }
 
+    /**
+     * Expresses the phenomenon of each of its [steps] on the inferences of the root cogitation, given what it perceived,
+     * answering with a text once they are all expressed, recording the cogitations it perceived,
+     * the cogitations it invokes being inferred by [invoked].
+     */
+    private class SteppingCognizer(
+        private vararg val steps: (Cogitation) -> Phenomenon,
+        private val invoked: (Cogitation) -> Phenomenon = { Phenomenon.Text("echo: " + it.prompt) }
+    ) : Cognizer {
+        val perceived = mutableListOf<Cogitation>()
+        override suspend fun cognize(cogitation: Cogitation): Cognized {
+            if (cogitation.depth > 0) return Cognized(listOf(invoked(cogitation)))
+            perceived += cogitation
+            return Cognized(listOf(steps.getOrNull(perceived.size - 1)?.invoke(cogitation) ?: Phenomenon.Text("Done.")))
+        }
+        /** The phenomena of the response to the intent of the step of the [index], counted from 0. */
+        fun response(index: Int): List<Phenomenon> = perceived[index + 1].enunciations.last { it.respondsTo != null }.phenomena
+    }
+
+    /** The cogitation invoked by an intent evaluates the declaration `answer` of its invoker, then answers whether it could. */
+    private val evaluatingAnswer: (Cogitation) -> Phenomenon = { invoked ->
+        if (invoked.enunciations.size == 1) Phenomenon.Intent(script = "answer")
+        else Phenomenon.Text(if (invoked.enunciations.last().phenomena.any { it is Phenomenon.Impediment }) "not shared" else "shared")
+    }
+
     @Test
-    fun `should not share declarations of intent with invoked cogitation`() = runTest(timeout = 5.minutes) {
+    fun `should run invoked cogitation in the REPL of its invoker, sharing its declarations`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer("val answer = 42\nagency.invoke(\"sub\")", respondedIntent, invoked = evaluatingAnswer)
+
+        // when
+        val output = cognize(cognizer, cogitation())
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("shared")))
+        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single()
+        assert(invocation.computer == null && invocation.repl == null)
+    }
+
+    @Test
+    fun `should run invoked cogitation started on a new computer in a REPL of its own`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
-            "val answer = 42\nagency.invoke(\"sub\")",
+            "val answer = 42\nagency.invoke(\"sub\", computer = \"GPU64GB\")",
             respondedIntent,
-            // the invoked cogitation evaluates the declaration of its invoker, then answers whether it could
-            invoked = { invoked ->
-                if (invoked.enunciations.size == 1) Phenomenon.Intent("answer")
-                else Phenomenon.Text(if (invoked.enunciations.last().phenomena.any { it is Phenomenon.Impediment }) "not shared" else "shared")
-            }
+            invoked = evaluatingAnswer
         )
+
+        // when
+        val output = HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation())
+
+        // then
+        assert(output.phenomena == listOf(Phenomenon.Text("not shared")))
+        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single()
+        val computer = invocation.computer
+        assert(computer != null && computer.type == "GPU64GB" && computer.id != cognizer.perceived[0].computer.id)
+        assert(invocation.repl != null && invocation.repl != cognizer.perceived[0].repl)
+    }
+
+    @Test
+    fun `should run invoked cogitation in a REPL of another name, opened on the computer of its invoker`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = ScriptedCognizer("val answer = 42\nagency.invoke(\"sub\", repl = \"scratch\")", respondedIntent, invoked = evaluatingAnswer)
 
         // when
         val output = cognize(cognizer, cogitation())
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("not shared")))
+    }
+
+    @Test
+    fun `should invoke independent cogitation which perceives itself as a root and cannot reach its invoker`() = runTest(timeout = 5.minutes) {
+        // given
+        val independent = mutableListOf<Cogitation>()
+        // an independent cogitation is told apart by its prompt, as it perceives itself at the depth of a root
+        val cognizer = object : Cognizer {
+            val perceived = mutableListOf<Cogitation>()
+            override suspend fun cognize(cogitation: Cogitation): Cognized {
+                if (cogitation.enunciations.first().phenomena.first() == Phenomenon.Text("sub")) {
+                    independent += cogitation
+                    return Cognized(listOf(
+                        if (cogitation.enunciations.size == 1) {
+                            Phenomenon.Intent(script = "\"${'$'}{agency.parentCogitation == null} ${'$'}{agency.cogitation.depth}\"")
+                        } else if (cogitation.enunciations.size == 3) {
+                            Phenomenon.Intent(script = "answer")
+                        } else {
+                            Phenomenon.Text("independent")
+                        }
+                    ))
+                }
+                perceived += cogitation
+                return Cognized(listOf(
+                    if (perceived.size == 1) Phenomenon.Intent(script = "val answer = 42\nagency.invoke(\"sub\", independent = true)")
+                    else Phenomenon.Text("Done.")
+                ))
+            }
+        }
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single()
+        assert(invocation.independent && invocation.computer == null && invocation.repl != null)
+        assert(cognizer.perceived[1].enunciations.single { it.respondsTo == invocation.id }.phenomena == listOf(Phenomenon.Text("independent")))
+        val first = independent.first()
+        assert(first.depth == 0 && first.repl == invocation.repl)
+        assert(first.enunciations.single().actant.type == Actant.Type.UNIDENTIFIED)
+        // what it tells of itself, and then the declaration of its invoker it cannot reach
+        val told = independent[1].enunciations.last().phenomena.first()
+        assert(told == Phenomenon.Text("true 0", "text/plain"))
+        assert(independent[2].enunciations.last().phenomena.first() is Phenomenon.Impediment)
+    }
+
+    @Test
+    fun `should respond to invocation of a computer type the host does not offer with an impediment`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = SteppingCognizer(
+            { Phenomenon.Intent(script = "agency.invoke(\"sub\", computer = \"GPU64GB\")") },
+            { Phenomenon.Intent(script = restingIntent) }
+        )
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single()
+        val outcome = cognizer.perceived[1].enunciations.single { it.respondsTo == invocation.id }.phenomena
+        val reason = (outcome.single() as Phenomenon.Impediment).reason
+        assert("GPU64GB" in reason && "default" in reason)
+    }
+
+    @Test
+    fun `should execute intent in the REPL it names, opened by the first intent naming it`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = SteppingCognizer(
+            { Phenomenon.Intent(script = "val answer = 42") },
+            { Phenomenon.Intent(repl = "scratch", script = "val other = 7") },
+            { Phenomenon.Intent(repl = "scratch", script = "other * 6") },
+            { Phenomenon.Intent(repl = "scratch", script = "answer") },
+            { Phenomenon.Intent(script = "answer") }
+        )
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        assert(cognizer.response(2).first() == Phenomenon.Text("42", "text/plain"))
+        assert(cognizer.response(3).first() is Phenomenon.Impediment)
+        assert(cognizer.response(4).first() == Phenomenon.Text("42", "text/plain"))
+    }
+
+    @Test
+    fun `should execute intent on a computer started by an invocation, naming its id`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = SteppingCognizer(
+            { Phenomenon.Intent(script = "agency.invoke(\"sub\", computer = \"GPU64GB\")") },
+            { perceived ->
+                val computer = perceived.enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single().computer!!
+                Phenomenon.Intent(computer = computer.id, script = "val onGpu = 42\nonGpu")
+            },
+            { Phenomenon.Intent(script = "onGpu") }
+        )
+
+        // when
+        HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation())
+
+        // then
+        assert(cognizer.response(1).first() == Phenomenon.Text("42", "text/plain"))
+        // declared in the first REPL of the other computer, not in the one of the cogitation
+        assert(cognizer.response(2).first() is Phenomenon.Impediment)
+    }
+
+    @Test
+    fun `should impede intent naming a computer which is not running`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = SteppingCognizer({ Phenomenon.Intent(computer = "nowhere", script = "6 * 7") })
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        assert("nowhere" in (cognizer.response(0).first() as Phenomenon.Impediment).reason)
+    }
+
+    @Test
+    fun `should tell the cognizer the computer types the host offers in the constitution`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = SteppingCognizer()
+        val cogitation = cogitation().copy(constitution = "Computers: {{computers}}")
+
+        // when
+        HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation)
+
+        // then
+        assert(cognizer.perceived.single().constitution == "Computers: `default`, `GPU64GB`")
     }
 
     /** Expresses the [intent] first, then answers with the text of the response to it. */
@@ -872,11 +1053,11 @@ class HarnessTest {
         val source = dir.resolve("main.py").apply { writeText("def f():\n    return 1\n") }
         val created = dir.resolve("notes.md")
         val cognizer = EditingCognizer(Phenomenon.Intent(
-            script = "java.io.File(${'"'}$source${'"'}).readText()",
             edits = listOf(
                 Edit(path = source.toString(), old = "    return 1\n", new = "    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n    return 2\n"),
                 Edit(path = created.toString(), new = "notes\n")
-            )
+            ),
+            script = "java.io.File(${'"'}$source${'"'}).readText()"
         ))
 
         // when
@@ -901,7 +1082,7 @@ class HarnessTest {
     fun `should apply edits of intent without script`() = runTest(timeout = 5.minutes) {
         // given
         val created = createTempDirectory().resolve("notes.md")
-        val cognizer = EditingCognizer(Phenomenon.Intent(script = "", edits = listOf(Edit(path = created.toString(), new = "notes\n"))))
+        val cognizer = EditingCognizer(Phenomenon.Intent(edits = listOf(Edit(path = created.toString(), new = "notes\n")), script = ""))
 
         // when
         cognize(cognizer, cogitation())
@@ -918,8 +1099,8 @@ class HarnessTest {
         val source = dir.resolve("main.py").apply { writeText("x = 1\n") }
         val executed = dir.resolve("executed")
         val cognizer = EditingCognizer(Phenomenon.Intent(
-            script = "java.io.File(${'"'}$executed${'"'}).writeText(${'"'}yes${'"'})",
-            edits = listOf(Edit(path = source.toString(), old = "y = 1\n", new = "y = 2\n"))
+            edits = listOf(Edit(path = source.toString(), old = "y = 1\n", new = "y = 2\n")),
+            script = "java.io.File(${'"'}$executed${'"'}).writeText(${'"'}yes${'"'})"
         ))
 
         // when
