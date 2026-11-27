@@ -161,9 +161,6 @@ private fun String.absence(path: String, old: String): String {
 private fun String.numberedEdit(spans: List<IntRange>, context: Int = EDIT_CONTEXT): String =
     numbered(spans, context, EDIT_SPAN_LINES)
 
-/** The number of lines of this text, the last one counted also when not ended by a line break. */
-private val String.lineCount: Int get() = count { it == '\n' } + if (isEmpty() || endsWith('\n')) 0 else 1
-
 /** How many of the words and symbols of two lines they share, from 0 to 1, whatever their whitespace. */
 private fun similarity(a: String, b: String): Double {
     val tokens = Regex("""\w+|[^\s\w]""")

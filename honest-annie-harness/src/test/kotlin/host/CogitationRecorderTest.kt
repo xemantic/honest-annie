@@ -18,6 +18,11 @@
 
 package com.xemantic.annie.harness.host
 
+import com.xemantic.annie.harness.content
+import com.xemantic.annie.harness.data
+import com.xemantic.annie.harness.monologue
+import com.xemantic.annie.harness.testContents
+import com.xemantic.annie.harness.text
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Edit
@@ -45,22 +50,22 @@ class CogitationRecorderTest {
     fun `should list recorded phenomena in the order of their enunciation`() = runTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
-        val recorder = CogitationRecorder(recordingDir)
+        val recorder = CogitationRecorder(recordingDir, testContents)
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
                 Enunciation(
                     actant = Actant(type = Actant.Type.HUMAN, name = "user"),
                     initiated = Instant.parse("2026-10-23T13:14:39Z"),
-                    phenomena = listOf(Phenomenon.Text("question"))
+                    phenomena = listOf(text("question"))
                 ),
                 Enunciation(
                     actant = Actant.SELF,
-                    phenomena = listOf(Phenomenon.Monologue("thinking"), intent)
+                    phenomena = listOf(monologue("thinking"), intent)
                 ),
                 Enunciation(
                     actant = computer,
-                    phenomena = listOf(Phenomenon.Text("first"), Phenomenon.Text("second"))
+                    phenomena = listOf(text("first"), text("second"))
                 )
             )
         )
@@ -72,7 +77,7 @@ class CogitationRecorderTest {
             enunciations = listOf(Enunciation(
                 actant = Actant.SELF,
                 initiated = Instant.parse("2026-10-23T13:14:59Z"),
-                phenomena = listOf(Phenomenon.Text("sub"))
+                phenomena = listOf(text("sub"))
             ))
         ))
 
@@ -108,7 +113,7 @@ class CogitationRecorderTest {
         )
 
         // when
-        CogitationRecorder(recordingDir).record(cogitation)
+        CogitationRecorder(recordingDir, testContents).record(cogitation)
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -128,18 +133,18 @@ class CogitationRecorderTest {
             enunciations = listOf(
                 Enunciation(
                     actant = Actant.SELF,
-                    phenomena = listOf(Phenomenon.Text("invoking"), intent, another)
+                    phenomena = listOf(text("invoking"), intent, another)
                 ),
                 Enunciation(
                     actant = computer,
                     respondsTo = another.id,
-                    phenomena = listOf(Phenomenon.Text("another done"))
+                    phenomena = listOf(text("another done"))
                 )
             )
         )
 
         // when
-        CogitationRecorder(recordingDir).record(cogitation)
+        CogitationRecorder(recordingDir, testContents).record(cogitation)
 
         // then
         val index = recordingDir.listDirectoryEntries().single().resolve("cogitation.md").readText()
@@ -150,12 +155,12 @@ class CogitationRecorderTest {
     fun `should index outcome of invoked cogitation with position of intent invoking it`() = runTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
-        val recorder = CogitationRecorder(recordingDir)
+        val recorder = CogitationRecorder(recordingDir, testContents)
         val invoking = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("invoking"), intent)),
-                Enunciation(actant = computer, respondsTo = intent.id, phenomena = listOf(Phenomenon.Text("invoked")))
+                Enunciation(actant = Actant.SELF, phenomena = listOf(text("invoking"), intent)),
+                Enunciation(actant = computer, respondsTo = intent.id, phenomena = listOf(text("invoked")))
             )
         )
         recorder.record(invoking)
@@ -165,7 +170,7 @@ class CogitationRecorderTest {
         recorder.record(invoking + Enunciation(
             actant = Actant.SELF,
             respondsTo = "sub",
-            phenomena = listOf(Phenomenon.Text("sub done"))
+            phenomena = listOf(text("sub done"))
         ))
 
         // then
@@ -193,12 +198,12 @@ class CogitationRecorderTest {
                         )
                     )
                 ),
-                Enunciation(actant = computer, phenomena = listOf(Phenomenon.Text("1")))
+                Enunciation(actant = computer, phenomena = listOf(text("1")))
             )
         )
 
         // when
-        CogitationRecorder(recordingDir).record(cogitation)
+        CogitationRecorder(recordingDir, testContents).record(cogitation)
 
         // then
         val index = recordingDir.listDirectoryEntries().single().resolve("cogitation.md").readText()
@@ -231,12 +236,12 @@ class CogitationRecorderTest {
                     Inference.Tokens.INPUT to 3L,
                     Inference.Tokens.CACHE_WRITE_1H to 1000L
                 )),
-                Enunciation(actant = computer, phenomena = listOf(Phenomenon.Text("1")))
+                Enunciation(actant = computer, phenomena = listOf(text("1")))
             )
         )
 
         // when
-        CogitationRecorder(recordingDir).record(cogitation)
+        CogitationRecorder(recordingDir, testContents).record(cogitation)
 
         // then
         val json = recordingDir.listDirectoryEntries().single().resolve("inferences.json").readText()
@@ -276,7 +281,7 @@ class CogitationRecorderTest {
         )
 
         // when
-        CogitationRecorder(recordingDir).record(cogitation)
+        CogitationRecorder(recordingDir, testContents).record(cogitation)
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -288,12 +293,12 @@ class CogitationRecorderTest {
     fun `should total inferences including invoked cogitations`() = runTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
-        val recorder = CogitationRecorder(recordingDir)
+        val recorder = CogitationRecorder(recordingDir, testContents)
         recorder.record(Cogitation(
             constitution = "",
             enunciations = listOf(
                 inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.CACHE_WRITE_1H to 1000L)).copy(phenomena = listOf(intent)),
-                Enunciation(actant = computer, respondsTo = intent.id, phenomena = listOf(Phenomenon.Text("invoked")))
+                Enunciation(actant = computer, respondsTo = intent.id, phenomena = listOf(text("invoked")))
             )
         ))
         val invoked = recorder.invoked("sub", intent.id)
@@ -305,7 +310,7 @@ class CogitationRecorderTest {
                 Enunciation(
                     actant = Actant.INVOKER,
                     initiated = Instant.parse("2026-10-23T13:14:59Z"),
-                    phenomena = listOf(Phenomenon.Text("sub"))
+                    phenomena = listOf(text("sub"))
                 ),
                 inferred(mapOf(Inference.Tokens.INPUT to 2L, Inference.Tokens.CACHE_READ to 1000L))
             )
@@ -331,15 +336,15 @@ class CogitationRecorderTest {
     fun `should record discarded inferences before the enunciation following them`() = runTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
-        val recorder = CogitationRecorder(recordingDir)
+        val recorder = CogitationRecorder(recordingDir, testContents)
         val question = Enunciation(
             actant = Actant(type = Actant.Type.HUMAN, name = "user"),
             initiated = Instant.parse("2026-10-23T13:14:39Z"),
-            phenomena = listOf(Phenomenon.Text("question"))
+            phenomena = listOf(text("question"))
         )
         recorder.record(Cogitation(constitution = "", enunciations = listOf(question)))
         val discarded = inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L))
-            .copy(phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent(script = "<invoke name=\"fetch\">")))
+            .copy(phenomena = listOf(monologue("thinking"), Phenomenon.Intent(script = "<invoke name=\"fetch\">")))
 
         // when
         recorder.record(
@@ -386,7 +391,7 @@ class CogitationRecorderTest {
         )
 
         // when
-        CogitationRecorder(recordingDir).record(cogitation)
+        CogitationRecorder(recordingDir, testContents).record(cogitation)
 
         // then
         val dir = recordingDir.listDirectoryEntries().single()
@@ -418,7 +423,7 @@ class CogitationRecorderTest {
         )
 
         // when
-        CogitationRecorder(recordingDir).record(cogitation)
+        CogitationRecorder(recordingDir, testContents).record(cogitation)
 
         // then
         val root = recordingDir.listDirectoryEntries().single()

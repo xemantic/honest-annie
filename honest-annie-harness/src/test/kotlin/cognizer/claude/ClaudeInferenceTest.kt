@@ -18,6 +18,11 @@
 
 package com.xemantic.annie.harness.cognizer.claude
 
+import com.xemantic.annie.harness.content
+import com.xemantic.annie.harness.data
+import com.xemantic.annie.harness.monologue
+import com.xemantic.annie.harness.testContents
+import com.xemantic.annie.harness.text
 import com.anthropic.client.okhttp.AnthropicOkHttpClient
 import com.anthropic.core.jsonMapper
 import com.anthropic.models.messages.Message
@@ -58,7 +63,7 @@ class ClaudeInferenceTest {
         enunciations = listOf(Enunciation(
             actant = Actant(type = Actant.Type.HUMAN, name = "user"),
             initiated = initiated,
-            phenomena = listOf(Phenomenon.Text("test"))
+            phenomena = listOf(text("test"))
         )) + enunciations
     )
 
@@ -86,6 +91,7 @@ class ClaudeInferenceTest {
     fun `should request adaptive thinking with effort, cached constitution and the tool executing intents`() {
         // given
         val inference = ClaudeInference(
+            contents = testContents,
             client = client,
             model = "claude-opus-5-5",
             maxTokens = 32000,
@@ -120,7 +126,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should cache constitution and cogitation for an hour when asked to`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5", cache = CacheControlEphemeral.Ttl.TTL_1H)
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5", cache = CacheControlEphemeral.Ttl.TTL_1H)
 
         // when
         val body = inference.body(cogitation())
@@ -133,14 +139,14 @@ class ClaudeInferenceTest {
     @Test
     fun `should request with image perceived after its markup`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
 
         // when
         val body = inference.body(cogitation(
             Enunciation(
                 actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
                 initiated = initiated,
-                phenomena = listOf(Phenomenon.Data(redPixelPng, "image/png"))
+                phenomena = listOf(data(redPixelPng, "image/png"))
             )
         ))
 
@@ -156,14 +162,14 @@ class ClaudeInferenceTest {
     @Test
     fun `should request with PDF document perceived after its markup`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
 
         // when
         val body = inference.body(cogitation(
             Enunciation(
                 actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
                 initiated = initiated,
-                phenomena = listOf(Phenomenon.Data(minimalPdf, "application/pdf"))
+                phenomena = listOf(data(minimalPdf, "application/pdf"))
             )
         ))
 
@@ -176,7 +182,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should request without system prompt when constitution is blank`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
 
         // when
         val body = inference.body(cogitation().copy(constitution = ""))
@@ -189,7 +195,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should leave effort to the model and omit monologue by default`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
 
         // when
         val body = inference.body(cogitation())
@@ -204,6 +210,7 @@ class ClaudeInferenceTest {
     fun `should request progress updates with beta header`() {
         // given
         val inference = ClaudeInference(
+            contents = testContents,
             client = client,
             model = "claude-opus-5-5",
             visibility = MonologueVisibility.UPDATES
@@ -222,6 +229,7 @@ class ClaudeInferenceTest {
         // given
         val monologues = InMemoryMonologueStore()
         val inference = ClaudeInference(
+            contents = testContents,
             client = client,
             model = "anthropic.claude-opus-5-5",
             modelId = "claude-opus-5-5",
@@ -234,10 +242,10 @@ class ClaudeInferenceTest {
             actant = Actant(type = Actant.Type.SELF, name = "claude"),
             initiated = initiated,
             phenomena = listOf(
-                Monologue("other thought", id = "other"),
-                Monologue("thought", id = "thought"),
-                Monologue("", id = "redacted"),
-                Monologue("thought of another cognizer", id = "unknown"),
+                monologue("other thought", id = "other"),
+                monologue("thought", id = "thought"),
+                monologue("", id = "redacted"),
+                monologue("thought of another cognizer", id = "unknown"),
                 Phenomenon.Intent(script = "6 * 7", id = "toolu_1")
             )
         ))
@@ -258,7 +266,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should replay the monologue it perceived`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val message = jsonMapper().readValue("""
             {
               "id": "msg_1",
@@ -287,7 +295,7 @@ class ClaudeInferenceTest {
             Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),
                 initiated = initiated,
-                phenomena = listOf(Phenomenon.Text("and twice that?"))
+                phenomena = listOf(text("and twice that?"))
             )
         ))
 
@@ -306,13 +314,13 @@ class ClaudeInferenceTest {
     @Test
     fun `should replay text before tool call, and execution of intent as its result`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val cogitation = cogitation(
             Enunciation(
                 actant = Actant.SELF,
                 initiated = initiated,
                 phenomena = listOf(
-                    Phenomenon.Text("Computing it."),
+                    text("Computing it."),
                     Phenomenon.Intent(script = "6 * 7", id = "toolu_1")
                 )
             ),
@@ -320,7 +328,7 @@ class ClaudeInferenceTest {
                 actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
                 initiated = initiated,
                 respondsTo = "toolu_1",
-                phenomena = listOf(Phenomenon.Text("42"), Phenomenon.Data(redPixelPng, "image/png"))
+                phenomena = listOf(text("42"), data(redPixelPng, "image/png"))
             )
         )
 
@@ -346,6 +354,7 @@ class ClaudeInferenceTest {
     fun `should perceive thinking and redacted thinking as monologues, text, and tool call as intent`() {
         // given
         val inference = ClaudeInference(
+            contents = testContents,
             client = client,
             model = "anthropic.claude-opus-5-5",
             modelId = "claude-opus-5-5"
@@ -375,9 +384,9 @@ class ClaudeInferenceTest {
         val (thinking, redacted) = phenomena.filterIsInstance<Monologue>()
         val intent = phenomena.last() as Phenomenon.Intent
         assert(phenomena == listOf(
-            Monologue("", id = thinking.id),
-            Monologue("", id = redacted.id),
-            Phenomenon.Text("Computing it."),
+            monologue("", id = thinking.id),
+            monologue("", id = redacted.id),
+            text("Computing it."),
             Phenomenon.Intent(script = "6 * 7", id = intent.id)
         ))
         assert(thinking.id != redacted.id)
@@ -386,19 +395,19 @@ class ClaudeInferenceTest {
     @Test
     fun `should perceive response without tool call as text`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
 
         // when
         val phenomena = inference.phenomena(message("""{"input_tokens": 1, "output_tokens": 1}"""))
 
         // then
-        assert(phenomena == listOf(Phenomenon.Text("6 * 7")))
+        assert(phenomena == listOf(text("6 * 7")))
     }
 
     @Test
     fun `should perceive call of another tool as an impediment`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val message = jsonMapper().readValue("""
             {
               "id": "msg_1",
@@ -423,7 +432,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should perceive only first intent of response thinking again after it`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val message = jsonMapper().readValue("""
             {
               "id": "msg_1",
@@ -447,7 +456,7 @@ class ClaudeInferenceTest {
 
         // then
         assert(phenomena.size == 2)
-        assert((phenomena.first() as Monologue).text == "first")
+        assert(phenomena.first().content == "first")
         val intent = phenomena.last() as Phenomenon.Intent
         assert(intent.script == "6 * 7")
         // the id of the provider, foreign to the cogitation, is replaced by one of its own
@@ -458,6 +467,7 @@ class ClaudeInferenceTest {
     fun `should count tokens of response by category`() {
         // given
         val inference = ClaudeInference(
+            contents = testContents,
             client = client,
             model = "anthropic.claude-opus-5-5",
             modelId = "claude-opus-5-5",
@@ -497,7 +507,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should count cache writes of unreported lifetime and omit categories without tokens`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val message = message("""
             {"input_tokens": 3, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 1500, "output_tokens": 100}
         """)
@@ -517,7 +527,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should report stop reason of message by kind`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val usage = """{"input_tokens": 3, "output_tokens": 1}"""
 
         // when
@@ -539,7 +549,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should report category of refusal`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-fable-5-2")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-fable-5-2")
         val message = message(
             """{"input_tokens": 3, "output_tokens": 1}""",
             stopReason = "refusal",
@@ -558,6 +568,7 @@ class ClaudeInferenceTest {
         // given
         val monologues = InMemoryMonologueStore()
         val inference = ClaudeInference(
+            contents = testContents,
             client = client,
             model = "claude-fable-5-2",
             fallback = "claude-opus-5-5",
@@ -568,14 +579,14 @@ class ClaudeInferenceTest {
             Enunciation(
                 actant = Actant.SELF,
                 initiated = initiated,
-                phenomena = listOf(Monologue("thought", id = "thought"), Phenomenon.Intent(script = "6 * 7", id = "toolu_1")),
+                phenomena = listOf(monologue("thought", id = "thought"), Phenomenon.Intent(script = "6 * 7", id = "toolu_1")),
                 inference = Inference(model = "claude-fable-5-2", provider = "anthropic")
             ),
             Enunciation(
                 actant = Actant(type = Actant.Type.COMPUTER, name = "computer"),
                 initiated = initiated,
                 respondsTo = "toolu_1",
-                phenomena = listOf(Phenomenon.Text("42"))
+                phenomena = listOf(text("42"))
             ),
             // what the refused inference expressed is discarded by the harness
             Enunciation(
@@ -608,7 +619,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should infer by its own model when no inference was refused before`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-fable-5-2", fallback = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-fable-5-2", fallback = "claude-opus-5-5")
         val cogitation = cogitation()
 
         // when
@@ -623,7 +634,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should perceive edits of tool call as edits of intent, whatever the code they carry`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val message = jsonMapper().readValue("""
             {
               "id": "msg_1",
@@ -661,7 +672,7 @@ class ClaudeInferenceTest {
     @Test
     fun `should replay edits of intent in its tool call`() {
         // given
-        val inference = ClaudeInference(client = client, model = "claude-opus-5-5")
+        val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val cogitation = cogitation(
             Enunciation(
                 actant = Actant.SELF,
@@ -676,7 +687,7 @@ class ClaudeInferenceTest {
                 actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
                 initiated = initiated,
                 respondsTo = "toolu_1",
-                phenomena = listOf(Phenomenon.Text("Wrote /app/g.py, 1 lines"))
+                phenomena = listOf(text("Wrote /app/g.py, 1 lines"))
             )
         )
 

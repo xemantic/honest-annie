@@ -26,6 +26,9 @@ import java.net.URI
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Computer
+import com.xemantic.annie.InMemoryContents
+import com.xemantic.annie.readText
+import com.xemantic.annie.text
 import com.xemantic.annie.computer.local.LocalComputerProvider
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Phenomenon
@@ -72,6 +75,8 @@ fun main(args: Array<String>) {
     val maxTokens = System.getenv("ANNIE_MAX_TOKENS")?.toLong()
     val claudeModel = System.getenv("ANTHROPIC_MODEL")
     val model = claudeModel ?: System.getenv("OPENAI_MODEL") ?: error("Neither ANTHROPIC_MODEL nor OPENAI_MODEL is set")
+    // the content of every text and data, of the cogitations the cognizer infers, and the ones the host unfolds
+    val contents = InMemoryContents()
     val client: AutoCloseable
     val cognizer: Cognizer
     if (claudeModel != null) {
@@ -99,19 +104,19 @@ fun main(args: Array<String>) {
         }
         cognizer = if (maxTokens != null) {
             ClaudeInference(
-                claude, claudeModel, maxTokens = maxTokens, effort = effort, visibility = MonologueVisibility.SUMMARY,
+                claude, claudeModel, contents, maxTokens = maxTokens, effort = effort, visibility = MonologueVisibility.SUMMARY,
                 cache = cache, fallback = fallback
             )
         } else {
-            ClaudeInference(claude, claudeModel, effort = effort, visibility = MonologueVisibility.SUMMARY, cache = cache, fallback = fallback)
+            ClaudeInference(claude, claudeModel, contents, effort = effort, visibility = MonologueVisibility.SUMMARY, cache = cache, fallback = fallback)
         }
     } else {
         val openAI = openAIClient()
         client = AutoCloseable(openAI::close)
         cognizer = if (maxTokens != null) {
-            OpenAIInference(openAI, model, provider = openAIProvider, maxTokens = maxTokens, effort = effort)
+            OpenAIInference(openAI, model, contents, provider = openAIProvider, maxTokens = maxTokens, effort = effort)
         } else {
-            OpenAIInference(openAI, model, provider = openAIProvider, effort = effort)
+            OpenAIInference(openAI, model, contents, provider = openAIProvider, effort = effort)
         }
     }
     // the intents are executed on computers of the host, each one an executor process of its own, each REPL a session of it
@@ -119,7 +124,7 @@ fun main(args: Array<String>) {
         runBlocking {
             val output = HarnessHost(
                 cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism,
-                computers = computers
+                computers = computers, contents = contents
             ).cognize(Cogitation(
                 constitution = constitution(model, constitutionFile),
                 computer = Computer(type = computerTypes.first()),
@@ -128,11 +133,16 @@ fun main(args: Array<String>) {
                         type = Actant.Type.HUMAN,
                         name = "user"
                     ),
-                    phenomena = listOf(Phenomenon.Text(
+                    phenomena = listOf(contents.text(
                     args.firstOrNull() ?: "What's fibonacci number 45"
                 )))
             )))
-            println(output)
+            // the texts printed with their content, as the evals read them, e.g. `Text(text=…, contentType=…)`
+            println(output.toString().let { printed ->
+                output.phenomena.filterIsInstance<Phenomenon.Text>().fold(printed) { printed, text ->
+                    printed.replace(text.toString(), "Text(text=${contents.readText(text)}, contentType=${text.contentType})")
+                }
+            })
         }
     } }
 }

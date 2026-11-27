@@ -89,6 +89,15 @@ interface Agency {
      * @return numbered as by `cat -n`, ranges overlapping or adjacent read as one, and apart ones separated by `…`, the whole file when no [lines] is given
      */
     suspend fun read(path: String, vararg lines: IntRange): String
+    /**
+     * The content of the [phenomenon] as text: of a [Phenomenon.Text], or a [Phenomenon.Monologue], or of [Phenomenon.Data] of UTF-8 text, e.g. JSON,
+     * the script of an [Phenomenon.Intent], the reason of an [Phenomenon.Impediment],
+     * e.g. `agency.readText(agency.cogitation().enunciations[3].phenomena[0])`.
+     * @return the [lines], each range of line numbers, in their order, as in the text, unnumbered, the whole text when no [lines] is given
+     */
+    suspend fun readText(phenomenon: Phenomenon, vararg lines: IntRange): String
+    /** The content of the [phenomenon] as bytes, e.g. of an image to save to a file, a text being encoded in UTF-8. */
+    suspend fun readBytes(phenomenon: Phenomenon): ByteArray
     /** persistent Python REPL of the current cogitation */
     val python: Python
     /**

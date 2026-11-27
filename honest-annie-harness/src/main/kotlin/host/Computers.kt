@@ -20,6 +20,7 @@ package com.xemantic.annie.harness.host
 
 import com.xemantic.annie.Agency
 import com.xemantic.annie.Computer
+import com.xemantic.annie.Contents
 import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.IntentContext
 import com.xemantic.annie.Phenomenon
@@ -42,8 +43,12 @@ import java.util.concurrent.ConcurrentHashMap
  * A computer is started by the [provider] when an intent first executes on it, and a REPL opened on it
  * when an intent first executes in it, both kept until the tree of cogitations rests, see [close],
  * as the cogitations invoked by its cogitation share them.
+ * The content of the phenomena an intent reads is the one the [contents] of the host keep.
  */
-internal class Computers(private val provider: ComputerProvider) : ScriptExecutor {
+internal class Computers(
+    private val provider: ComputerProvider,
+    private val contents: Contents
+) : ScriptExecutor {
 
     private class OpenRepl(val repl: Repl) {
         val mutex = Mutex()
@@ -105,6 +110,7 @@ internal class Computers(private val provider: ComputerProvider) : ScriptExecuto
         val context = object : IntentContext {
             override suspend fun cogitation() = cogitation
             override suspend fun parentCogitation() = agency.parentCogitation()
+            override suspend fun content(ref: String) = contents.content(ref)
         }
         return open.mutex.withLock { open.repl.execute(intent, context) }
     }

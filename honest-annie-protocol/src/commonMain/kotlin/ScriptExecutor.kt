@@ -56,25 +56,29 @@ interface ScriptExecutor : AutoCloseable {
      * of a Kotlin script, what the Python of the intents printed, see [Agency.python], if anything, as a [Phenomenon.Text],
      * followed by the value of the script as a [Phenomenon.Text] of its `toString()` in plain text,
      * unless it is `Unit`, `null`, or a collection of nothing but `Unit`, e.g. of invocations,
-     * or [Phenomenon.Data] as is, e.g. an image the cognizer sees,
+     * or [Phenomenon.Data] of a `ByteArray`, e.g. an image the cognizer sees, or a phenomenon of the cogitation as is,
      * and by the versions resolved for the dependencies the script declared without a version, if any;
      * of a Python script, what it printed, followed by the `repr` of the value of its last statement, unless `None`, or not an expression;
      * of a bash script, what its process wrote to its standard output and error, followed by its exit code.
      * If the script failed, or timed out, the [Phenomenon.Impediment] describing it follows what Python printed instead of the value.
      * If an edit failed, its [Phenomenon.Impediment] is the only phenomenon, no file being changed, and the script not executed.
-     * The [ExecutedIntent.output] is what the script enunciated, and the [ExecutedIntent.invoked] the cogitations it invoked.
+     * The [ExecutedIntent.output] is what the script enunciated, and the [ExecutedIntent.invoked] the cogitations it invoked,
+     * the content of the texts and data it created being the [ExecutedIntent.contents].
      */
     suspend fun execute(
         intent: Phenomenon.Intent,
         agency: Agency
     ): ExecutedIntent {
-        val edited: Phenomenon? = if (intent.edits.isEmpty()) null else try {
-            Phenomenon.Text(applyEdits(intent.edits), "text/plain")
+        val edited: Pair<Phenomenon.Text, ByteArray>? = if (intent.edits.isEmpty()) null else try {
+            textOf(applyEdits(intent.edits), "text/plain")
         } catch (e: Exception) {
             return ExecutedIntent(listOf(Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed.")))
         }
         val executed = if (intent.script.isBlank()) ExecutedIntent(emptyList()) else executeScript(intent, agency)
-        return executed.copy(result = listOfNotNull(edited) + executed.result)
+        return executed.copy(
+            result = listOfNotNull(edited?.first) + executed.result,
+            contents = listOfNotNull(edited).associate { (text, content) -> text.ref to content } + executed.contents
+        )
     }
 
     /**
@@ -94,12 +98,14 @@ interface ScriptExecutor : AutoCloseable {
  * An intent executed by a [ScriptExecutor]: its [result], the response of the computer to the intent,
  * its [output], what its script enunciated through the agency, e.g. by [Agency.enunciate],
  * to be enunciated by the harness as the output of the cogitation, see [Enunciation.isOutput],
- * and the cogitations it [invoked], in their order, see [Agency.invoke], to be unfolded by the host.
+ * the cogitations it [invoked], in their order, see [Agency.invoke], to be unfolded by the host,
+ * and the [contents] of the texts and data it created, by their refs, to be kept by the host, see [Contents.keepAll].
  */
 data class ExecutedIntent(
     val result: List<Phenomenon>,
     val output: List<Phenomenon> = emptyList(),
-    val invoked: List<Invocation> = emptyList()
+    val invoked: List<Invocation> = emptyList(),
+    val contents: Map<String, ByteArray> = emptyMap()
 )
 
 /**

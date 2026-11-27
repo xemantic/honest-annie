@@ -43,13 +43,13 @@ class CognitionSerializationTest {
             Enunciation(
                 actant = Actant.INVOKER,
                 initiated = initiated,
-                phenomena = listOf(Phenomenon.Text("Count the lines"))
+                phenomena = listOf(Phenomenon.Text(ref = "sha256:01", length = 15, lines = 1))
             ),
             Enunciation(
                 actant = Actant.SELF,
                 initiated = initiated,
                 finalized = initiated + 3.seconds,
-                phenomena = listOf(Phenomenon.Monologue("Let me count"), intent),
+                phenomena = listOf(Phenomenon.Monologue(ref = "sha256:05", length = 12, lines = 1), intent),
                 inference = Inference(
                     model = "claude-fable-5-2",
                     provider = "anthropic",
@@ -62,8 +62,8 @@ class CognitionSerializationTest {
                 initiated = initiated + 3.seconds,
                 respondsTo = intent.id,
                 phenomena = listOf(
-                    Phenomenon.Text("2", "text/plain"),
-                    Phenomenon.Data(byteArrayOf(0, 1, -1, 127), "image/png"),
+                    Phenomenon.Text(ref = "sha256:02", length = 1, lines = 1, contentType = "text/plain"),
+                    Phenomenon.Data(ref = "sha256:03", size = 4, contentType = "image/png"),
                     Phenomenon.Impediment("Failed")
                 )
             ),
@@ -73,7 +73,7 @@ class CognitionSerializationTest {
                 initiated = initiated + 3.seconds,
                 finalized = initiated + 5.seconds,
                 respondsTo = "invoked-1",
-                phenomena = listOf(Phenomenon.Text("42"))
+                phenomena = listOf(Phenomenon.Text(ref = "sha256:04", length = 2, lines = 1))
             )
         ),
         depth = 1
@@ -111,6 +111,17 @@ class CognitionSerializationTest {
         assert(json.keys == setOf("constitution", "enunciations", "depth", "computer", "repl"))
         assert(json["enunciations"][1].keys == setOf("actant", "initiated", "finalized", "id", "phenomena", "inference"))
         assert(json["enunciations"][1]["inference"].keys == setOf("model", "provider", "tokens", "stop"))
+    }
+
+    @Test
+    fun `should serialize texts and data by the refs of their content`() {
+        // when
+        val json: JsonElement = Json.parseToJsonElement(Json.encodeToString(cogitation))
+
+        // then
+        val phenomena = json["enunciations"][2]["phenomena"]
+        assert(phenomena[0].keys == setOf("type", "ref", "length", "lines", "contentType"))
+        assert(phenomena[1].keys == setOf("type", "ref", "size", "contentType"))
     }
 
 }

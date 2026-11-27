@@ -19,11 +19,13 @@
 package com.xemantic.annie.harness.host
 
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Contents
 import com.xemantic.annie.Edit
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.harness.cost
+import com.xemantic.annie.readBytes
 import com.xemantic.ai.money.Money
 import com.xemantic.ai.money.ZERO
 import java.nio.file.FileAlreadyExistsException
@@ -54,9 +56,12 @@ import kotlinx.coroutines.withContext
  * Invoked cogitations are recorded in subfolders prefixed with the number and position of
  * the intent invoking them, e.g. `002-2-2026-10-14T15-02-08.074487Z`, listed next to `002-2-self-intent.kts`,
  * see [invoked].
+ *
+ * The content of the texts and data is read from the [contents] keeping it, see [Contents].
  */
 class CogitationRecorder(
     private val parentDir: Path,
+    private val contents: Contents,
     private val prefix: String = "",
     private val invoker: CogitationRecorder? = null
 ) {
@@ -160,6 +165,7 @@ class CogitationRecorder(
         requests[id] = position
         return CogitationRecorder(
             parentDir = checkNotNull(dir) { "No enunciation recorded yet to invoke a cogitation" },
+            contents = contents,
             prefix = "$position-",
             invoker = this
         )
@@ -196,7 +202,8 @@ class CogitationRecorder(
         val files = enunciation.phenomena.mapIndexed { index, phenomenon ->
             val position = "$label-${(index + 1).toString().padStart(width, '0')}"
             if (phenomenon is Phenomenon.Request && !discarded) requests[phenomenon.id] = position
-            val (kind, extension, content) = phenomenon.toFile()
+            val (kind, extension) = phenomenon.toFile()
+            val content = contents.readBytes(phenomenon)
             val count = kinds.merge(kind, 1, Int::plus)!!
             val suffix = if (count == 1) "" else "-$count"
             val file = "$position-${actant.type.name.lowercase()}-$kind.$extension"
@@ -306,12 +313,12 @@ internal val Phenomenon.kind: String get() = when (this) {
     is Monologue -> "monologue"
 }
 
-private fun Phenomenon.toFile(): Triple<String, String, ByteArray> = when (this) {
-    is Text -> Triple(kind, contentType.extension ?: "txt", text.encodeToByteArray())
-    is Data -> Triple(kind, contentType?.extension ?: "bin", bytes)
-    is Intent -> Triple(kind, language.scriptExtension, script.encodeToByteArray())
-    is Impediment -> Triple(kind, "md", reason.encodeToByteArray())
-    is Monologue -> Triple(kind, "md", text.encodeToByteArray())
+/** The kind of this phenomenon, and the extension of the file of its content. */
+private fun Phenomenon.toFile(): Pair<String, String> = when (this) {
+    is Text -> kind to (contentType.extension ?: "txt")
+    is Data -> kind to (contentType?.extension ?: "bin")
+    is Intent -> kind to language.scriptExtension
+    is Impediment, is Monologue -> kind to "md"
 }
 
 /** The extension of a file of a script of this language. */

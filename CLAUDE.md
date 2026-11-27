@@ -70,6 +70,9 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 - `ScriptSession` of xemantic-kotlin-script offers no default imports beyond `kotlinx.coroutines.*`, so `SessionScriptExecutor` imports annie's API in a snippet of its own before the first intent:
   the snippets of the intents are numbered from `snippet2`, which compilation errors name, so never assert on `snippet1`.
 
+- A `Phenomenon.Text` or `Data` carries only the ref of its content, so one built without keeping its content, e.g. by `textOf` alone, fails once read, at the next inference, with `No content of sha256:… is kept`.
+  `HarnessHost` defaults to a `Contents` of its own: a test, or `Main`, must give the host and the cognizer the same one, as the harness tests do with `testContents`.
+
 - `honest-annie-api` holds only what `generateConstitution` pastes into the constitutions, every line of it costing the context of each cognizer:
   a function of the scripts whose body is more than a delegation is declared on `Agency` when it acts on the computer, e.g. `Agency.read`, implemented by the agency of the executor,
   and otherwise as an `expect` declaration, e.g. of `Json.kt`, its `actual` one in `implMain`, the source set shared by every target, the generator stripping the `expect` keyword.

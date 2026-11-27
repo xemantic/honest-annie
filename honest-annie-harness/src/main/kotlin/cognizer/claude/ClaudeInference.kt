@@ -40,6 +40,9 @@ import com.anthropic.models.messages.ToolChoiceAuto
 import com.anthropic.models.messages.ToolResultBlockParam
 import com.anthropic.models.messages.ToolUseBlockParam
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Contents
+import com.xemantic.annie.monologue
+import com.xemantic.annie.text
 import com.xemantic.annie.Inference
 import com.xemantic.annie.Inference.Tokens
 import com.xemantic.annie.Phenomenon
@@ -73,6 +76,7 @@ import kotlinx.coroutines.future.await
  * while the growing cogitation is cached by the automatic (top-level) breakpoint, both for the [cache] lifetime.
  *
  * @param model the model id as known to the endpoint, e.g. a Bedrock one.
+ * @param contents keeping the content of the texts and data of the cogitations, the ones it infers too, see [Contents].
  * @param modelId the canonical id of the [model], the same at every endpoint serving it.
  * @param provider who serves the [model] through the [client], reported in the [Inference].
  * @param maxTokens the maximal number of tokens of a single inference, the monologue included,
@@ -92,6 +96,7 @@ import kotlinx.coroutines.future.await
 class ClaudeInference(
     private val client: AnthropicClient,
     private val model: String,
+    private val contents: Contents,
     private val modelId: String = model,
     private val provider: String = "anthropic",
     private val maxTokens: Long = 128_000,
@@ -151,6 +156,7 @@ class ClaudeInference(
         .messages(
             cogitation
                 .toTurns(
+                    contents = contents,
                     intent = { intent ->
                         ContentBlockParam.ofToolUse(ToolUseBlockParam.builder()
                             .id(intent.id)
@@ -162,7 +168,7 @@ class ClaudeInference(
                     },
                     monologue = { it.toBlock(inferring(cogitation).second) },
                     text = { text ->
-                        text.text.takeIf { it.isNotBlank() }?.let {
+                        text.takeIf { it.isNotBlank() }?.let {
                             ContentBlockParam.ofText(TextBlockParam.builder().text(it).build())
                         }
                     }
@@ -244,21 +250,21 @@ class ClaudeInference(
         for (block in message.content()) {
             when {
                 block.isThinking() -> block.asThinking().let {
-                    val monologue = Monologue(it.thinking())
+                    val monologue = contents.monologue(it.thinking())
                     monologues[monologue.id] = MonologueTrace.ClaudeThinking(
                         producedBy = modelId, thinking = it.thinking(), signature = it.signature()
                     )
                     phenomena += monologue
                 }
                 block.isRedactedThinking() -> {
-                    val monologue = Monologue("")
+                    val monologue = contents.monologue("")
                     monologues[monologue.id] = MonologueTrace.ClaudeRedacted(
                         producedBy = modelId, data = block.asRedactedThinking().data()
                     )
                     phenomena += monologue
                 }
                 block.isText() -> block.asText().text().takeIf { it.isNotBlank() }?.let {
-                    phenomena += Phenomenon.Text(it)
+                    phenomena += contents.text(it)
                 }
                 block.isToolUse() -> {
                     val use = block.asToolUse()

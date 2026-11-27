@@ -18,6 +18,11 @@
 
 package com.xemantic.annie.harness.host
 
+import com.xemantic.annie.harness.content
+import com.xemantic.annie.harness.data
+import com.xemantic.annie.harness.monologue
+import com.xemantic.annie.harness.testContents
+import com.xemantic.annie.harness.text
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Edit
@@ -64,7 +69,7 @@ class HarnessTest {
     private class ScriptedCognizer(
         private vararg val intents: String,
         private val stop: Inference.Stop? = null,
-        private val invoked: (Cogitation) -> Phenomenon = { Phenomenon.Text("echo: " + it.prompt) }
+        private val invoked: (Cogitation) -> Phenomenon = { text("echo: " + it.prompt) }
     ) : Cognizer {
         val perceived = mutableListOf<Cogitation>()
         override suspend fun cognize(cogitation: Cogitation): Cognized {
@@ -86,13 +91,13 @@ class HarnessTest {
     private suspend fun cognize(
         cognizer: Cognizer,
         cogitation: Cogitation
-    ) = HarnessHost(cognizer, store, computers = computers).cognize(cogitation)
+    ) = HarnessHost(cognizer, store, contents = testContents, computers = computers).cognize(cogitation)
 
     private fun cogitation() = Cogitation(
         constitution = "",
         enunciations = listOf(Enunciation(
             actant = Actant(type = Actant.Type.HUMAN, name = "user"),
-            phenomena = listOf(Phenomenon.Text("test"))
+            phenomena = listOf(text("test"))
         ))
     )
 
@@ -105,7 +110,7 @@ class HarnessTest {
         val intents = agency.cogitation().enunciations.flatMap { it.phenomena }
             .filterIsInstance<Phenomenon.Intent>().map { it.id }
         agency.cogitation().enunciations.filter { it.respondsTo != null && it.respondsTo !in intents }.forEach { response ->
-            agency.enunciate((response.phenomena.first() as Phenomenon.Text).text)
+            agency.enunciate(agency.readText(response.phenomena.first()))
         }
     """.trimIndent()
 
@@ -140,8 +145,8 @@ class HarnessTest {
         // then
         assert(output.actant == Actant.SELF)
         assert(output.phenomena == listOf(
-            Phenomenon.Text("answer is 42"),
-            Phenomenon.Data(byteArrayOf(4, 2), "application/octet-stream")
+            text("answer is 42"),
+            data(byteArrayOf(4, 2), "application/octet-stream")
         ))
         assert(cognizer.perceived.size == 1)
     }
@@ -196,14 +201,14 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("answer is 42")))
+        assert(output.phenomena == listOf(text("answer is 42")))
         assert(cognizer.perceived.size == 2)
         val perceived = cognizer.perceived.last().enunciations
         val intent = perceived[perceived.size - 2].phenomena.single() as Phenomenon.Intent
         val response = perceived.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
         assert(response.respondsTo == intent.id)
-        assert(response.phenomena.first() == Phenomenon.Text("42", "text/plain"))
+        assert(response.phenomena.first() == text("42", "text/plain"))
     }
 
     @Test
@@ -221,7 +226,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("interim"), Phenomenon.Text("echo: sub")))
+        assert(output.phenomena == listOf(text("interim"), text("echo: sub")))
         assert(cognizer.perceived.size == 2)
     }
 
@@ -241,7 +246,7 @@ class HarnessTest {
 
         // then
         val perceived = cognizer.perceived[1].enunciations
-        assert(perceived[2].actant == Actant.SELF && perceived[2].phenomena == listOf(Phenomenon.Text("interim")))
+        assert(perceived[2].actant == Actant.SELF && perceived[2].phenomena == listOf(text("interim")))
         assert(perceived[3].actant.type == Actant.Type.COMPUTER)
     }
 
@@ -254,11 +259,11 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("rested")))
+        assert(output.phenomena == listOf(text("rested")))
         assert(cognizer.perceived.size == 2)
         val response = cognizer.perceived[1].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
-        assert((response.phenomena.first() as Phenomenon.Text).text.startsWith("The intent evaluated to nothing"))
+        assert(response.phenomena.first().content.startsWith("The intent evaluated to nothing"))
     }
 
     @Test
@@ -292,11 +297,11 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("fetched")))
+        assert(output.phenomena == listOf(text("fetched")))
         assert(cognizer.perceived.size == 2)
         val response = cognizer.perceived[1].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
-        assert((response.phenomena.first() as Phenomenon.Text).text.startsWith("The intent evaluated to nothing"))
+        assert(response.phenomena.first().content.startsWith("The intent evaluated to nothing"))
     }
 
     @Test
@@ -305,14 +310,14 @@ class HarnessTest {
         val inferences = AtomicInteger()
         val cognizer = Cognizer {
             inferences.incrementAndGet()
-            Cognized(listOf(Phenomenon.Monologue("It is 42."), Phenomenon.Text("The answer is 42.")))
+            Cognized(listOf(monologue("It is 42."), text("The answer is 42.")))
         }
 
         // when
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("The answer is 42.")))
+        assert(output.phenomena == listOf(text("The answer is 42.")))
         assert(inferences.get() == 1)
     }
 
@@ -324,10 +329,10 @@ class HarnessTest {
             perceived += cogitation
             Cognized(
                 if (perceived.size == 1) listOf(
-                    Phenomenon.Text("Found it: the retry frame."),
+                    text("Found it: the retry frame."),
                     Phenomenon.Impediment("Your call of execute carried no script")
                 )
-                else listOf(Phenomenon.Text("The answer is 42.")),
+                else listOf(text("The answer is 42.")),
                 Inference(model = "scripted", provider = "test", tokens = emptyMap())
             )
         }
@@ -336,7 +341,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("The answer is 42.")))
+        assert(output.phenomena == listOf(text("The answer is 42.")))
         assert(perceived.size == 2)
         val response = perceived[1].enunciations.last()
         assert(response.actant.type == Actant.Type.COMPUTER)
@@ -350,8 +355,8 @@ class HarnessTest {
         val cognizer = Cognizer { cogitation ->
             perceived += cogitation
             Cognized(
-                if (perceived.size == 1) listOf(Phenomenon.Text("Computing it."), Phenomenon.Intent(script = "6 * 7"))
-                else listOf(Phenomenon.Text("The answer is 42."))
+                if (perceived.size == 1) listOf(text("Computing it."), Phenomenon.Intent(script = "6 * 7"))
+                else listOf(text("The answer is 42."))
             )
         }
 
@@ -359,9 +364,9 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("The answer is 42.")))
+        assert(output.phenomena == listOf(text("The answer is 42.")))
         assert(perceived.size == 2)
-        assert((perceived[1].enunciations.last().phenomena.first() as Phenomenon.Text).text == "42")
+        assert(perceived[1].enunciations.last().phenomena.first().content == "42")
     }
 
     @Test
@@ -372,10 +377,10 @@ class HarnessTest {
             perceived += cogitation
             Cognized(
                 when {
-                    cogitation.depth == 1 -> listOf(Phenomenon.Monologue("A label."), Phenomenon.Text("1: NUM"))
+                    cogitation.depth == 1 -> listOf(monologue("A label."), text("1: NUM"))
                     cogitation.enunciations.size == 1 -> listOf(Phenomenon.Intent(script = "agency.invoke(\"judge\")"))
                     cogitation.enunciations.size == 4 -> listOf(Phenomenon.Intent(script = respondedIntent))
-                    else -> listOf(Phenomenon.Text("unexpected"))
+                    else -> listOf(text("unexpected"))
                 }
             )
         }
@@ -384,7 +389,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("1: NUM")))
+        assert(output.phenomena == listOf(text("1: NUM")))
     }
 
     @Test
@@ -393,7 +398,7 @@ class HarnessTest {
         val inferences = AtomicInteger()
         val cognizer = Cognizer {
             inferences.incrementAndGet()
-            Cognized(listOf(Phenomenon.Monologue("no kotlin")))
+            Cognized(listOf(monologue("no kotlin")))
         }
 
         // when
@@ -411,7 +416,7 @@ class HarnessTest {
         val cognizer = Cognizer {
             inferences.incrementAndGet()
             Cognized(
-                listOf(Phenomenon.Text("Let's")),
+                listOf(text("Let's")),
                 Inference(
                     model = "scripted",
                     provider = "test",
@@ -427,7 +432,7 @@ class HarnessTest {
         // then
         // what was expressed of the answer is delivered, followed by the impediment
         assert(output.phenomena == listOf(
-            Phenomenon.Text("Let's"),
+            text("Let's"),
             Phenomenon.Impediment("Inference not completed, stopped by length")
         ))
         assert(inferences.get() == 1)
@@ -440,7 +445,7 @@ class HarnessTest {
         val cognizer = Cognizer { cogitation ->
             perceived += cogitation
             if (perceived.size == 1) Cognized(
-                listOf(Phenomenon.Monologue("I'm weighing"), Phenomenon.Text("partial")),
+                listOf(monologue("I'm weighing"), text("partial")),
                 Inference(
                     model = "refusing",
                     provider = "test",
@@ -448,7 +453,7 @@ class HarnessTest {
                     stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal", category = "cyber")
                 )
             ) else Cognized(
-                listOf(Phenomenon.Text("answer is 42")),
+                listOf(text("answer is 42")),
                 Inference(model = "falling back", provider = "test", stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn"))
             )
         }
@@ -457,7 +462,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("answer is 42")))
+        assert(output.phenomena == listOf(text("answer is 42")))
         assert(perceived.size == 2)
         // the refused inference stays, so that what it spent is counted, and the cognizer knows it was refused
         val refused = perceived.last().enunciations.last()
@@ -473,7 +478,7 @@ class HarnessTest {
         val cognizer = Cognizer {
             inferences.incrementAndGet()
             Cognized(
-                listOf(Phenomenon.Text("partial")),
+                listOf(text("partial")),
                 Inference(
                     model = "refusing",
                     provider = "test",
@@ -500,7 +505,7 @@ class HarnessTest {
 
         // then
         // the task, then two intents and the responses to them, then the intent enunciating the output
-        assert(output.phenomena == listOf(Phenomenon.Text("after 6")))
+        assert(output.phenomena == listOf(text("after 6")))
         assert(cognizer.perceived.map { it.enunciations.size } == listOf(1, 3, 5))
     }
 
@@ -515,7 +520,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        val text = (output.phenomena.single() as Phenomenon.Text).text
+        val text = output.phenomena.single().content
         assert("interface Agency" in text)
         assert("suspend fun cogitation(): Cogitation" in text)
     }
@@ -534,7 +539,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("hello\n", "text/plain")))
+        assert(output.phenomena == listOf(text("hello\n", "text/plain")))
     }
 
     @Test
@@ -549,14 +554,14 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("echo: sub")))
+        assert(output.phenomena == listOf(text("echo: sub")))
         val perceived = cognizer.perceived[1]
         // the response to the intent, then the outcome of the cogitation it invoked
         assert(perceived.enunciations.dropLast(1).last().respondsTo == perceived.enunciations[1].phenomena.filterIsInstance<Phenomenon.Intent>().single().id)
         val response = perceived.enunciations.last()
         val id = checkNotNull(response.respondsTo)
         assert(response.id == responseId(id))
-        assert(response.phenomena == listOf(Phenomenon.Text("echo: sub")))
+        assert(response.phenomena == listOf(text("echo: sub")))
         val invoked = store.load(id)
         assert(invoked?.invocation?.prompt == "sub")
         // the invocation is the first enunciation of the invoked cogitation, its prompt, of the same id
@@ -572,7 +577,7 @@ class HarnessTest {
             respondedIntent,
             invoked = { invoked ->
                 val actant = invoked.enunciations.single().actant
-                Phenomenon.Text(actant.type.name + " " + actant.name)
+                text(actant.type.name + " " + actant.name)
             }
         )
 
@@ -580,7 +585,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("INVOKER invoker")))
+        assert(output.phenomena == listOf(text("INVOKER invoker")))
     }
 
     @Test
@@ -601,7 +606,7 @@ class HarnessTest {
         assert(cognizer.perceived.size == 2)
         val responses = cognizer.perceived[1].enunciations.takeLast(2)
         assert(responses.all { it.respondsTo != null })
-        assert(output.phenomena.toSet() == setOf(Phenomenon.Text("echo: first"), Phenomenon.Text("echo: second")))
+        assert(output.phenomena.toSet() == setOf(text("echo: first"), text("echo: second")))
     }
 
     @Test
@@ -632,8 +637,8 @@ class HarnessTest {
         // each inference consumes as many tokens as the enunciations it perceived: 1, then 3
         val responses = cognizer.perceived.last().enunciations.filter { it.actant.type == Actant.Type.COMPUTER }
         assert(responses.map { it.phenomena.last() } == listOf(
-            Phenomenon.Text("Spent by this cogitation so far: 1 inference(s), 1 token(s).", "text/plain"),
-            Phenomenon.Text("Spent by this cogitation so far: 2 inference(s), 4 token(s).", "text/plain")
+            text("Spent by this cogitation so far: 1 inference(s), 1 token(s).", "text/plain"),
+            text("Spent by this cogitation so far: 2 inference(s), 4 token(s).", "text/plain")
         ))
     }
 
@@ -641,7 +646,7 @@ class HarnessTest {
     fun `should tell cognizer what its tree may still spend of the token budget and time only once little is left`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer("6 * 7", "6 * 8", restingIntent)
-        val host = HarnessHost(cognizer, store, tokenBudget = 5, timeLimit = 90.minutes, computers = computers)
+        val host = HarnessHost(cognizer, store, contents = testContents, tokenBudget = 5, timeLimit = 90.minutes, computers = computers)
 
         // when
         host.cognize(cogitation())
@@ -649,8 +654,8 @@ class HarnessTest {
         // then
         // each inference consumes as many tokens as the enunciations it perceived: 1, then 3
         val responses = cognizer.perceived.last().enunciations.filter { it.actant.type == Actant.Type.COMPUTER }
-        val first = (responses[0].phenomena.last() as Phenomenon.Text).text
-        val second = (responses[1].phenomena.last() as Phenomenon.Text).text
+        val first = responses[0].phenomena.last().content
+        val second = responses[1].phenomena.last().content
         // a budget told at every step is spent rather than guarded, see the Fable constitution
         assert(first == "Spent by this cogitation so far: 1 inference(s), 1 token(s).")
         assert(second.startsWith("Spent by this cogitation so far: 2 inference(s), 4 token(s). Left to the whole tree of cogitations: 1 of 5 token(s)"))
@@ -663,7 +668,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, timeLimit = Duration.ZERO, computers = computers).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, contents = testContents, timeLimit = Duration.ZERO, computers = computers).cognize(cogitation())
 
         // then
         assert(cognizer.perceived.isEmpty())
@@ -676,7 +681,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, tokenBudget = 1, computers = computers).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, contents = testContents, tokenBudget = 1, computers = computers).cognize(cogitation())
 
         // then
         assert(cognizer.perceived.size == 1)
@@ -691,7 +696,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("agency.invoke(\"sub\")", "6 * 7", restingIntent)
 
         // when
-        val output = HarnessHost(cognizer, store, tokenBudget = 2, computers = computers).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, contents = testContents, tokenBudget = 2, computers = computers).cognize(cogitation())
 
         // then
         // the root and the invoked cogitation inferred once each, 1 token each, then both were impeded
@@ -725,7 +730,7 @@ class HarnessTest {
         }
 
         // when
-        HarnessHost(cognizer, store, parallelism = 1, computers = computers).cognize(cogitation())
+        HarnessHost(cognizer, store, contents = testContents, parallelism = 1, computers = computers).cognize(cogitation())
 
         // then
         assert(maxInFlight.get() == 1)
@@ -744,7 +749,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("depth 1")))
+        assert(output.phenomena == listOf(text("depth 1")))
         assert(cognizer.perceived[1].invocation().prompt == "sub at depth 0")
     }
 
@@ -755,7 +760,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub\")",
             respondedIntent,
-            invoked = { invokedConstitutions += it.constitution; Phenomenon.Text("done") }
+            invoked = { invokedConstitutions += it.constitution; text("done") }
         )
         val cogitation = cogitation().copy(constitution = "Be honest")
 
@@ -779,7 +784,7 @@ class HarnessTest {
         )
 
         // when
-        HarnessHost(cognizer, store, recordingDir, computers = computers).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir = recordingDir, contents = testContents, computers = computers).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -814,7 +819,7 @@ class HarnessTest {
         }
 
         // when
-        HarnessHost(cognizer, store, recordingDir, computers = computers).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir = recordingDir, contents = testContents, computers = computers).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -830,7 +835,7 @@ class HarnessTest {
         val cognizer = ScriptedCognizer("agency.enunciate(\"answer is 42\")")
 
         // when
-        HarnessHost(cognizer, store, recordingDir, computers = computers).cognize(cogitation())
+        HarnessHost(cognizer, store, recordingDir = recordingDir, contents = testContents, computers = computers).cognize(cogitation())
 
         // then
         val root = recordingDir.listDirectoryEntries().single()
@@ -853,7 +858,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("answer is 42")))
+        assert(output.phenomena == listOf(text("answer is 42")))
     }
 
     /**
@@ -863,22 +868,69 @@ class HarnessTest {
      */
     private class SteppingCognizer(
         private vararg val steps: (Cogitation) -> Phenomenon,
-        private val invoked: (Cogitation) -> Phenomenon = { Phenomenon.Text("echo: " + it.prompt) }
+        private val invoked: (Cogitation) -> Phenomenon = { text("echo: " + it.prompt) }
     ) : Cognizer {
         val perceived = mutableListOf<Cogitation>()
         override suspend fun cognize(cogitation: Cogitation): Cognized {
             if (cogitation.depth > 0) return Cognized(listOf(invoked(cogitation)))
             perceived += cogitation
-            return Cognized(listOf(steps.getOrNull(perceived.size - 1)?.invoke(cogitation) ?: Phenomenon.Text("Done.")))
+            return Cognized(listOf(steps.getOrNull(perceived.size - 1)?.invoke(cogitation) ?: text("Done.")))
         }
         /** The phenomena of the response to the intent of the step of the [index], counted from 0. */
         fun response(index: Int): List<Phenomenon> = perceived[index + 1].enunciations.last { it.respondsTo != null }.phenomena
     }
 
+    @Test
+    fun `should read the lines of a text of an earlier result in the next intent`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = SteppingCognizer(
+            { Phenomenon.Intent(script = "\"one\\ntwo\\nthree\"") },
+            // the task, the intent, and the response to it, whose first phenomenon is the result
+            { Phenomenon.Intent(script = "agency.readText(agency.cogitation().enunciations[2].phenomena[0], 2..3)") }
+        )
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        assert(cognizer.response(1).first() == text("two\nthree", "text/plain"))
+    }
+
+    @Test
+    fun `should read the text of the outcome of an invoked cogitation`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = SteppingCognizer(
+            { Phenomenon.Intent(script = "agency.invoke(\"sub\")") },
+            // the task, the intent invoking, the response to it, and the outcome following it
+            { Phenomenon.Intent(script = "agency.readText(agency.cogitation().enunciations[3].phenomena.single()).uppercase()") }
+        )
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        assert(cognizer.response(1).first() == text("ECHO: SUB", "text/plain"))
+    }
+
+    @Test
+    fun `should impede a text returned by a script whose content is kept nowhere`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = SteppingCognizer(
+            { Phenomenon.Intent(script = "Phenomenon.Text(ref = \"sha256:00\", length = 1, lines = 1)") }
+        )
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        val impediment = cognizer.response(0).first() as Phenomenon.Impediment
+        assert(impediment.reason.startsWith("No content of sha256:00 is kept"))
+    }
+
     /** The cogitation invoked by an intent evaluates the declaration `answer` of its invoker, then answers whether it could. */
     private val evaluatingAnswer: (Cogitation) -> Phenomenon = { invoked ->
         if (invoked.enunciations.size == 1) Phenomenon.Intent(script = "answer")
-        else Phenomenon.Text(if (invoked.enunciations.last().phenomena.any { it is Phenomenon.Impediment }) "not shared" else "shared")
+        else text(if (invoked.enunciations.last().phenomena.any { it is Phenomenon.Impediment }) "not shared" else "shared")
     }
 
     @Test
@@ -890,7 +942,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("shared")))
+        assert(output.phenomena == listOf(text("shared")))
         val invocation = cognizer.perceived[1].invocation()
         assert(invocation.computer == null && invocation.repl == null)
     }
@@ -905,10 +957,10 @@ class HarnessTest {
         )
 
         // when
-        val output = HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation())
+        val output = HarnessHost(cognizer, store, contents = testContents, computers = gpuComputers).cognize(cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("not shared")))
+        assert(output.phenomena == listOf(text("not shared")))
         val invocation = cognizer.perceived[1].invocation()
         val computer = invocation.computer
         assert(computer != null && computer.type == "GPU64GB" && computer.id != cognizer.perceived[0].computer.id)
@@ -924,7 +976,7 @@ class HarnessTest {
         val output = cognize(cognizer, cogitation())
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("not shared")))
+        assert(output.phenomena == listOf(text("not shared")))
     }
 
     @Test
@@ -935,7 +987,7 @@ class HarnessTest {
         val cognizer = object : Cognizer {
             val perceived = mutableListOf<Cogitation>()
             override suspend fun cognize(cogitation: Cogitation): Cognized {
-                if (cogitation.enunciations.first().phenomena.first() == Phenomenon.Text("sub")) {
+                if (cogitation.enunciations.first().phenomena.first() == text("sub")) {
                     independent += cogitation
                     return Cognized(listOf(
                         if (cogitation.enunciations.size == 1) {
@@ -943,14 +995,14 @@ class HarnessTest {
                         } else if (cogitation.enunciations.size == 3) {
                             Phenomenon.Intent(script = "answer")
                         } else {
-                            Phenomenon.Text("independent")
+                            text("independent")
                         }
                     ))
                 }
                 perceived += cogitation
                 return Cognized(listOf(
                     if (perceived.size == 1) Phenomenon.Intent(script = "val answer = 42\nagency.invoke(\"sub\", independent = true)")
-                    else Phenomenon.Text("Done.")
+                    else text("Done.")
                 ))
             }
         }
@@ -961,13 +1013,13 @@ class HarnessTest {
         // then
         val invocation = cognizer.perceived[1].invocation()
         assert(invocation.independent && invocation.computer == null && invocation.repl != null)
-        assert(cognizer.perceived[1].enunciations.single { it.respondsTo == invocation.id }.phenomena == listOf(Phenomenon.Text("independent")))
+        assert(cognizer.perceived[1].enunciations.single { it.respondsTo == invocation.id }.phenomena == listOf(text("independent")))
         val first = independent.first()
         assert(first.depth == 0 && first.repl == invocation.repl)
         assert(first.enunciations.single().actant.type == Actant.Type.UNIDENTIFIED)
         // what it tells of itself, and then the declaration of its invoker it cannot reach
         val told = independent[1].enunciations.last().phenomena.first()
-        assert(told == Phenomenon.Text("true 0", "text/plain"))
+        assert(told == text("true 0", "text/plain"))
         assert(independent[2].enunciations.last().phenomena.first() is Phenomenon.Impediment)
     }
 
@@ -1004,9 +1056,9 @@ class HarnessTest {
         cognize(cognizer, cogitation())
 
         // then
-        assert(cognizer.response(2).first() == Phenomenon.Text("42", "text/plain"))
+        assert(cognizer.response(2).first() == text("42", "text/plain"))
         assert(cognizer.response(3).first() is Phenomenon.Impediment)
-        assert(cognizer.response(4).first() == Phenomenon.Text("42", "text/plain"))
+        assert(cognizer.response(4).first() == text("42", "text/plain"))
     }
 
     @Test
@@ -1018,16 +1070,16 @@ class HarnessTest {
             { Phenomenon.Intent(script = "trained") },
             // the invoked cogitation declares in its REPL, on the computer started for it
             invoked = { invoked ->
-                if (invoked.enunciations.size == 1) Phenomenon.Intent(script = "val trained = 42") else Phenomenon.Text("trained")
+                if (invoked.enunciations.size == 1) Phenomenon.Intent(script = "val trained = 42") else text("trained")
             }
         )
 
         // when
-        HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation())
+        HarnessHost(cognizer, store, contents = testContents, computers = gpuComputers).cognize(cogitation())
 
         // then
         assert(store.load(cognizer.perceived[1].invokedId)?.cogitation?.computer?.type == "GPU64GB")
-        assert(cognizer.response(1).first() == Phenomenon.Text("42", "text/plain"))
+        assert(cognizer.response(1).first() == text("42", "text/plain"))
         // declared in the REPL of the other computer, not in the one of the cogitation
         assert(cognizer.response(2).first() is Phenomenon.Impediment)
     }
@@ -1042,7 +1094,7 @@ class HarnessTest {
         )
 
         // when
-        HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation())
+        HarnessHost(cognizer, store, contents = testContents, computers = gpuComputers).cognize(cogitation())
 
         // then
         val reason = (cognizer.perceived[2].outcomes.single().phenomena.single() as Phenomenon.Impediment).reason
@@ -1064,24 +1116,24 @@ class HarnessTest {
         val cognizer = Cognizer { cogitation ->
             if (cogitation.depth > 0) {
                 if (cogitation.prompt == "first") secondBuffered.await()
-                Cognized(listOf(Phenomenon.Text(cogitation.prompt)))
+                Cognized(listOf(text(cogitation.prompt)))
             } else {
                 perceived += cogitation
                 Cognized(listOf(
                     if (perceived.size == 1) Phenomenon.Intent(script = "listOf(\"first\", \"second\").map { agency.invoke(it) }")
-                    else Phenomenon.Text("Done.")
+                    else text("Done.")
                 ))
             }
         }
 
         // when
-        HarnessHost(cognizer, observedStore, computers = computers).cognize(cogitation())
+        HarnessHost(cognizer, observedStore, contents = testContents, computers = computers).cognize(cogitation())
 
         // then
         // unfolded once more, after both of them rested
         assert(perceived.size == 2)
         val outcomes = perceived[1].outcomes
-        assert(outcomes.map { it.phenomena } == listOf(listOf(Phenomenon.Text("first")), listOf(Phenomenon.Text("second"))))
+        assert(outcomes.map { it.phenomena } == listOf(listOf(text("first")), listOf(text("second"))))
         assert(perceived[1].enunciations.takeLast(2) == outcomes)
     }
 
@@ -1092,7 +1144,7 @@ class HarnessTest {
         val cogitation = cogitation().copy(constitution = "Computers: {{computers}}")
 
         // when
-        HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation)
+        HarnessHost(cognizer, store, contents = testContents, computers = gpuComputers).cognize(cogitation)
 
         // then
         assert(cognizer.perceived.single().constitution == "Computers: `default`, `GPU64GB`")
@@ -1103,7 +1155,7 @@ class HarnessTest {
         val perceived = mutableListOf<Cogitation>()
         override suspend fun cognize(cogitation: Cogitation): Cognized {
             perceived += cogitation
-            return Cognized(if (perceived.size == 1) listOf(intent) else listOf(Phenomenon.Text("Done.")))
+            return Cognized(if (perceived.size == 1) listOf(intent) else listOf(text("Done.")))
         }
         val response: List<Phenomenon> get() = perceived[1].enunciations.last().phenomena
     }
@@ -1127,7 +1179,7 @@ class HarnessTest {
 
         // then
         assert(cognizer.response.take(2) == listOf(
-            Phenomenon.Text(
+            text(
                 "Edited $source at line 2, as:\n" +
                     "     1\tdef f():\n" +
                     "     2\t    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n" +
@@ -1135,7 +1187,7 @@ class HarnessTest {
                     "Wrote $created, 1 lines",
                 "text/plain"
             ),
-            Phenomenon.Text("def f():\n    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n    return 2\n", "text/plain")
+            text("def f():\n    ${'"'}${'"'}${'"'}Docstring of ${'$'}f.${'"'}${'"'}${'"'}\n    return 2\n", "text/plain")
         ))
         assert(created.readText() == "notes\n")
     }
@@ -1150,7 +1202,7 @@ class HarnessTest {
         cognize(cognizer, cogitation())
 
         // then
-        assert(cognizer.response.first() == Phenomenon.Text("Wrote $created, 1 lines", "text/plain"))
+        assert(cognizer.response.first() == text("Wrote $created, 1 lines", "text/plain"))
         assert(created.readText() == "notes\n")
     }
 
@@ -1180,4 +1232,4 @@ class HarnessTest {
 }
 
 /** The prompt of this invoked cogitation, enunciated first, by its invoker. */
-private val Cogitation.prompt: String get() = (enunciations.first().phenomena.first() as Phenomenon.Text).text
+private val Cogitation.prompt: String get() = enunciations.first().phenomena.first().content

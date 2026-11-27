@@ -50,6 +50,9 @@ import com.openai.models.responses.ResponseReasoningItem
 import com.openai.models.responses.ToolChoiceOptions
 import com.openai.models.Reasoning
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Contents
+import com.xemantic.annie.monologue
+import com.xemantic.annie.text
 import com.xemantic.annie.Inference
 import com.xemantic.annie.Inference.Tokens
 import com.xemantic.annie.Phenomenon
@@ -83,6 +86,7 @@ private val logger = KotlinLogging.logger {}
  * the text it writes being a [Phenomenon.Text], replayed to any model: its answer when it calls no tool.
  *
  * @param model the model id as known to the endpoint.
+ * @param contents keeping the content of the texts and data of the cogitations, the ones it infers too, see [Contents].
  * @param modelId the canonical id of the [model], the same at every endpoint serving it.
  * @param provider who serves the [model] through the [client], reported in the [Inference].
  * @param responses whether the Responses API is used instead of Chat Completions.
@@ -95,6 +99,7 @@ private val logger = KotlinLogging.logger {}
 class OpenAIInference(
     private val client: OpenAIClient,
     private val model: String,
+    private val contents: Contents,
     private val modelId: String = model,
     private val provider: String = "openai",
     private val responses: Boolean = false,
@@ -131,7 +136,7 @@ class OpenAIInference(
             .apply {
                 cogitation
                     // the reasoning of Chat Completions is never replayed
-                    .toTurns<Phenomenon>(intent = { it }, monologue = { null }, text = { it.takeIf { it.text.isNotBlank() } })
+                    .toTurns<Any>(contents, intent = { it }, monologue = { null }, text = { it.takeIf { it.isNotBlank() } })
                     .forEach { turn ->
                         when (turn) {
                             is Turn.User -> {
@@ -193,6 +198,7 @@ class OpenAIInference(
         .inputOfResponse(
             cogitation
                 .toTurns(
+                    contents = contents,
                     intent = { intent ->
                         ResponseInputItem.ofFunctionCall(ResponseFunctionToolCall.builder()
                             .callId(intent.id)
@@ -202,7 +208,7 @@ class OpenAIInference(
                     },
                     monologue = { it.toReasoningItem() },
                     text = { text ->
-                        text.text.takeIf { it.isNotBlank() }?.let {
+                        text.takeIf { it.isNotBlank() }?.let {
                             ResponseInputItem.ofEasyInputMessage(it.message(EasyInputMessage.Role.ASSISTANT))
                         }
                     }
@@ -329,8 +335,8 @@ class OpenAIInference(
             logger.warn { "Chat completion with neither content nor tool calls: ${jsonMapper().writeValueAsString(message)}" }
         }
         return listOfNotNull(
-            reasoning?.takeIf { it.isNotEmpty() }?.let { Monologue(it) },
-            content?.let { Phenomenon.Text(it) },
+            reasoning?.takeIf { it.isNotEmpty() }?.let { contents.monologue(it) },
+            content?.let { contents.text(it) },
             intent
         )
     }
@@ -345,7 +351,7 @@ class OpenAIInference(
             when {
                 item.isReasoning() -> item.asReasoning().let { reasoning ->
                     val summary = reasoning.summary().map { it.text() }.filter { it.isNotEmpty() }
-                    val monologue = Monologue(summary.joinToString(separator = "\n\n"))
+                    val monologue = contents.monologue(summary.joinToString(separator = "\n\n"))
                     monologues[monologue.id] = MonologueTrace.OpenAIReasoning(
                         producedBy = modelId,
                         itemId = reasoning.id(),
@@ -358,7 +364,7 @@ class OpenAIInference(
                     .filter { it.isOutputText() }
                     .map { it.asOutputText().text() }
                     .filter { it.isNotBlank() }
-                    .forEach { phenomena += Phenomenon.Text(it) }
+                    .forEach { phenomena += contents.text(it) }
                 item.isFunctionCall() -> {
                     val call = item.asFunctionCall()
                     phenomena += IntentTool.intent(call.name(), call.arguments())
@@ -382,8 +388,9 @@ private val intentParameters: FunctionParameters = FunctionParameters.builder()
 private val Phenomenon.Intent.arguments: String get() = jsonMapper().writeValueAsString(IntentTool.input(this))
 
 /** The texts among these parts of an assistant turn, as a single text, `null` when none. */
-private fun List<Phenomenon>.text(): String? =
-    filterIsInstance<Phenomenon.Text>().joinToString(separator = "\n") { it.text }.takeIf { it.isNotEmpty() }
+/** The texts of these parts of an assistant turn, see [Turn.Assistant], joined, `null` when none. */
+private fun List<Any>.text(): String? =
+    filterIsInstance<String>().joinToString(separator = "\n").takeIf { it.isNotEmpty() }
 
 /** The text of a tool result, which an OpenAI API accepts only as text. */
 private val Perceived.Result.text: String get() =

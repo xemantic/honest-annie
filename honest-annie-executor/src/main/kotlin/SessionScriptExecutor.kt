@@ -20,12 +20,16 @@ package com.xemantic.annie.executor
 
 import com.xemantic.annie.Agency
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.InMemoryContents
 import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.Execution
 import com.xemantic.annie.Invocation
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Python
 import com.xemantic.annie.ScriptExecutor
+import com.xemantic.annie.data
+import com.xemantic.annie.of
+import com.xemantic.annie.text
 import com.xemantic.annie.invocation
 import com.xemantic.annie.readNumbered
 import com.xemantic.kotlin.introspection.KotlinIntrospector
@@ -98,19 +102,23 @@ class SessionScriptExecutor(
         intent: Phenomenon.Intent,
         agency: Agency
     ): ExecutedIntent {
-        return when (intent.language) {
-            Phenomenon.Intent.Language.KOTLIN -> kotlin(intent.script, intent.timeout, agency)
-            Phenomenon.Intent.Language.PYTHON -> ExecutedIntent(python(intent.script, intent.timeout))
-            Phenomenon.Intent.Language.BASH -> ExecutedIntent(bash(intent.script, intent.timeout ?: 1.minutes))
+        // what the intent creates, sent along its result, see ExecutedIntent.contents
+        val contents = InMemoryContents()
+        val executed = when (intent.language) {
+            Phenomenon.Intent.Language.KOTLIN -> kotlin(intent.script, intent.timeout, agency, contents)
+            Phenomenon.Intent.Language.PYTHON -> ExecutedIntent(python(intent.script, intent.timeout, contents))
+            Phenomenon.Intent.Language.BASH -> ExecutedIntent(bash(intent.script, intent.timeout ?: 1.minutes, contents))
         }
+        return executed.copy(contents = contents.of(executed.result + executed.output))
     }
 
     private suspend fun kotlin(
         script: String,
         timeout: Duration?,
-        agency: Agency
+        agency: Agency,
+        contents: InMemoryContents
     ): ExecutedIntent {
-        val collecting = ExecutorAgency(agency, this, introspector, http)
+        val collecting = ExecutorAgency(agency, this, introspector, http, contents)
         this.agency.current = collecting
         val result: ScriptResult? = try {
             if (!imported) {
@@ -124,7 +132,7 @@ class SessionScriptExecutor(
         }
         val printed = if (interpreter.isInitialized()) interpreter.value.printed() else null
         val phenomena = buildList {
-            printed?.let { add(Phenomenon.Text("Printed by Python:\n${it.digest("")}", "text/plain")) }
+            printed?.let { add(contents.text("Printed by Python:\n${it.digest("")}", "text/plain")) }
             addAll(
                 when (result) {
                     null -> listOf(Phenomenon.Impediment(timedOut(timeout!!)))
@@ -132,13 +140,16 @@ class SessionScriptExecutor(
                     is ScriptResult.Value -> listOfNotNull(
                         when (val value = result.value) {
                             null, Unit -> null
-                            is Phenomenon.Data -> value
+                            // e.g. an image to see
+                            is ByteArray -> contents.data(value)
+                            // e.g. one of the cogitation, its content kept by the harness
+                            is Phenomenon.Text, is Phenomenon.Data -> value as Phenomenon
                             // e.g. `prompts.map { agency.invoke(it) }`
                             is Iterable<*> if value.any() && value.all { it == Unit } -> null
-                            else -> Phenomenon.Text(value.toString().digest(VALUE_OMISSION), "text/plain")
+                            else -> contents.text(value.toString().digest(VALUE_OMISSION), "text/plain")
                         },
                         result.resolvedVersions.takeIf { it.isNotEmpty() }?.let { versions ->
-                            Phenomenon.Text(
+                            contents.text(
                                 versions.entries.joinToString(prefix = "Resolved dependency versions: ") { (dependency, version) ->
                                     "$dependency:$version"
                                 },
@@ -158,7 +169,7 @@ class SessionScriptExecutor(
      * Once the [timeout] elapses, it is no longer awaited, as the Python of the intents cannot be interrupted,
      * so that the script runs on to its end, and the next intents using Python wait for it.
      */
-    private suspend fun python(script: String, timeout: Duration?): List<Phenomenon> {
+    private suspend fun python(script: String, timeout: Duration?, contents: InMemoryContents): List<Phenomenon> {
         val python = try {
             interpreter.value
         } catch (e: IllegalStateException) {
@@ -177,9 +188,9 @@ class SessionScriptExecutor(
         // what it printed is taken only once it ended, as the Python of the intents runs one call at a time
         if (value == null) return listOf(Phenomenon.Impediment(timedOut(timeout!!)))
         return listOfNotNull(
-            python.printed()?.let { Phenomenon.Text(it.digest(""), "text/plain") },
+            python.printed()?.let { contents.text(it.digest(""), "text/plain") },
             value.fold(
-                onSuccess = { repr -> repr?.let { Phenomenon.Text(it.digest(""), "text/plain") } },
+                onSuccess = { repr -> repr?.let { contents.text(it.digest(""), "text/plain") } },
                 onFailure = { e -> Phenomenon.Impediment((e.message ?: e.toString()).digest()) }
             )
         )
@@ -189,7 +200,7 @@ class SessionScriptExecutor(
      * The result of the bash [script] of an intent, executed as a process, destroyed once the [timeout] elapses:
      * what it wrote to its standard output, and to its standard error, followed by its exit code.
      */
-    private suspend fun bash(script: String, timeout: Duration): List<Phenomenon> {
+    private suspend fun bash(script: String, timeout: Duration, contents: InMemoryContents): List<Phenomenon> {
         val execution = runInterruptible {
             executeProcess(listOf("bash", "-c", script), timeout = timeout, maxOutputLength = MAX_PROCESS_OUTPUT_LENGTH)
         }
@@ -198,7 +209,7 @@ class SessionScriptExecutor(
             execution.error.trimEnd().ifEmpty { null }?.let { "standard error:\n$it" },
             execution.exitCode?.let { "exit code: $it" } ?: "destroyed as its timeout of $timeout elapsed"
         ).joinToString("\n")
-        return listOf(Phenomenon.Text(text.digest(""), "text/plain"))
+        return listOf(contents.text(text.digest(""), "text/plain"))
     }
 
     private val closed = AtomicBoolean(false)
@@ -410,7 +421,8 @@ private class ExecutorAgency(
     private val agency: Agency,
     private val executor: SessionScriptExecutor,
     private val introspector: KotlinIntrospector,
-    override val http: HttpClient
+    override val http: HttpClient,
+    private val contents: InMemoryContents
 ) : Agency by agency {
 
     @Volatile
@@ -444,12 +456,12 @@ private class ExecutorAgency(
     // refused once sealed, as the output of the intent is already returned to the harness
     override suspend fun enunciate(text: String, contentType: String) {
         checkNotSealed()
-        output += Phenomenon.Text(text, contentType)
+        output += contents.text(text, contentType)
     }
 
     override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
         checkNotSealed()
-        output += Phenomenon.Data(bytes, contentType)
+        output += contents.data(bytes, contentType)
     }
 
     override suspend fun impede(reason: String) {
@@ -519,5 +531,9 @@ internal class SwitchedAgency : Agency {
     ) = current.execute(command, input, directory, environment, timeout)
 
     override suspend fun read(path: String, vararg lines: IntRange) = current.read(path, *lines)
+
+    override suspend fun readText(phenomenon: Phenomenon, vararg lines: IntRange) = current.readText(phenomenon, *lines)
+
+    override suspend fun readBytes(phenomenon: Phenomenon) = current.readBytes(phenomenon)
 
 }

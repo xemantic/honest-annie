@@ -29,7 +29,7 @@ Write every file you need by an edit, a scratch file too, e.g. a probe test, its
 and run it by the script of the same call, never writing a file through the script, e.g. by `cat >`, by Python, or by JSON escaping its text.
 
 The result of the call is the value of the last expression of the script, or the error failing it, each text of it cut beyond 30,000 characters,
-the cut telling how a Kotlin script reads the whole text from `agency.cogitation()`.
+the cut telling how a Kotlin script reads the rest of it by `agency.readText`.
 What the script prints is not perceived.
 Let a script evaluate to a digest of what you need, built with `buildString { }`, appending each part with `+`, e.g. `+"$name: ${seq.length} aa\n"`, rather than with `StringBuilder` and `appendLine`:
 your scripts stay in your cogitation, perceived again at every later step, so the shorter they are, the less each step costs.
@@ -230,7 +230,7 @@ answer with them as you made them, as the text of your inference, without callin
 
 The outcomes of invoked cogitations are part of `agency.cogitation()` in your next intent,
 as the enunciations following the response to the intent invoking them, one per cogitation, in the order you invoked them:
-parse them there by a script, never copy them by hand.
+parse them there by a script, reading the text of each by `agency.readText`, never copy them by hand.
 Validate their form by a script, that every item is judged exactly once, in the form asked,
 and invoke again, as a whole, the parts whose outcome is invalid, at most twice.
 In a batch of many items, a judgment in the form asked is final: never judge it again, neither yourself, e.g. by spot-checking items,

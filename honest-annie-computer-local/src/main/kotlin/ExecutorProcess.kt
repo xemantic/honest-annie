@@ -60,7 +60,7 @@ class ExecutorProcess(
 
     private val requests = process.outputWriter(Charsets.UTF_8)
 
-    /** The responses to each execution pending, its recalls before its outcome, see [request]. */
+    /** The responses to each execution pending, its recalls and loads before its outcome, see [request]. */
     private val pending = ConcurrentHashMap<String, Channel<ExecutorResponse>>()
 
     private val lock = Any()
@@ -115,7 +115,7 @@ class ExecutorProcess(
     }
 
     /**
-     * Sends the [request], awaiting its outcome, answering the recalls of the intent from the [context] meanwhile,
+     * Sends the [request], awaiting its outcome, answering the recalls and the loads of the intent from the [context] meanwhile,
      * cancelling the request when the waiting is cancelled, or the [context] fails.
      */
     private suspend fun request(request: ExecutorRequest.Execute, context: IntentContext): ExecutorResponse {
@@ -138,6 +138,7 @@ class ExecutorProcess(
                             val cogitation = if (response.parent) context.parentCogitation() else context.cogitation()
                             send(ExecutorRequest.Recalled(response.recall, cogitation))
                         }
+                        is ExecutorResponse.Load -> send(ExecutorRequest.Loaded(response.load, context.content(response.ref)))
                         else -> outcome = response
                     }
                 }
@@ -162,8 +163,8 @@ class ExecutorProcess(
         // the edits are applied by the executor, to the files of its computer
         override suspend fun execute(intent: Phenomenon.Intent, context: IntentContext): ExecutedIntent =
             when (val response = request(ExecutorRequest.Execute(randomId(), id, intent), context)) {
-                is ExecutorResponse.Executed -> ExecutedIntent(response.result, response.output, response.invoked)
-                is ExecutorResponse.Recall -> error("A recall is answered by the request, never its outcome")
+                is ExecutorResponse.Executed -> ExecutedIntent(response.result, response.output, response.invoked, response.contents)
+                is ExecutorResponse.Recall, is ExecutorResponse.Load -> error("A recall or a load is answered by the request, never its outcome")
                 is ExecutorResponse.Failed -> throw IllegalStateException(
                     "The executor failed to execute the intent:\n${response.reason}"
                 )
