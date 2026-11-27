@@ -991,7 +991,7 @@ class HarnessTest {
                     independent += cogitation
                     return Cognized(listOf(
                         if (cogitation.enunciations.size == 1) {
-                            Phenomenon.Intent(script = "\"${'$'}{agency.parentCogitation() == null} ${'$'}{agency.cogitation().depth}\"")
+                            Phenomenon.Intent(script = "\"${'$'}{agency.ancestorCogitations().isEmpty()} ${'$'}{agency.cogitation().depth}\"")
                         } else if (cogitation.enunciations.size == 3) {
                             Phenomenon.Intent(script = "answer")
                         } else {
@@ -1021,6 +1021,56 @@ class HarnessTest {
         val told = independent[1].enunciations.last().phenomena.first()
         assert(told == text("true 0", "text/plain"))
         assert(independent[2].enunciations.last().phenomena.first() is Phenomenon.Impediment)
+    }
+
+    /**
+     * Invokes a child, which invokes a grandchild, [independent] when so, the grandchild telling its ancestors,
+     * their depths and the first text of each, by the [ancestorsIntent], recorded in the [told].
+     */
+    private class AncestryCognizer(private val independent: Boolean) : Cognizer {
+        val told = mutableListOf<Phenomenon>()
+        override suspend fun cognize(cogitation: Cogitation): Cognized {
+            val prompt = cogitation.enunciations.first().phenomena.first()
+            val first = cogitation.enunciations.size == 1
+            return Cognized(listOf(when (prompt) {
+                text("sub") ->
+                    if (first) Phenomenon.Intent(script = "agency.invoke(\"subsub\")") else text("child")
+                text("subsub") ->
+                    if (first) Phenomenon.Intent(script = ancestorsIntent)
+                    else text("grandchild").also { told += cogitation.enunciations.last().phenomena.first() }
+                else ->
+                    if (first) Phenomenon.Intent(script = "agency.invoke(\"sub\", independent = $independent)") else text("Done.")
+            }))
+        }
+        private val ancestorsIntent = """
+            agency.ancestorCogitations().map {
+                "${'$'}{it.depth} ${'$'}{agency.readText(it.enunciations.first().phenomena.first())}"
+            }.joinToString(" | ")
+        """.trimIndent()
+    }
+
+    @Test
+    fun `should tell the ancestors of a cogitation as the path from the root to its parent`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = AncestryCognizer(independent = false)
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        assert(cognizer.told == listOf(text("0 test | 1 sub", "text/plain")))
+    }
+
+    @Test
+    fun `should tell no ancestors beyond an independent cogitation`() = runTest(timeout = 5.minutes) {
+        // given
+        val cognizer = AncestryCognizer(independent = true)
+
+        // when
+        cognize(cognizer, cogitation())
+
+        // then
+        assert(cognizer.told == listOf(text("0 sub", "text/plain")))
     }
 
     @Test

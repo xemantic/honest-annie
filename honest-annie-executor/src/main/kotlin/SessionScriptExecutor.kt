@@ -502,7 +502,7 @@ internal class SwitchedAgency : Agency {
     lateinit var current: Agency
 
     override suspend fun cogitation(): Cogitation = current.cogitation()
-    override suspend fun parentCogitation(): Cogitation? = current.parentCogitation()
+    override suspend fun ancestorCogitations(): List<Cogitation> = current.ancestorCogitations()
     override val python: Python get() = current.python
     override val http: HttpClient get() = current.http
 

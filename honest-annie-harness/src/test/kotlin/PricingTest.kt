@@ -73,6 +73,43 @@ class PricingTest {
     }
 
     @Test
+    fun `should cost inference of Claude Haiku 5_5 of a prompt of 100K tokens at the lower rate card`() {
+        // when
+        // the prompt, of the input, the cache read and the cache written, being 100,000 tokens
+        val cost = Inference(
+            model = "claude-haiku-5-5",
+            provider = "anthropic",
+            tokens = mapOf(
+                Tokens.INPUT to 10L,
+                Tokens.CACHE_READ to 90_000L,
+                Tokens.CACHE_WRITE_5M to 9_990L,
+                Tokens.OUTPUT to 1_000L
+            )
+        ).cost
+
+        // then
+        assert(cost == Money("0.00264975"))
+    }
+
+    @Test
+    fun `should cost inference of Claude Haiku 5_5 of a prompt longer than 100K tokens at the higher rate card`() {
+        // when
+        val cost = Inference(
+            model = "claude-haiku-5-5",
+            provider = "anthropic",
+            tokens = mapOf(
+                Tokens.INPUT to 11L,
+                Tokens.CACHE_READ to 90_000L,
+                Tokens.CACHE_WRITE_5M to 9_990L,
+                Tokens.OUTPUT to 1_000L
+            )
+        ).cost
+
+        // then
+        assert(cost == Money("0.01324925"))
+    }
+
+    @Test
     fun `should cost writing to cache living 1 hour twice the input`() {
         // when
         val cost = Inference(

@@ -32,7 +32,7 @@ class InProcessComputerProviderTest {
 
     private val contents = InMemoryContents()
 
-    private val context = IntentContext(Cogitation(constitution = "", enunciations = emptyList(), depth = 2), parentCogitation = null, contents = contents)
+    private val context = IntentContext(Cogitation(constitution = "", enunciations = emptyList(), depth = 2), ancestorCogitations = emptyList(), contents = contents)
 
     @Test
     fun `should execute intents in the process of the host, the declarations of each REPL apart`() = runTest(timeout = 5.minutes) {

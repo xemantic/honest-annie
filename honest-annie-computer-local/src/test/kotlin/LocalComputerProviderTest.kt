@@ -43,7 +43,7 @@ class LocalComputerProviderTest {
 
     private val contents = InMemoryContents()
 
-    private val context = IntentContext(Cogitation(constitution = "", enunciations = emptyList()), parentCogitation = null, contents = contents)
+    private val context = IntentContext(Cogitation(constitution = "", enunciations = emptyList()), ancestorCogitations = emptyList(), contents = contents)
 
     private val pid = Phenomenon.Intent(script = "ProcessHandle.current().pid()")
 

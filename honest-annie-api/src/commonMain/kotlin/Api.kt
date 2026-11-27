@@ -25,17 +25,17 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 interface Agency {
-    /** current cogitation */
+    /** current */
     suspend fun cogitation(): Cogitation
-    /** null for the root */
-    suspend fun parentCogitation(): Cogitation?
+    /** The path from the root, or from an `independent` one, see [invoke], to the parent, empty for the root */
+    suspend fun ancestorCogitations(): List<Cogitation>
     /**
      * Invokes a child-cogitation under the [constitution], its first enunciation being the [prompt].
      *
      * Returns immediately: once the current intent is executed, the cogitations it invoked unfold, and the current one awaits them,
-     * perceiving their outcomes once all of them rest, in the order they were invoked, see [Cogitation].
+     * perceiving their outcomes once all of them rest, in the order they were invoked.
      *
-     * @param constitution of the invoked cogitation, the one of the current cogitation when `null`.
+     * @param constitution when null, the same as the current constitution
      * @param computer the type of a new computer to start for it, one the host offers, otherwise it runs on the computer of the [repl].
      * @param repl the name of the REPL to run in, the one of that name of the cogitations of the tree, on the computer it is open on,
      * otherwise opened on the current computer, or on the new [computer], its first REPL, reached by the intents naming it, see [Phenomenon.Intent.repl].
@@ -65,7 +65,7 @@ interface Agency {
     suspend fun resolveDeclaration(name: String, page: Int = 1, pageSize: Int = 10): String?
     suspend fun searchDeclarations(query: String, page: Int = 1, pageSize: Int = 10): String?
     /**
-     * Executes the [command] as a process of the user's computer, e.g. `listOf("bash", "-c", script)`, see [bash],
+     * Executes the [command] as a process,
      * writing the [input] to its standard input, in the [directory], with the [environment] added to the inherited one.
      * Suspends until the process exits, and its outputs are read.
      * The process is destroyed, together with its descendants, when the [timeout] elapses,

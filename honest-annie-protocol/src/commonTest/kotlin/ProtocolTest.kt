@@ -51,8 +51,8 @@ class ProtocolTest {
         val requests = listOf(
             execute,
             python,
-            ExecutorRequest.Recalled("recall-1", cogitation),
-            ExecutorRequest.Recalled("recall-2", null),
+            ExecutorRequest.Recalled("recall-1", listOf(cogitation)),
+            ExecutorRequest.Recalled("recall-2", emptyList()),
             ExecutorRequest.Loaded("load-1", byteArrayOf(0, -1, 127, 0x1E)),
             ExecutorRequest.Loaded("load-2", null),
             ExecutorRequest.Cancel("request-1"),
@@ -84,7 +84,7 @@ class ProtocolTest {
                 ),
                 contents = mapOf(two.ref to twoContent, image.ref to imageContent)
             ),
-            ExecutorResponse.Recall(id = "request-3", recall = "recall-1", parent = true),
+            ExecutorResponse.Recall(id = "request-3", recall = "recall-1", ancestors = true),
             ExecutorResponse.Load(id = "request-3", load = "load-1", ref = two.ref),
             ExecutorResponse.Failed(id = "request-2", reason = "No session\nat all")
         )

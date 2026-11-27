@@ -59,11 +59,14 @@ sealed interface ExecutorRequest {
         val intent: Phenomenon.Intent
     ) : ExecutorRequest
 
-    /** The [cogitation] the [ExecutorResponse.Recall] of the [recall] id asks for. */
+    /**
+     * The [cogitations] the [ExecutorResponse.Recall] of the [recall] id asks for:
+     * the single cogitation of the intent, or its ancestor ones, see [IntentContext.ancestorCogitations].
+     */
     @Serializable
     data class Recalled(
         val recall: String,
-        val cogitation: Cogitation?
+        val cogitations: List<Cogitation>
     ) : ExecutorRequest
 
     /** The [content] the [ExecutorResponse.Load] of the [load] id asks for, `null` when the harness keeps none of its ref. */
@@ -89,21 +92,21 @@ sealed interface ExecutorRequest {
 }
 
 /**
- * What the agency of the harness tells of the cogitation of an intent, see [Agency.cogitation] and [Agency.parentCogitation],
+ * What the agency of the harness tells of the cogitation of an intent, see [Agency.cogitation] and [Agency.ancestorCogitations],
  * and the content of its texts and data, see [Contents],
  * recalled by an executor of another process only when the intent asks for it, see [ExecutorResponse.Recall] and [ExecutorResponse.Load].
  */
 interface IntentContext {
     suspend fun cogitation(): Cogitation
-    suspend fun parentCogitation(): Cogitation?
+    suspend fun ancestorCogitations(): List<Cogitation>
     /** The content of the [ref], see [Phenomenon.Text.ref], `null` when the harness keeps none. */
     suspend fun content(ref: String): ByteArray?
 }
 
 /** The [IntentContext] of cogitations at hand, and of the [contents] of their phenomena, e.g. of a REPL in the process of the harness itself. */
-fun IntentContext(cogitation: Cogitation, parentCogitation: Cogitation?, contents: Contents): IntentContext = object : IntentContext {
+fun IntentContext(cogitation: Cogitation, ancestorCogitations: List<Cogitation>, contents: Contents): IntentContext = object : IntentContext {
     override suspend fun cogitation(): Cogitation = cogitation
-    override suspend fun parentCogitation(): Cogitation? = parentCogitation
+    override suspend fun ancestorCogitations(): List<Cogitation> = ancestorCogitations
     override suspend fun content(ref: String): ByteArray? = contents.content(ref)
 }
 
@@ -114,14 +117,14 @@ sealed interface ExecutorResponse {
     val id: String
 
     /**
-     * Recalls the cogitation of the intent executing, or its parent one when [parent], see [IntentContext],
+     * Recalls the cogitation of the intent executing, or its ancestor ones when [ancestors], see [IntentContext],
      * answered by [ExecutorRequest.Recalled] of the same [recall] id, the intent still executing.
      */
     @Serializable
     data class Recall(
         override val id: String,
         val recall: String,
-        val parent: Boolean = false
+        val ancestors: Boolean = false
     ) : ExecutorResponse
 
     /**

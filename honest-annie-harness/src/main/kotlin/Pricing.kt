@@ -29,15 +29,26 @@ import java.math.BigDecimal
  * The prices of the tokens of a model, in US dollars, by their category, computed exactly, without floating point.
  *
  * @param perMillion the price of a million tokens of each category, e.g. `"8"`.
+ * @param longPrompt the pricing of an inference whose prompt, the input, read from the cache or written to it, is longer than that many tokens,
+ * e.g. of Claude Haiku 5.5, chosen by the tokens of each inference on their own.
  */
-class Pricing(perMillion: Map<Tokens, BigDecimal>) {
+class Pricing(
+    perMillion: Map<Tokens, BigDecimal>,
+    private val longPrompt: Pair<Long, Pricing>? = null
+) {
 
     private val perToken = perMillion.mapValues { (_, price) -> Money.Ratio(price.movePointLeft(6).toPlainString()) }
 
     /** The cost of the [tokens], or `null` when a category of them has no price. */
-    fun cost(tokens: Map<Tokens, Long>): Money? = tokens.entries.fold(Money.ZERO as Money?) { cost, (category, count) ->
-        val price = perToken[category] ?: return null
-        cost?.plus(Money(count.toString()) * price)
+    fun cost(tokens: Map<Tokens, Long>): Money? {
+        if (longPrompt != null) {
+            val (length, pricing) = longPrompt
+            if (tokens.filterKeys { it in promptTokens }.values.sum() > length) return pricing.cost(tokens)
+        }
+        return tokens.entries.fold(Money.ZERO as Money?) { cost, (category, count) ->
+            val price = perToken[category] ?: return null
+            cost?.plus(Money(count.toString()) * price)
+        }
     }
 
     companion object {
@@ -47,9 +58,9 @@ class Pricing(perMillion: Map<Tokens, BigDecimal>) {
          * for 5 minutes, also when the lifetime is not reported, and at 2 times for 1 hour,
          * the reasoning being output.
          */
-        fun claude(input: String, output: String, cacheRead: String): Pricing {
+        fun claude(input: String, output: String, cacheRead: String, longPrompt: Pair<Long, Pricing>? = null): Pricing {
             val base = BigDecimal(input)
-            return Pricing(mapOf(
+            return Pricing(longPrompt = longPrompt, perMillion = mapOf(
                 Tokens.INPUT to base,
                 Tokens.CACHE_READ to BigDecimal(cacheRead),
                 Tokens.CACHE_WRITE to base * BigDecimal("1.25"),
@@ -64,6 +75,9 @@ class Pricing(perMillion: Map<Tokens, BigDecimal>) {
 
 }
 
+/** The categories of the tokens of a prompt, see [Pricing.longPrompt]. */
+private val promptTokens = setOf(Tokens.INPUT, Tokens.CACHE_READ, Tokens.CACHE_WRITE, Tokens.CACHE_WRITE_5M, Tokens.CACHE_WRITE_1H)
+
 /**
  * The list prices of the standard tier, by the provider and the canonical id of the model,
  * the costs they give being the ones Claude Code reports for the same usage.
@@ -73,7 +87,11 @@ val prices: Map<Pair<String, String>, Pricing> = mapOf(
     ("anthropic" to "claude-fable-5-2") to Pricing.claude(input = "8", output = "40", cacheRead = "0.20"),
     ("anthropic" to "claude-fable-5-1") to Pricing.claude(input = "10", output = "50", cacheRead = "0.25"),
     ("anthropic" to "claude-opus-5-5") to Pricing.claude(input = "4", output = "20", cacheRead = "0.20"),
-    ("anthropic" to "claude-sonnet-5-5") to Pricing.claude(input = "2", output = "10", cacheRead = "0.10")
+    ("anthropic" to "claude-sonnet-5-5") to Pricing.claude(input = "2", output = "10", cacheRead = "0.10"),
+    ("anthropic" to "claude-haiku-5-5") to Pricing.claude(
+        input = "0.10", output = "0.50", cacheRead = "0.01",
+        longPrompt = 100_000L to Pricing.claude(input = "0.50", output = "2.50", cacheRead = "0.05")
+    )
 )
 
 /** The cost of this inference in US dollars at the list [prices], or `null` when its model or provider has none. */

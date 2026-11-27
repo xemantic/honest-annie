@@ -206,6 +206,7 @@ the others waiting in the queue.
 For the time being every computer, whatever its type, is the one honest-annie runs on,
 each started computer only getting REPLs of its own.
 An inference calling no tool answers with its text, which rests the cogitation.
+The process exits with 1 when the root cogitation rests impeded, e.g. by an invalid API key, its impediment still printed as the output.
 `ANNIE_EFFORT` sets how much effort the model puts into its reasoning and response,
 one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`,
 mapped to the nearest level the model supports, its default when not set.

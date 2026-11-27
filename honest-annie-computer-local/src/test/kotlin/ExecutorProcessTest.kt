@@ -64,7 +64,7 @@ class ExecutorProcessTest {
         depth = 1
     )
 
-    private val context = IntentContext(cogitation, parentCogitation = null, contents = contents)
+    private val context = IntentContext(cogitation, ancestorCogitations = emptyList(), contents = contents)
 
     private suspend fun Repl.execute(script: String): ExecutedIntent = execute(Phenomenon.Intent(script = script), context)
 
@@ -91,7 +91,7 @@ class ExecutorProcessTest {
         val recalled = mutableListOf<String>()
         val recording = object : IntentContext {
             override suspend fun cogitation() = cogitation.also { recalled += "cogitation" }
-            override suspend fun parentCogitation() = cogitation.copy(depth = 0).also { recalled += "parent" }
+            override suspend fun ancestorCogitations() = listOf(cogitation.copy(depth = 0)).also { recalled += "ancestors" }
             override suspend fun content(ref: String) = contents.content(ref).also { recalled += "content" }
         }
         val session = executor.repl()
@@ -100,14 +100,14 @@ class ExecutorProcessTest {
         val unasked = session.execute(Phenomenon.Intent(script = "6 * 7"), recording).result
         val unaskedRecalls = recalled.toList()
         val asked = session.execute(
-            Phenomenon.Intent(script = "\"${'$'}{agency.cogitation().depth} ${'$'}{agency.parentCogitation()?.depth}\""), recording
+            Phenomenon.Intent(script = "\"${'$'}{agency.cogitation().depth} ${'$'}{agency.ancestorCogitations().map { it.depth }}\""), recording
         ).result
 
         // then
         assert(unasked == listOf(text("42", "text/plain")))
         assert(unaskedRecalls.isEmpty())
-        assert(asked == listOf(text("1 0", "text/plain")))
-        assert(recalled == listOf("cogitation", "parent"))
+        assert(asked == listOf(text("1 [0]", "text/plain")))
+        assert(recalled == listOf("cogitation", "ancestors"))
     }
 
     @Test

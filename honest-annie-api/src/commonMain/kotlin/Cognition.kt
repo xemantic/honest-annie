@@ -184,6 +184,8 @@ data class Enunciation(
     val isOutput: Boolean get() = actant == Actant.SELF && respondsTo == null
             && phenomena.none { it is Phenomenon.Intent } && phenomena.any { it !is Phenomenon.Monologue }
             && (inference == null || phenomena.none { it is Phenomenon.Impediment })
+    /** Whether this is the outcome of a cogitation invoked by this one, its output, enunciated by [Actant.SELF] responding to the invocation. */
+    val isOutcome: Boolean get() = actant == Actant.SELF && respondsTo != null
 }
 
 /**

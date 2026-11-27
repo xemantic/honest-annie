@@ -465,7 +465,7 @@ class HarnessHost(
 
     /**
      * [Agency] of a single step of the harness unfolding the [unfolding],
-     * acting only within the cogitations: telling them, the [parent] one loaded only when asked for.
+     * acting only within the cogitations: telling them, the ones from the root to the [parent] loaded only when asked for.
      * What an intent does on a computer, e.g. executing a process, and what it invokes and enunciates, the executor of the intent does,
      * through the agency it provides the intent with, see [ScriptExecutor].
      */
@@ -477,7 +477,15 @@ class HarnessHost(
 
         override suspend fun cogitation(): Cogitation = unfolding.cogitation
 
-        override suspend fun parentCogitation(): Cogitation? = parent?.let { store.load(it)?.cogitation }
+        override suspend fun ancestorCogitations(): List<Cogitation> = buildList {
+            var id = parent
+            while (id != null) {
+                val ancestor = store.load(id) ?: break
+                add(ancestor.cogitation)
+                id = ancestor.parent?.takeUnless { ancestor.invocation?.independent == true }
+            }
+            reverse()
+        }
 
         override suspend fun invoke(
             prompt: String,
