@@ -434,7 +434,7 @@ class TurnsTest {
                 "<annie:text content-type=\"text/plain\"/>\nshort\n\n" +
                 "<annie:text content-type=\"text/plain\"/>\n" + "a".repeat(30_000) +
                 "\n… 10 more characters omitted, the whole text being " +
-                "`(agency.cogitation.enunciations[2].phenomena[1] as Phenomenon.Text).text` in a Kotlin script"
+                "`(agency.cogitation().enunciations[2].phenomena[1] as Phenomenon.Text).text` in a Kotlin script"
         )))
     }
 

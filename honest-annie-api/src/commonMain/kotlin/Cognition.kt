@@ -61,7 +61,7 @@ sealed interface Phenomenon {
      * a bash process is destroyed, while a Kotlin or Python script blocking its thread, rather than suspending, runs to its end,
      * and the next intents wait for it.
      * Its result is kept whole in the cogitation, while the cognizer perceives at most 30,000 characters of each text of it,
-     * the cut telling where in `agency.cogitation` the whole text is.
+     * the cut telling where in `agency.cogitation()` the whole text is.
      * A [Text] the cognizer expresses along it, in the same enunciation, is its commentary, not an output.
      * The cognizer expresses it by calling the only tool it is offered, whose result is the response,
      * the call being replayed with the [id] of the intent, rather than the one the cognizer gave it.
@@ -100,6 +100,7 @@ sealed interface Phenomenon {
      * Request to unfold a new cogitation, see [Agency.invoke], also used as the id of that cogitation.
      * Its outcome is perceived later, as an [Enunciation] responding to this [id], see [Cogitation].
      *
+     * @property constitution of the invoked cogitation, `null` when it is the one of its invoker.
      * @property computer the new computer started for the invoked cogitation, `null` when it runs on the one of its invoker.
      * @property repl the REPL the invoked cogitation runs in, `null` when it is the one of its invoker,
      * the first one of the [computer] when a new one is started.
@@ -109,7 +110,7 @@ sealed interface Phenomenon {
     data class Invocation(
         override val id: String,
         val prompt: String,
-        val constitution: String,
+        val constitution: String? = null,
         val computer: Computer? = null,
         val repl: String? = null,
         val independent: Boolean = false
@@ -255,18 +256,19 @@ data class Computer(
  * A cogitation is unfolded by the harness, the `unfold` function of `Harness.kt`, compiled into honest-annie,
  * whose source is part of the [constitution], and called by the host at each step with:
  * - `agency`: [Agency] within this cogitation, its [Agency.cogitation] being the one to unfold,
+ *   local to the host, unlike for the intents, whose agency fetches it from the host,
  * - `cognizer`: `Cognizer` of the package `com.xemantic.annie.harness.cognizer`, whose
  *   `suspend fun cognize(cogitation: Cogitation): Cognized` makes a single inference, returning
  *   `data class Cognized(val phenomena: List<Phenomenon>, val inference: Inference? = null)`:
  *   the phenomena to be enunciated by [Actant.SELF], e.g. a [Phenomenon.Monologue], a [Phenomenon.Text] and a [Phenomenon.Intent],
  *   and the [Inference] expressing them, to be carried by that enunciation,
  * - `executor`: `ScriptExecutor`, whose
- *   `suspend fun execute(intent: Phenomenon.Intent, cogitation: Cogitation, agency: Agency): ExecutedIntent`
- *   executes an intent expressed in the `cogitation`: it applies the edits of the `intent` first, all of them or none,
+ *   `suspend fun execute(intent: Phenomenon.Intent, agency: Agency): ExecutedIntent`
+ *   executes an intent expressed in the [Agency.cogitation] of the `agency`: it applies the edits of the `intent` first, all of them or none,
  *   returning where each one was applied as a [Phenomenon.Text], or only the [Phenomenon.Impediment] of the edit failing,
  *   no file being changed, and the script not executed; then it executes the script, unless blank,
  *   in the [Phenomenon.Intent.language] of the intent, a Python or bash one acting through no agency, while a Kotlin one is executed
- *   in the session of the intents of this cogitation, providing it with the `agency`, whose [Agency.cogitation] is the given one,
+ *   in the session of the intents of this cogitation, providing it with the `agency`,
  *   collecting the invocations made through it, and returns
  *   `data class ExecutedIntent(val result: List<Phenomenon>, val output: List<Phenomenon>)`:
  *   the `result` of the intent, these invocations, in their order,

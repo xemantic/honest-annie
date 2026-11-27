@@ -38,11 +38,7 @@ class ProtocolTest {
     private val execute = ExecutorRequest.Execute(
         id = "request-1",
         session = "session-1",
-        intent = Phenomenon.Intent(edits = listOf(Edit(path = "a.py", new = "x = 1\n")), script = "1 + 1"),
-        context = IntentContext(
-            cogitation = cogitation,
-            parentCogitation = null
-        )
+        intent = Phenomenon.Intent(edits = listOf(Edit(path = "a.py", new = "x = 1\n")), script = "1 + 1")
     )
 
     @Test
@@ -52,7 +48,14 @@ class ProtocolTest {
             id = "request-2",
             intent = Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "print(1)", timeout = 90.seconds)
         )
-        val requests = listOf(execute, python, ExecutorRequest.Cancel("request-1"), ExecutorRequest.Close("session-1"))
+        val requests = listOf(
+            execute,
+            python,
+            ExecutorRequest.Recalled("recall-1", cogitation),
+            ExecutorRequest.Recalled("recall-2", null),
+            ExecutorRequest.Cancel("request-1"),
+            ExecutorRequest.Close("session-1")
+        )
 
         // when
         val lines = requests.map { it.encodeMessage() }
@@ -74,6 +77,7 @@ class ProtocolTest {
                 ),
                 output = listOf(Phenomenon.Data(byteArrayOf(1, 2, 3), "image/png"), Phenomenon.Impediment("stuck"))
             ),
+            ExecutorResponse.Recall(id = "request-3", recall = "recall-1", parent = true),
             ExecutorResponse.Failed(id = "request-2", reason = "No session\nat all")
         )
 

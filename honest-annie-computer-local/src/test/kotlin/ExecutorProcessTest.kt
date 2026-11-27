@@ -66,10 +66,34 @@ class ExecutorProcessTest {
 
         // when
         val result = session.execute(
-            "\"${'$'}{ProcessHandle.current().pid() != ${ProcessHandle.current().pid()}L} ${'$'}{agency.cogitation.depth}\"").result
+            "\"${'$'}{ProcessHandle.current().pid() != ${ProcessHandle.current().pid()}L} ${'$'}{agency.cogitation().depth}\"").result
 
         // then
         assert(result == listOf(Phenomenon.Text("true 1", "text/plain")))
+    }
+
+    @Test
+    fun `should recall the cogitations from the harness only when the intent asks for them`() = test {
+        // given
+        val recalled = mutableListOf<String>()
+        val recording = object : IntentContext {
+            override suspend fun cogitation() = cogitation.also { recalled += "cogitation" }
+            override suspend fun parentCogitation() = cogitation.copy(depth = 0).also { recalled += "parent" }
+        }
+        val session = executor.repl()
+
+        // when
+        val unasked = session.execute(Phenomenon.Intent(script = "6 * 7"), recording).result
+        val unaskedRecalls = recalled.toList()
+        val asked = session.execute(
+            Phenomenon.Intent(script = "\"${'$'}{agency.cogitation().depth} ${'$'}{agency.parentCogitation()?.depth}\""), recording
+        ).result
+
+        // then
+        assert(unasked == listOf(Phenomenon.Text("42", "text/plain")))
+        assert(unaskedRecalls.isEmpty())
+        assert(asked == listOf(Phenomenon.Text("1 0", "text/plain")))
+        assert(recalled == listOf("cogitation", "parent"))
     }
 
     @Test

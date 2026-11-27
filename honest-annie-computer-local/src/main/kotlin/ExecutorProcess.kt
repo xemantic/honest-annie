@@ -28,8 +28,7 @@ import com.xemantic.annie.decodeResponse
 import com.xemantic.annie.encodeMessage
 import com.xemantic.annie.randomId
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.SerializationException
 import java.io.IOException
 import java.lang.management.ManagementFactory
@@ -61,7 +60,8 @@ class ExecutorProcess(
 
     private val requests = process.outputWriter(Charsets.UTF_8)
 
-    private val pending = ConcurrentHashMap<String, CompletableDeferred<ExecutorResponse>>()
+    /** The responses to each execution pending, its recalls before its outcome, see [request]. */
+    private val pending = ConcurrentHashMap<String, Channel<ExecutorResponse>>()
 
     private val lock = Any()
 
@@ -85,7 +85,7 @@ class ExecutorProcess(
                 logger.info { "Executor process ${process.pid()} exited with $exitCode" }
                 synchronized(lock) {
                     exited = "The executor process exited with $exitCode"
-                    pending.values.forEach { it.completeExceptionally(IllegalStateException(exited)) }
+                    pending.values.forEach { it.close(IllegalStateException(exited)) }
                     pending.clear()
                 }
             }
@@ -103,7 +103,7 @@ class ExecutorProcess(
             logger.debug { "Executor process ${process.pid()} printed: $line" }
             return
         }
-        pending.remove(response.id)?.complete(response)
+        pending[response.id]?.trySend(response)
     }
 
     private fun send(request: ExecutorRequest) {
@@ -114,29 +114,43 @@ class ExecutorProcess(
         }
     }
 
-    /** Sends the [request], awaiting its response, cancelling the request when the waiting is cancelled. */
-    private suspend fun request(request: ExecutorRequest.Execute): ExecutorResponse {
-        val response = CompletableDeferred<ExecutorResponse>()
+    /**
+     * Sends the [request], awaiting its outcome, answering the recalls of the intent from the [context] meanwhile,
+     * cancelling the request when the waiting is cancelled, or the [context] fails.
+     */
+    private suspend fun request(request: ExecutorRequest.Execute, context: IntentContext): ExecutorResponse {
+        val responses = Channel<ExecutorResponse>(Channel.UNLIMITED)
         synchronized(lock) {
             exited?.let { throw IllegalStateException(it) }
-            pending[request.id] = response
+            pending[request.id] = responses
         }
         try {
-            send(request)
-        } catch (e: IOException) {
-            pending.remove(request.id)
-            throw IllegalStateException(exited ?: "The executor process does not accept requests: ${e.message}", e)
-        }
-        try {
-            return response.await()
-        } catch (e: CancellationException) {
-            pending.remove(request.id)
             try {
-                send(ExecutorRequest.Cancel(request.id))
-            } catch (_: IOException) {
-                // the process exited, cancelling everything
+                send(request)
+            } catch (e: IOException) {
+                throw IllegalStateException(exited ?: "The executor process does not accept requests: ${e.message}", e)
             }
-            throw e
+            var outcome: ExecutorResponse? = null
+            try {
+                while (outcome == null) {
+                    when (val response = responses.receive()) {
+                        is ExecutorResponse.Recall -> {
+                            val cogitation = if (response.parent) context.parentCogitation() else context.cogitation()
+                            send(ExecutorRequest.Recalled(response.recall, cogitation))
+                        }
+                        else -> outcome = response
+                    }
+                }
+                return outcome
+            } finally {
+                if (outcome == null && exited == null) try {
+                    send(ExecutorRequest.Cancel(request.id))
+                } catch (_: IOException) {
+                    // the process exited, cancelling everything
+                }
+            }
+        } finally {
+            pending.remove(request.id)
         }
     }
 
@@ -147,8 +161,9 @@ class ExecutorProcess(
 
         // the edits are applied by the executor, to the files of its computer
         override suspend fun execute(intent: Phenomenon.Intent, context: IntentContext): ExecutedIntent =
-            when (val response = request(ExecutorRequest.Execute(randomId(), id, intent, context))) {
+            when (val response = request(ExecutorRequest.Execute(randomId(), id, intent), context)) {
                 is ExecutorResponse.Executed -> ExecutedIntent(response.result, response.output)
+                is ExecutorResponse.Recall -> error("A recall is answered by the request, never its outcome")
                 is ExecutorResponse.Failed -> throw IllegalStateException(
                     "The executor failed to execute the intent:\n${response.reason}"
                 )

@@ -33,7 +33,7 @@ import com.xemantic.annie.ScriptExecutor
 // Each intent is executed as a Kotlin script in the session of the intents of the cogitation, stateful like a Kotlin notebook,
 // so that its declarations stay visible to the next intents. Its body suspends, calling suspend functions directly,
 // and the value of its last expression is its result. `agency` is provided: the Agency within the
-// cogitation, whose `cogitation` includes the enunciation carrying the intent, invoking new cogitations,
+// cogitation, whose `cogitation()` includes the enunciation carrying the intent, invoking new cogitations,
 // enunciating its output and resolving the Kotlin API.
 // An intent of the `language` python is executed by the Python of the intents, see `Agency.python`, and one of bash as a process,
 // neither of them through `agency`, their result being what they printed, and the value of the last line of Python,
@@ -75,7 +75,7 @@ internal suspend fun unfold(
     agency: Agency,
     allowance: () -> Allowance
 ): Cogitation {
-    val cogitation = agency.cogitation
+    val cogitation = agency.cogitation()
     val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
     val nothingPerceived = Phenomenon.Text(
         "The intent evaluated to nothing, and enunciated nothing, so that nothing of it is perceived, " +
@@ -130,7 +130,9 @@ internal suspend fun unfold(
         }
     } else {
         val initiated = Clock.System.now()
-        val (result, output) = executor.execute(intent, inferred, agency)
+        val (result, output) = executor.execute(intent, object : Agency by agency {
+            override suspend fun cogitation() = inferred
+        })
         val executed = Clock.System.now()
         val enunciated = if (output.isEmpty()) inferred else inferred + Enunciation(
             actant = Actant.SELF,

@@ -211,7 +211,7 @@ class HarnessHost(
             val started = Clock.System.now()
             val agency = HostedAgency(
                 unfolding = unfolding,
-                parentCogitation = unfolding.parent?.takeUnless { unfolding.invocation?.independent == true }?.let { store.load(it)?.cogitation },
+                parent = unfolding.parent?.takeUnless { unfolding.invocation?.independent == true },
                 runtime = runtime
             )
             val inferred = CopyOnWriteArrayList<Enunciation>()
@@ -319,7 +319,7 @@ class HarnessHost(
                     val child = store.load(invocation.id) ?: Unfolding(
                         id = invocation.id,
                         cogitation = Cogitation(
-                            constitution = invocation.constitution,
+                            constitution = invocation.constitution ?: unfolding.cogitation.constitution,
                             // an independent cogitation perceives itself as a root, see Agency.invoke
                             enunciations = listOf(Enunciation(
                                 actant = if (invocation.independent) unidentified else Actant.INVOKER,
@@ -426,20 +426,22 @@ class HarnessHost(
 
     /**
      * [Agency] of a single step of the harness unfolding the [unfolding], see [seal],
-     * acting only within the cogitations: invoking.
+     * acting only within the cogitations: invoking, and telling the cogitations, the [parent] one loaded only when asked for.
      * What an intent does on a computer, e.g. executing a process, and what it enunciates, the executor of the intent does,
      * through the agency it provides the intent with, see [ScriptExecutor].
      */
     private inner class HostedAgency(
         private val unfolding: Unfolding,
-        override val parentCogitation: Cogitation?,
+        private val parent: String?,
         private val runtime: Runtime
     ) : Agency {
 
         @Volatile
         private var sealed = false
 
-        override val cogitation: Cogitation = unfolding.cogitation
+        override suspend fun cogitation(): Cogitation = unfolding.cogitation
+
+        override suspend fun parentCogitation(): Cogitation? = parent?.let { store.load(it)?.cogitation }
 
         /** Seals this agency once the step of the harness is over. */
         fun seal() {
@@ -452,7 +454,7 @@ class HarnessHost(
 
         override suspend fun invoke(
             prompt: String,
-            constitution: String,
+            constitution: String?,
             computer: String?,
             repl: String?,
             independent: Boolean

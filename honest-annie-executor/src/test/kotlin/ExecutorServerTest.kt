@@ -35,12 +35,12 @@ class ExecutorServerTest {
 
     private val cogitation = Cogitation(constitution = "Be honest", enunciations = emptyList(), depth = 2)
 
-    private val context = IntentContext(
-        cogitation = cogitation,
-        parentCogitation = null
-    )
+    private val parentCogitation = Cogitation(constitution = "Be curious", enunciations = emptyList(), depth = 1)
 
-    /** Serves the requests sent to the channel of [block], whose responses it receives, until the block returns. */
+    /**
+     * Serves the requests sent to the channel of [block], whose responses it receives, until the block returns,
+     * answering the recalls of the intents like the harness, see [Serving.recalls].
+     */
     private fun serving(
         block: suspend Serving.() -> Unit
     ) = runBlocking(Dispatchers.IO) { withTimeout(5.minutes) {
@@ -50,7 +50,7 @@ class ExecutorServerTest {
             ExecutorServer { SessionScriptExecutor() }.serve(requests) { responses.trySend(it) }
         }
         try {
-            Serving(requests, responses).block()
+            Serving(requests, responses, cogitation, parentCogitation).block()
         } finally {
             requests.close()
             server.join()
@@ -59,15 +59,27 @@ class ExecutorServerTest {
 
     private class Serving(
         private val requests: Channel<String>,
-        private val responses: Channel<String>
+        private val responses: Channel<String>,
+        private val cogitation: Cogitation,
+        private val parentCogitation: Cogitation
     ) {
+        /** The recalls answered, in their order. */
+        val recalls = mutableListOf<ExecutorResponse.Recall>()
         suspend fun send(request: ExecutorRequest) = requests.send(request.encodeMessage())
         suspend fun send(line: String) = requests.send(line)
-        suspend fun receive(): ExecutorResponse = checkNotNull(decodeResponse(responses.receive()))
+        /** The next response other than a recall, the recalls before it answered. */
+        suspend fun receive(): ExecutorResponse {
+            while (true) {
+                val response = checkNotNull(decodeResponse(responses.receive()))
+                if (response !is ExecutorResponse.Recall) return response
+                recalls += response
+                send(ExecutorRequest.Recalled(response.recall, if (response.parent) parentCogitation else cogitation))
+            }
+        }
     }
 
     private fun execute(id: String, script: String, session: String = "session-1", edits: List<Edit> = emptyList()) =
-        ExecutorRequest.Execute(id = id, session = session, intent = Phenomenon.Intent(edits = edits, script = script), context = context)
+        ExecutorRequest.Execute(id = id, session = session, intent = Phenomenon.Intent(edits = edits, script = script))
 
     @Test
     fun `should respond with the result of the intent and what it enunciated`() = serving {
@@ -77,7 +89,7 @@ class ExecutorServerTest {
             agency.enunciate(byteArrayOf(4, 2), "image/png")
             agency.impede("stuck")
             agency.invoke("Count", "Be brief")
-            "${agency.cogitation.depth} ${agency.cogitation.constitution}"
+            "${agency.cogitation().depth} ${agency.cogitation().constitution}"
         """.trimIndent()))
         val response = receive() as ExecutorResponse.Executed
 
@@ -91,6 +103,25 @@ class ExecutorServerTest {
             Phenomenon.Data(byteArrayOf(4, 2), "image/png"),
             Phenomenon.Impediment("stuck")
         ))
+    }
+
+    @Test
+    fun `should recall the cogitations only when the intent asks for them`() = serving {
+        // when
+        send(execute("request-1", "6 * 7"))
+        val unasked = receive()
+        val unaskedRecalls = recalls.toList()
+        send(execute("request-2", $$"""
+            "${agency.cogitation().depth} ${agency.cogitation().constitution} ${agency.parentCogitation()?.depth} ${agency.parentCogitation()?.constitution}"
+        """.trimIndent()))
+        val asked = receive()
+
+        // then
+        assert(unasked == ExecutorResponse.Executed("request-1", result = listOf(Phenomenon.Text("42", "text/plain"))))
+        assert(unaskedRecalls.isEmpty())
+        assert(asked == ExecutorResponse.Executed("request-2", result = listOf(Phenomenon.Text("2 Be honest 1 Be curious", "text/plain"))))
+        // the cogitation of the intent recalled once, being the same for the whole intent, the parent one at each call
+        assert(recalls.map { it.id to it.parent } == listOf("request-2" to false, "request-2" to true, "request-2" to true))
     }
 
     @Test

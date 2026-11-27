@@ -31,21 +31,20 @@ package com.xemantic.annie
  */
 interface ScriptExecutor : AutoCloseable {
     /**
-     * Executes the Kotlin [script] of an intent expressed in the [cogitation], as an intent of nothing else, see the [execute] of an intent.
+     * Executes the Kotlin [script] of an intent of nothing else, see the [execute] of an intent.
      */
     suspend fun execute(
         script: String,
-        cogitation: Cogitation,
         agency: Agency
-    ): ExecutedIntent = execute(Phenomenon.Intent(script = script), cogitation, agency)
+    ): ExecutedIntent = execute(Phenomenon.Intent(script = script), agency)
 
     /**
-     * Executes the [intent] expressed in the [cogitation], e.g. `executor.execute(intent, inferred, agency)`:
+     * Executes the [intent] expressed in the [Agency.cogitation] of the [agency]:
      * its edits applied first, all of them or none, see [Phenomenon.Intent.edits],
      * then its script, unless an edit failed, or the script is blank, in the [Phenomenon.Intent.language] of the intent.
      *
      * A Kotlin script is executed given the [agency] of the current step of the harness,
-     * provided to the script as `agency`, with this [cogitation] as its [Agency.cogitation],
+     * provided to the script as `agency`,
      * collecting the invocations made through it.
      * Only the invocations made through the script form the result, not those of the [agency] itself.
      * What the script enunciates is not part of its result, but its output, see [ExecutedIntent.output].
@@ -67,7 +66,6 @@ interface ScriptExecutor : AutoCloseable {
      */
     suspend fun execute(
         intent: Phenomenon.Intent,
-        cogitation: Cogitation,
         agency: Agency
     ): ExecutedIntent {
         val edited: Phenomenon? = if (intent.edits.isEmpty()) null else try {
@@ -75,7 +73,7 @@ interface ScriptExecutor : AutoCloseable {
         } catch (e: Exception) {
             return ExecutedIntent(listOf(Phenomenon.Impediment("${e.message}\nNo file was changed, and the script was not executed.")))
         }
-        val executed = if (intent.script.isBlank()) ExecutedIntent(emptyList()) else executeScript(intent, cogitation, agency)
+        val executed = if (intent.script.isBlank()) ExecutedIntent(emptyList()) else executeScript(intent, agency)
         return executed.copy(result = listOfNotNull(edited) + executed.result)
     }
 
@@ -85,7 +83,6 @@ interface ScriptExecutor : AutoCloseable {
      */
     suspend fun executeScript(
         intent: Phenomenon.Intent,
-        cogitation: Cogitation,
         agency: Agency
     ): ExecutedIntent
 

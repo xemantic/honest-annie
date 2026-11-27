@@ -101,9 +101,9 @@ class HarnessTest {
     /** Intent enunciating the texts of all the responses to the invocations of the cogitation. */
     private val respondedIntent = """
         import com.xemantic.annie.*
-        val invocations = agency.cogitation.enunciations.flatMap { it.phenomena }
+        val invocations = agency.cogitation().enunciations.flatMap { it.phenomena }
             .filterIsInstance<Phenomenon.Invocation>().map { it.id }
-        agency.cogitation.enunciations.filter { it.respondsTo in invocations }.forEach { response ->
+        agency.cogitation().enunciations.filter { it.respondsTo in invocations }.forEach { response ->
             agency.enunciate((response.phenomena.first() as Phenomenon.Text).text)
         }
     """.trimIndent()
@@ -479,7 +479,7 @@ class HarnessTest {
     @Test
     fun `should unfold the cogitation step after step until self enunciates last`() = runTest(timeout = 5.minutes) {
         // given
-        val cognizer = ScriptedCognizer("\"step 1\"", "\"step 2\"", "agency.enunciate(\"after \" + agency.cogitation.enunciations.size)")
+        val cognizer = ScriptedCognizer("\"step 1\"", "\"step 2\"", "agency.enunciate(\"after \" + agency.cogitation().enunciations.size)")
 
         // when
         val output = cognize(cognizer, cogitation())
@@ -503,7 +503,7 @@ class HarnessTest {
         // then
         val text = (output.phenomena.single() as Phenomenon.Text).text
         assert("interface Agency" in text)
-        assert("val cogitation: Cogitation" in text)
+        assert("suspend fun cogitation(): Cogitation" in text)
     }
 
     @Test
@@ -719,9 +719,9 @@ class HarnessTest {
     fun `should provide depth of cogitation to intent`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = ScriptedCognizer(
-            "agency.invoke(\"sub at depth ${'$'}{agency.cogitation.depth}\")",
+            "agency.invoke(\"sub at depth ${'$'}{agency.cogitation().depth}\")",
             respondedIntent,
-            invoked = { Phenomenon.Intent(script = "agency.enunciate(\"depth \" + agency.cogitation.depth)") }
+            invoked = { Phenomenon.Intent(script = "agency.enunciate(\"depth \" + agency.cogitation().depth)") }
         )
 
         // when
@@ -737,9 +737,11 @@ class HarnessTest {
     @Test
     fun `should invoke cogitation under constitution of invoker by default`() = runTest(timeout = 5.minutes) {
         // given
+        val invokedConstitutions = mutableListOf<String>()
         val cognizer = ScriptedCognizer(
             "agency.invoke(\"sub\")",
-            respondedIntent
+            respondedIntent,
+            invoked = { invokedConstitutions += it.constitution; Phenomenon.Text("done") }
         )
         val cogitation = cogitation().copy(constitution = "Be honest")
 
@@ -749,7 +751,9 @@ class HarnessTest {
         // then
         val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }
             .filterIsInstance<Phenomenon.Invocation>().single()
-        assert(invocation.constitution == "Be honest")
+        // the invocation records no constitution of its own, the invoked cogitation unfolding under the one of its invoker
+        assert(invocation.constitution == null)
+        assert(invokedConstitutions == listOf("Be honest"))
     }
 
     @Test
@@ -920,7 +924,7 @@ class HarnessTest {
                     independent += cogitation
                     return Cognized(listOf(
                         if (cogitation.enunciations.size == 1) {
-                            Phenomenon.Intent(script = "\"${'$'}{agency.parentCogitation == null} ${'$'}{agency.cogitation.depth}\"")
+                            Phenomenon.Intent(script = "\"${'$'}{agency.parentCogitation() == null} ${'$'}{agency.cogitation().depth}\"")
                         } else if (cogitation.enunciations.size == 3) {
                             Phenomenon.Intent(script = "answer")
                         } else {
