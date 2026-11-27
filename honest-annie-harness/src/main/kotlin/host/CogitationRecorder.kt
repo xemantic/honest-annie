@@ -52,7 +52,7 @@ import kotlinx.coroutines.withContext
  * see [record].
  *
  * Invoked cogitations are recorded in subfolders prefixed with the number and position of
- * their invocation, e.g. `003-2-2026-10-14T15-02-08.074487Z`, listed next to `003-2-computer-invocation.md`,
+ * the intent invoking them, e.g. `002-2-2026-10-14T15-02-08.074487Z`, listed next to `002-2-self-intent.kts`,
  * see [invoked].
  */
 class CogitationRecorder(
@@ -151,12 +151,19 @@ class CogitationRecorder(
         append("},\n  \"total\": ${total.json()}\n}\n")
     }
 
-    /** Recorder of the cogitation unfolding the [invocation] enunciated in the recorded one. */
-    fun invoked(invocation: Phenomenon.Invocation): CogitationRecorder = CogitationRecorder(
-        parentDir = checkNotNull(dir) { "No enunciation recorded yet to invoke a cogitation" },
-        prefix = "${checkNotNull(requests[invocation.id]) { "Invocation ${invocation.id} not recorded" }}-",
-        invoker = this
-    )
+    /**
+     * Recorder of the cogitation of the [id] invoked by the [intent] of the id given, enunciated in the recorded one,
+     * its outcome indexed as responding to that intent.
+     */
+    fun invoked(id: String, intent: String): CogitationRecorder {
+        val position = checkNotNull(requests[intent]) { "Intent $intent not recorded" }
+        requests[id] = position
+        return CogitationRecorder(
+            parentDir = checkNotNull(dir) { "No enunciation recorded yet to invoke a cogitation" },
+            prefix = "$position-",
+            invoker = this
+        )
+    }
 
     private fun createDir(cogitation: Cogitation): Path {
         parentDir.createDirectories()
@@ -295,7 +302,6 @@ internal val Phenomenon.kind: String get() = when (this) {
     is Text -> "text"
     is Data -> "data"
     is Intent -> "intent"
-    is Invocation -> "invocation"
     is Impediment -> "impediment"
     is Monologue -> "monologue"
 }
@@ -304,13 +310,6 @@ private fun Phenomenon.toFile(): Triple<String, String, ByteArray> = when (this)
     is Text -> Triple(kind, contentType.extension ?: "txt", text.encodeToByteArray())
     is Data -> Triple(kind, contentType?.extension ?: "bin", bytes)
     is Intent -> Triple(kind, language.scriptExtension, script.encodeToByteArray())
-    is Invocation -> Triple(kind, "md", buildString {
-        append("id: `$id`  \n")
-        computer?.let { append("computer: `${it.id}` of the type `${it.type}`  \n") }
-        repl?.let { append("repl: `$it`  \n") }
-        if (independent) append("independent  \n")
-        append("\n").append(prompt)
-    }.encodeToByteArray())
     is Impediment -> Triple(kind, "md", reason.encodeToByteArray())
     is Monologue -> Triple(kind, "md", text.encodeToByteArray())
 }

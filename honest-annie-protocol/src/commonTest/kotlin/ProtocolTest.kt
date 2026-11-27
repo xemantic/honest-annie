@@ -71,11 +71,12 @@ class ProtocolTest {
         val responses = listOf(
             ExecutorResponse.Executed(
                 id = "request-1",
-                result = listOf(
-                    Phenomenon.Invocation(id = "invocation-1", prompt = "Count", constitution = "Be brief"),
-                    Phenomenon.Text("2", "text/plain")
-                ),
-                output = listOf(Phenomenon.Data(byteArrayOf(1, 2, 3), "image/png"), Phenomenon.Impediment("stuck"))
+                result = listOf(Phenomenon.Text("2", "text/plain")),
+                output = listOf(Phenomenon.Data(byteArrayOf(1, 2, 3), "image/png"), Phenomenon.Impediment("stuck")),
+                invoked = listOf(
+                    Invocation(id = "invocation-1", prompt = "Count", constitution = "Be brief"),
+                    Invocation(id = "invocation-2", prompt = "Train", computer = Computer(id = "computer-1", type = "gpu"), repl = "training")
+                )
             ),
             ExecutorResponse.Recall(id = "request-3", recall = "recall-1", parent = true),
             ExecutorResponse.Failed(id = "request-2", reason = "No session\nat all")

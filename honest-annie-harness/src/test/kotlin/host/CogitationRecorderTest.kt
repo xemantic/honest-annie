@@ -37,9 +37,9 @@ class CogitationRecorderTest {
 
     private val computer = Actant(type = Actant.Type.COMPUTER, name = "computer")
 
-    private val invocation = Phenomenon.Invocation(id = "sub", prompt = "sub", constitution = "")
+    private val intent = Phenomenon.Intent(script = "agency.invoke(\"sub\")")
 
-    private val another = Phenomenon.Invocation(id = "another", prompt = "another", constitution = "")
+    private val another = Phenomenon.Intent(script = "agency.invoke(\"another\")")
 
     @Test
     fun `should list recorded phenomena in the order of their enunciation`() = runTest {
@@ -56,18 +56,18 @@ class CogitationRecorderTest {
                 ),
                 Enunciation(
                     actant = Actant.SELF,
-                    phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent(script = "1"))
+                    phenomena = listOf(Phenomenon.Monologue("thinking"), intent)
                 ),
                 Enunciation(
                     actant = computer,
-                    phenomena = listOf(Phenomenon.Text("first"), invocation, Phenomenon.Text("second"))
+                    phenomena = listOf(Phenomenon.Text("first"), Phenomenon.Text("second"))
                 )
             )
         )
 
         // when
         recorder.record(cogitation)
-        recorder.invoked(invocation).record(Cogitation(
+        recorder.invoked("sub", intent.id).record(Cogitation(
             constitution = "",
             enunciations = listOf(Enunciation(
                 actant = Actant.SELF,
@@ -84,11 +84,10 @@ class CogitationRecorderTest {
         assert(files == listOf(
             "001-1-human-text.md",
             "002-1-self-monologue.md",
+            "002-2-2026-10-23T13-14-59Z",
             "002-2-self-intent.kts",
             "003-1-computer-text.md",
-            "003-2-2026-10-23T13-14-59Z",
-            "003-2-computer-invocation.md",
-            "003-3-computer-text.md"
+            "003-2-computer-text.md"
         ))
     }
 
@@ -128,11 +127,11 @@ class CogitationRecorderTest {
             constitution = "",
             enunciations = listOf(
                 Enunciation(
-                    actant = computer,
-                    phenomena = listOf(Phenomenon.Text("invoking"), invocation, another)
+                    actant = Actant.SELF,
+                    phenomena = listOf(Phenomenon.Text("invoking"), intent, another)
                 ),
                 Enunciation(
-                    actant = Actant.SELF,
+                    actant = computer,
                     respondsTo = another.id,
                     phenomena = listOf(Phenomenon.Text("another done"))
                 )
@@ -144,7 +143,34 @@ class CogitationRecorderTest {
 
         // then
         val index = recordingDir.listDirectoryEntries().single().resolve("cogitation.md").readText()
-        assert(index.contains("| 002 | self `self` ↩ 001-3 |"))
+        assert(index.contains("| 002 | computer `computer` ↩ 001-3 |"))
+    }
+
+    @Test
+    fun `should index outcome of invoked cogitation with position of intent invoking it`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val recorder = CogitationRecorder(recordingDir)
+        val invoking = Cogitation(
+            constitution = "",
+            enunciations = listOf(
+                Enunciation(actant = Actant.SELF, phenomena = listOf(Phenomenon.Text("invoking"), intent)),
+                Enunciation(actant = computer, respondsTo = intent.id, phenomena = listOf(Phenomenon.Text("invoked")))
+            )
+        )
+        recorder.record(invoking)
+        recorder.invoked("sub", intent.id)
+
+        // when
+        recorder.record(invoking + Enunciation(
+            actant = Actant.SELF,
+            respondsTo = "sub",
+            phenomena = listOf(Phenomenon.Text("sub done"))
+        ))
+
+        // then
+        val index = recordingDir.listDirectoryEntries().single().resolve("cogitation.md").readText()
+        assert(index.contains("| 003 | self `self` ↩ 001-2 |"))
     }
 
     @Test
@@ -266,11 +292,11 @@ class CogitationRecorderTest {
         recorder.record(Cogitation(
             constitution = "",
             enunciations = listOf(
-                inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.CACHE_WRITE_1H to 1000L)),
-                Enunciation(actant = computer, phenomena = listOf(invocation))
+                inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.CACHE_WRITE_1H to 1000L)).copy(phenomena = listOf(intent)),
+                Enunciation(actant = computer, respondsTo = intent.id, phenomena = listOf(Phenomenon.Text("invoked")))
             )
         ))
-        val invoked = recorder.invoked(invocation)
+        val invoked = recorder.invoked("sub", intent.id)
 
         // when
         invoked.record(Cogitation(
@@ -290,7 +316,7 @@ class CogitationRecorderTest {
         val json = root.resolve("inferences.json").readText()
         assert(json.contains("""
               "invoked": {
-                "002-1-2026-10-23T13-14-59Z": {"inferences": 1, "tokens": {"input": 2, "cache_read": 1000}, "total": 1002, "cost": "0.000208"}
+                "001-1-2026-10-23T13-14-59Z": {"inferences": 1, "tokens": {"input": 2, "cache_read": 1000}, "total": 1002, "cost": "0.000208"}
               },
               "total": {"inferences": 2, "tokens": {"input": 5, "cache_read": 1000, "cache_write_1h": 1000}, "total": 2005, "cost": "0.00822"}
         """.trimIndent().prependIndent("  ")))

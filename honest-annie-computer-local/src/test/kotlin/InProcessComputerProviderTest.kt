@@ -49,7 +49,7 @@ class InProcessComputerProviderTest {
     }
 
     @Test
-    fun `should return the invocations of an intent as its result, and what it enunciated as its output`() = runTest(timeout = 5.minutes) {
+    fun `should return the cogitations an intent invoked, and what it enunciated as its output`() = runTest(timeout = 5.minutes) {
         // given
         val repl = InProcessComputerProvider().start(Computer()).openRepl()
 
@@ -60,7 +60,8 @@ class InProcessComputerProviderTest {
         )
 
         // then
-        assert((executed.result.single() as Phenomenon.Invocation).prompt == "sub")
+        assert(executed.invoked.single().prompt == "sub")
+        assert(executed.result.isEmpty())
         assert(executed.output == listOf(Phenomenon.Text("depth 2")))
     }
 

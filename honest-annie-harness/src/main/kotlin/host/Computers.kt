@@ -33,9 +33,11 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The computers started for a tree of cogitations, and the REPLs opened on them, see [Computer]:
- * the executor of every intent of the tree, executing it in the REPL of the computer it names,
- * by default the ones of its cogitation, see [Phenomenon.Intent.computer], one intent at a time in each REPL,
+ * the executor of every intent of the tree, executing it in the REPL it names, by default the one of its cogitation,
+ * see [Phenomenon.Intent.repl], one intent at a time in each REPL,
  * as its declarations, and its `agency`, belong to the intent it executes.
+ * Each name of a REPL names a single one in the tree, on the computer it was first given to,
+ * the first REPL of a computer started, see [start], or else the computer of the cogitation of the first intent naming it.
  *
  * A computer is started by the [provider] when an intent first executes on it, and a REPL opened on it
  * when an intent first executes in it, both kept until the tree of cogitations rests, see [close],
@@ -47,8 +49,8 @@ internal class Computers(private val provider: ComputerProvider) : ScriptExecuto
         val mutex = Mutex()
     }
 
-    /** A computer started for the tree, by the [provider] once an intent first executes on it, its [first] REPL being the default one. */
-    private inner class Started(val computer: Computer, val first: String) {
+    /** A computer started for the tree, by the [provider] once an intent first executes on it. */
+    private inner class Started(val computer: Computer) {
 
         private val mutex = Mutex()
 
@@ -76,10 +78,20 @@ internal class Computers(private val provider: ComputerProvider) : ScriptExecuto
     /** The computers started, by their id. */
     private val started = ConcurrentHashMap<String, Started>()
 
-    /** Starts the [computer], its first REPL being the [repl], unless it is already running. */
-    fun start(computer: Computer, repl: String) {
-        started.putIfAbsent(computer.id, Started(computer, repl))
+    /** The computers of the REPLs, by the name of the REPL. */
+    private val hosts = ConcurrentHashMap<String, Started>()
+
+    /**
+     * Starts the [computer], its first REPL being the [repl], unless it is already running,
+     * returning whether the name of the [repl] is its own, rather than of a REPL of another computer.
+     */
+    fun start(computer: Computer, repl: String): Boolean {
+        val running = started.computeIfAbsent(computer.id) { Started(computer) }
+        return hosts.putIfAbsent(repl, running).let { it == null || it === running }
     }
+
+    /** The computer the [repl] of this name is open on, or given to, `null` when no cogitation of the tree has it yet. */
+    fun hosting(repl: String): Computer? = hosts[repl]?.computer
 
     // the edits are applied by the computer, to its files
     override suspend fun execute(
@@ -87,10 +99,9 @@ internal class Computers(private val provider: ComputerProvider) : ScriptExecuto
         agency: Agency
     ): ExecutedIntent {
         val cogitation = agency.cogitation()
-        val computer = intent.computer ?: cogitation.computer.id
-        val started = started[computer] ?: return notRunning(intent)
-        val name = intent.repl ?: if (computer == cogitation.computer.id) cogitation.repl else started.first
-        val open = started.repl(name)
+        val name = intent.repl ?: cogitation.repl
+        val own = started[cogitation.computer.id] ?: return notRunning(cogitation.computer)
+        val open = hosts.computeIfAbsent(name) { own }.repl(name)
         val context = object : IntentContext {
             override suspend fun cogitation() = cogitation
             override suspend fun parentCogitation() = agency.parentCogitation()
@@ -104,8 +115,8 @@ internal class Computers(private val provider: ComputerProvider) : ScriptExecuto
         agency: Agency
     ): ExecutedIntent = execute(intent.copy(edits = emptyList()), agency)
 
-    private fun notRunning(intent: Phenomenon.Intent) = ExecutedIntent(listOf(Phenomenon.Impediment(
-        "No computer of the id ${intent.computer} is running, but ${started.keys.joinToString()}, " +
+    private fun notRunning(computer: Computer) = ExecutedIntent(listOf(Phenomenon.Impediment(
+        "The computer ${computer.id} of the cogitation is not running, " +
             "so that neither the edits of the intent were applied, nor its script executed."
     )))
 

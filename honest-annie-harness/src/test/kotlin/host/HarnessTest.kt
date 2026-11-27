@@ -23,6 +23,7 @@ import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Edit
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Inference
+import com.xemantic.annie.Invocation
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.harness.cognizer.Cognized
 import com.xemantic.annie.harness.cognizer.Cognizer
@@ -98,15 +99,27 @@ class HarnessTest {
     /** Intent enunciating output, which ends the loop of inferences. */
     private val restingIntent = "agency.enunciate(\"rested\")"
 
-    /** Intent enunciating the texts of all the responses to the invocations of the cogitation. */
+    /** Intent enunciating the texts of all the outcomes of the cogitations invoked by the cogitation, responding to no intent of it. */
     private val respondedIntent = """
         import com.xemantic.annie.*
-        val invocations = agency.cogitation().enunciations.flatMap { it.phenomena }
-            .filterIsInstance<Phenomenon.Invocation>().map { it.id }
-        agency.cogitation().enunciations.filter { it.respondsTo in invocations }.forEach { response ->
+        val intents = agency.cogitation().enunciations.flatMap { it.phenomena }
+            .filterIsInstance<Phenomenon.Intent>().map { it.id }
+        agency.cogitation().enunciations.filter { it.respondsTo != null && it.respondsTo !in intents }.forEach { response ->
             agency.enunciate((response.phenomena.first() as Phenomenon.Text).text)
         }
     """.trimIndent()
+
+    /** The outcomes of the cogitations invoked by this one, the enunciations responding to none of its intents. */
+    private val Cogitation.outcomes: List<Enunciation> get() {
+        val intents = enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Intent>().map { it.id }
+        return enunciations.filter { it.respondsTo != null && it.respondsTo !in intents }
+    }
+
+    /** The id of the first cogitation invoked by this one, which its outcome responds to. */
+    private val Cogitation.invokedId: String get() = checkNotNull(outcomes.first().respondsTo)
+
+    /** The invocation of the cogitation invoked by the first intent of this one, kept by the host. */
+    private suspend fun Cogitation.invocation(): Invocation = checkNotNull(store.load(invokedId)?.invocation)
 
     @Test
     fun `should rest cogitation right after intent enunciating output`() = runTest(timeout = 5.minutes) {
@@ -360,8 +373,9 @@ class HarnessTest {
             Cognized(
                 when {
                     cogitation.depth == 1 -> listOf(Phenomenon.Monologue("A label."), Phenomenon.Text("1: NUM"))
-                    cogitation.enunciations.size == 1 -> listOf(Phenomenon.Intent(script = "agency.invoke(\"judge\").id"))
-                    else -> listOf(Phenomenon.Intent(script = respondedIntent))
+                    cogitation.enunciations.size == 1 -> listOf(Phenomenon.Intent(script = "agency.invoke(\"judge\")"))
+                    cogitation.enunciations.size == 4 -> listOf(Phenomenon.Intent(script = respondedIntent))
+                    else -> listOf(Phenomenon.Text("unexpected"))
                 }
             )
         }
@@ -536,15 +550,17 @@ class HarnessTest {
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("echo: sub")))
-        val perceived = cognizer.perceived[1].enunciations
-        val invocation = perceived[perceived.size - 2].phenomena.first() as Phenomenon.Invocation
-        assert(invocation.prompt == "sub")
-        val response = perceived.last()
-        assert(response.respondsTo == invocation.id)
-        assert(response.id == responseId(invocation.id))
+        val perceived = cognizer.perceived[1]
+        // the response to the intent, then the outcome of the cogitation it invoked
+        assert(perceived.enunciations.dropLast(1).last().respondsTo == perceived.enunciations[1].phenomena.filterIsInstance<Phenomenon.Intent>().single().id)
+        val response = perceived.enunciations.last()
+        val id = checkNotNull(response.respondsTo)
+        assert(response.id == responseId(id))
         assert(response.phenomena == listOf(Phenomenon.Text("echo: sub")))
-        val invoked = store.load(invocation.id)
-        assert(invoked?.invocation == invocation)
+        val invoked = store.load(id)
+        assert(invoked?.invocation?.prompt == "sub")
+        // the invocation is the first enunciation of the invoked cogitation, its prompt, of the same id
+        assert(invoked.cogitation.enunciations.first().id == id)
         assert(invoked.cogitation.enunciations.last().actant == Actant.SELF)
     }
 
@@ -729,9 +745,7 @@ class HarnessTest {
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("depth 1")))
-        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }
-            .filterIsInstance<Phenomenon.Invocation>().single()
-        assert(invocation.prompt == "sub at depth 0")
+        assert(cognizer.perceived[1].invocation().prompt == "sub at depth 0")
     }
 
     @Test
@@ -749,8 +763,7 @@ class HarnessTest {
         cognize(cognizer, cogitation)
 
         // then
-        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }
-            .filterIsInstance<Phenomenon.Invocation>().single()
+        val invocation = cognizer.perceived[1].invocation()
         // the invocation records no constitution of its own, the invoked cogitation unfolding under the one of its invoker
         assert(invocation.constitution == null)
         assert(invokedConstitutions == listOf("Be honest"))
@@ -773,12 +786,14 @@ class HarnessTest {
         val files = root.listDirectoryEntries().map { it.name }.toSet()
         assert(files.containsAll(listOf(
             "cogitation.md", "constitution.md",
-            "001-1-human-text.md", "002-1-self-intent.kts", "003-1-computer-invocation.md",
+            // what the intent invoking a cogitation spent, its only result
+            "001-1-human-text.md", "002-1-self-intent.kts", "003-1-computer-text.txt",
             "004-1-self-text.md", "005-1-self-intent.kts", "006-1-self-text.md"
         )))
         assert(files.none { it.startsWith("007-") })
         val invoked = root.listDirectoryEntries().single { it.isDirectory() }
-        assert(invoked.name.startsWith("003-1-"))
+        // next to the intent invoking it
+        assert(invoked.name.startsWith("002-1-"))
         assert(invoked.listDirectoryEntries().any { it.name == "002-1-self-text.md" })
     }
 
@@ -876,7 +891,7 @@ class HarnessTest {
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("shared")))
-        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single()
+        val invocation = cognizer.perceived[1].invocation()
         assert(invocation.computer == null && invocation.repl == null)
     }
 
@@ -894,7 +909,7 @@ class HarnessTest {
 
         // then
         assert(output.phenomena == listOf(Phenomenon.Text("not shared")))
-        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single()
+        val invocation = cognizer.perceived[1].invocation()
         val computer = invocation.computer
         assert(computer != null && computer.type == "GPU64GB" && computer.id != cognizer.perceived[0].computer.id)
         assert(invocation.repl != null && invocation.repl != cognizer.perceived[0].repl)
@@ -944,7 +959,7 @@ class HarnessTest {
         cognize(cognizer, cogitation())
 
         // then
-        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single()
+        val invocation = cognizer.perceived[1].invocation()
         assert(invocation.independent && invocation.computer == null && invocation.repl != null)
         assert(cognizer.perceived[1].enunciations.single { it.respondsTo == invocation.id }.phenomena == listOf(Phenomenon.Text("independent")))
         val first = independent.first()
@@ -968,8 +983,8 @@ class HarnessTest {
         cognize(cognizer, cogitation())
 
         // then
-        val invocation = cognizer.perceived[1].enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single()
-        val outcome = cognizer.perceived[1].enunciations.single { it.respondsTo == invocation.id }.phenomena
+        val id = cognizer.perceived[1].invokedId
+        val outcome = cognizer.perceived[1].enunciations.single { it.respondsTo == id }.phenomena
         val reason = (outcome.single() as Phenomenon.Impediment).reason
         assert("GPU64GB" in reason && "default" in reason)
     }
@@ -995,36 +1010,79 @@ class HarnessTest {
     }
 
     @Test
-    fun `should execute intent on a computer started by an invocation, naming its id`() = runTest(timeout = 5.minutes) {
+    fun `should execute intent on a computer started by an invocation, naming its first REPL`() = runTest(timeout = 5.minutes) {
         // given
         val cognizer = SteppingCognizer(
-            { Phenomenon.Intent(script = "agency.invoke(\"sub\", computer = \"GPU64GB\")") },
-            { perceived ->
-                val computer = perceived.enunciations.flatMap { it.phenomena }.filterIsInstance<Phenomenon.Invocation>().single().computer!!
-                Phenomenon.Intent(computer = computer.id, script = "val onGpu = 42\nonGpu")
-            },
-            { Phenomenon.Intent(script = "onGpu") }
+            { Phenomenon.Intent(script = "agency.invoke(\"sub\", computer = \"GPU64GB\", repl = \"training\")") },
+            { Phenomenon.Intent(repl = "training", script = "trained") },
+            { Phenomenon.Intent(script = "trained") },
+            // the invoked cogitation declares in its REPL, on the computer started for it
+            invoked = { invoked ->
+                if (invoked.enunciations.size == 1) Phenomenon.Intent(script = "val trained = 42") else Phenomenon.Text("trained")
+            }
         )
 
         // when
         HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation())
 
         // then
+        assert(store.load(cognizer.perceived[1].invokedId)?.cogitation?.computer?.type == "GPU64GB")
         assert(cognizer.response(1).first() == Phenomenon.Text("42", "text/plain"))
-        // declared in the first REPL of the other computer, not in the one of the cogitation
+        // declared in the REPL of the other computer, not in the one of the cogitation
         assert(cognizer.response(2).first() is Phenomenon.Impediment)
     }
 
     @Test
-    fun `should impede intent naming a computer which is not running`() = runTest(timeout = 5.minutes) {
+    fun `should not start a computer for a cogitation invoked in a REPL open on another computer`() = runTest(timeout = 5.minutes) {
         // given
-        val cognizer = SteppingCognizer({ Phenomenon.Intent(computer = "nowhere", script = "6 * 7") })
+        val cognizer = SteppingCognizer(
+            { Phenomenon.Intent(repl = "scratch", script = "val here = 1") },
+            { Phenomenon.Intent(script = "agency.invoke(\"sub\", computer = \"GPU64GB\", repl = \"scratch\")") },
+            { Phenomenon.Intent(script = restingIntent) }
+        )
 
         // when
-        cognize(cognizer, cogitation())
+        HarnessHost(cognizer, store, computers = gpuComputers).cognize(cogitation())
 
         // then
-        assert("nowhere" in (cognizer.response(0).first() as Phenomenon.Impediment).reason)
+        val reason = (cognizer.perceived[2].outcomes.single().phenomena.single() as Phenomenon.Impediment).reason
+        assert("scratch" in reason && "not invoked" in reason)
+    }
+
+    @Test
+    fun `should deliver outcomes in the order of invocations, once all invoked cogitations rest`() = runTest(timeout = 5.minutes) {
+        // given
+        val secondBuffered = CompletableDeferred<Unit>()
+        // the outcome of the second cogitation is kept by the host, before the first one rests
+        val observedStore = object : CogitationStore by store {
+            override suspend fun save(unfolding: Unfolding) {
+                store.save(unfolding)
+                if (unfolding.outcomes.isNotEmpty()) secondBuffered.complete(Unit)
+            }
+        }
+        val perceived = mutableListOf<Cogitation>()
+        val cognizer = Cognizer { cogitation ->
+            if (cogitation.depth > 0) {
+                if (cogitation.prompt == "first") secondBuffered.await()
+                Cognized(listOf(Phenomenon.Text(cogitation.prompt)))
+            } else {
+                perceived += cogitation
+                Cognized(listOf(
+                    if (perceived.size == 1) Phenomenon.Intent(script = "listOf(\"first\", \"second\").map { agency.invoke(it) }")
+                    else Phenomenon.Text("Done.")
+                ))
+            }
+        }
+
+        // when
+        HarnessHost(cognizer, observedStore, computers = computers).cognize(cogitation())
+
+        // then
+        // unfolded once more, after both of them rested
+        assert(perceived.size == 2)
+        val outcomes = perceived[1].outcomes
+        assert(outcomes.map { it.phenomena } == listOf(listOf(Phenomenon.Text("first")), listOf(Phenomenon.Text("second"))))
+        assert(perceived[1].enunciations.takeLast(2) == outcomes)
     }
 
     @Test

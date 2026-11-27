@@ -105,10 +105,6 @@ fun <P> Cogitation.toTurns(
     monologue: (Monologue) -> P?,
     text: (Phenomenon.Text) -> P?
 ): List<Turn<P>> {
-    // intent ids are never rendered, so the model would not know what a response to an intent refers to
-    val invocations = enunciations.flatMap { it.phenomena }
-        .filterIsInstance<Phenomenon.Invocation>()
-        .mapTo(mutableSetOf()) { it.id }
     val turns = mutableListOf<Turn<P>>()
     // the intent whose tool call awaits its result, and the result perceived so far
     var called: Phenomenon.Intent? = null
@@ -149,7 +145,7 @@ fun <P> Cogitation.toTurns(
                         phenomenon.toText()
                     }
                     val perceived = result ?: turns.userParts()
-                    perceived.appendText(if (headed) text else "${enunciation.actantTag(invocations)}\n$text")
+                    perceived.appendText(if (headed) text else "${enunciation.actantTag()}\n$text")
                     headed = true
                     if (phenomenon is Phenomenon.Data) phenomenon.toAttachment()?.let { perceived += it }
                     if (result == null) turns.replaceUserParts(perceived)
@@ -221,8 +217,11 @@ private fun <P> MutableList<Turn<P>>.appendAssistant(part: P) {
 /**
  * Renders the actant as in-band markup, the only metadata channel every provider shows to the model.
  * Only stored values are used, so the rendering of past turns never changes and stays cached.
+ * What an enunciation responds to is never rendered: an id the model never saw, as the ids of intents and of invoked cogitations
+ * are never perceived, the result of an intent following its tool call, and the outcomes of invoked cogitations the response to it,
+ * in the order of their invocations.
  */
-private fun Enunciation.actantTag(invocations: Set<String>): String = buildString {
+private fun Enunciation.actantTag(): String = buildString {
     append("<annie:actant")
     append(" type=\"").append(actant.type.name.lowercase()).append('"')
     append(" name=\"").append(actant.name.xmlEscaped()).append('"')
@@ -230,7 +229,6 @@ private fun Enunciation.actantTag(invocations: Set<String>): String = buildStrin
     if (finalized != initiated) {
         append(" finalized=\"").append(finalized.toMillisecondsString()).append('"')
     }
-    respondsTo?.takeIf { it in invocations }?.let { append(" responds-to=\"").append(it.xmlEscaped()).append('"') }
     append("/>")
 }
 
@@ -266,16 +264,6 @@ private fun Phenomenon.toText(): String = when (this) {
         append("<annie:data")
         contentType?.let { append(" content-type=\"").append(it.xmlEscaped()).append('"') }
         append(" size=\"").append(bytes.size).append("\"/>")
-    }
-    is Invocation -> buildString {
-        append("<annie:invocation id=\"").append(id.xmlEscaped()).append('"')
-        computer?.let {
-            append(" computer=\"").append(it.id.xmlEscaped()).append('"')
-            append(" computer-type=\"").append(it.type.xmlEscaped()).append('"')
-        }
-        repl?.let { append(" repl=\"").append(it.xmlEscaped()).append('"') }
-        if (independent) append(" independent=\"true\"")
-        append("/>")
     }
     is Impediment -> "<annie:impediment/>\n$reason"
     is Monologue -> text

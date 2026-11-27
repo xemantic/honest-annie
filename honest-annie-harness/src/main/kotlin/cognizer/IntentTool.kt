@@ -51,12 +51,11 @@ object IntentTool {
 
     const val DESCRIPTION: String = "Executes your intent: the edits of files, applied first, and a script, " +
             "of Kotlin coded against the API of the constitution, of Python, or of bash. " +
-            "Its result is where the edits were applied, and what the script evaluated to, or printed, or the error failing it, and the cogitations it invoked, " +
+            "Its result is where the edits were applied, and what the script evaluated to, or printed, or the error failing it, " +
+            "followed by the outcomes of the cogitations it invoked, once all of them rest, " +
             "unless it enunciated your output, which ends the cogitation."
 
     const val EDITS: String = "edits"
-
-    private const val COMPUTER: String = "computer"
 
     private const val REPL: String = "repl"
 
@@ -78,11 +77,9 @@ object IntentTool {
      */
     @Serializable
     private class Input(
-        @Description("The id of the computer to execute on, e.g. one started for a cogitation you invoked, your own when omitted.")
-        val computer: String? = null,
         @Description(
-            "The name of the REPL of the computer to execute in, opened by the first call naming it, " +
-                "your own when omitted, or the first one of another `computer`."
+            "The name of the REPL to execute in, on the computer it is open on, e.g. one started for a cogitation you invoked, " +
+                "otherwise opened on your computer by the first call naming it, your own REPL when omitted."
         )
         val repl: String? = null,
         @Description(
@@ -132,7 +129,7 @@ object IntentTool {
     )
 
     /**
-     * The JSON schema of the properties of the input of the tool, none of them required: the computer and the REPL, the [EDITS], the language, the [PARAMETER], and its timeout,
+     * The JSON schema of the properties of the input of the tool, none of them required: the REPL, the [EDITS], the language, the [PARAMETER], and its timeout,
      * the language a string of the names of [Phenomenon.Intent.Language], added here, as the enum of the API carries no names of its serialization.
      */
     @Suppress("UNCHECKED_CAST")
@@ -146,10 +143,9 @@ object IntentTool {
         }
     }
 
-    /** The input of the call of the tool expressing the [intent], replayed: its computer, REPL, edits, language, script, and timeout, when given. */
+    /** The input of the call of the tool expressing the [intent], replayed: its REPL, edits, language, script, and timeout, when given. */
     fun input(intent: Phenomenon.Intent): Map<String, Any> = buildMap {
         // in the order of the properties of the input, see Input
-        intent.computer?.let { put(COMPUTER, it) }
         intent.repl?.let { put(REPL, it) }
         if (intent.edits.isNotEmpty()) put(EDITS, intent.edits.map { edit ->
             buildMap {
@@ -167,7 +163,7 @@ object IntentTool {
     /**
      * The intent expressed by a tool call, calling the tool of the [name] with the [arguments] in JSON:
      * its [PARAMETER], or, when it is missing, the only other text argument of the call, as a model may name it otherwise, e.g. `code`,
-     * of the computer, REPL, language and timeout of the call, read leniently, e.g. a number sent as a text.
+     * of the REPL, language and timeout of the call, read leniently, e.g. a number sent as a text.
      * A call of another tool, or without a script, e.g. of arguments cut short, is an [Phenomenon.Impediment] instead,
      * responded to by the harness, so that the cognizer can express its intent again,
      * rather than its commentary along the call ending the cogitation as its answer.
@@ -208,9 +204,6 @@ object IntentTool {
         fun impeded(argument: String, node: JsonNode, expected: String) = Phenomenon.Impediment(
             "Your call of `$NAME` carried the `$argument` $node, rather than $expected, so nothing was executed."
         )
-        val computer = input?.given(COMPUTER)?.let { node ->
-            node.takeIf { it.isTextual }?.asText()?.trim() ?: return impeded(COMPUTER, node, "the id of a computer")
-        }?.ifEmpty { null }
         val repl = input?.given(REPL)?.let { node ->
             node.takeIf { it.isTextual }?.asText()?.trim() ?: return impeded(REPL, node, "the name of a REPL")
         }?.ifEmpty { null }
@@ -233,11 +226,11 @@ object IntentTool {
                         "its arguments begin with ${arguments.take(200)}"
             )
         }
-        return Phenomenon.Intent(computer = computer, repl = repl, edits = edits, language = language, script = script, timeout = timeout)
+        return Phenomenon.Intent(repl = repl, edits = edits, language = language, script = script, timeout = timeout)
     }
 
     /** The arguments of the call other than its script, see [intent]. */
-    private val ARGUMENTS = setOf(COMPUTER, REPL, EDITS, LANGUAGE, TIMEOUT)
+    private val ARGUMENTS = setOf(REPL, EDITS, LANGUAGE, TIMEOUT)
 
     /** The value of the [argument] of this input, `null` when it is absent or `null`. */
     private fun JsonNode.given(argument: String): JsonNode? = get(argument)?.takeUnless { it.isNull }
