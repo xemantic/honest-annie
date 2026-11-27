@@ -98,13 +98,14 @@ private val imageMediaTypes = setOf(MediaType.JPEG, MediaType.PNG, MediaType.GIF
 /**
  * What the cognizer expressed in an inference, see [isExpressed], becomes assistant turns: its intents, monologues and texts.
  * Everything else is perceived in user turns,
- * headed by the actant of the enunciation, the first one by the depth of the cogitation too.
+ * headed by the actant of the enunciation, or as an outcome, see [Enunciation.isOutcome], the first one by the depth of the cogitation too.
  * The role follows the expression, not the actant:
  * the output an intent enunciates, and the output of an invoked cogitation, are enunciated by [Actant.Type.SELF], yet perceived.
  * The execution of an intent, expressed as a tool call, is perceived as its [Perceived.Result]:
  * the output the intent enunciated, and the response of the computer to it, see [isExecutionOf],
- * each text of them cut beyond [MAX_RESULT_TEXT_LENGTH] characters, telling how a script reads the rest of it,
- * while what follows, e.g. the outcomes of the cogitations it invoked, is perceived after it.
+ * followed by the outcomes of the cogitations it invoked, which the cogitation awaits before its next inference,
+ * each text of them cut beyond [MAX_RESULT_TEXT_LENGTH] characters, telling how a script reads the rest of it:
+ * an outcome perceived after the result, as a text of the user turn, is taken by the model for the words of the user.
  *
  * @param contents keeping the content of the texts and data of the cogitation.
  * @param intent the assistant part of the intent.
@@ -131,7 +132,7 @@ fun <P> Cogitation.toTurns(
         val calling = called
         val expressed = enunciation.isExpressed
         if (calling != null && !expressed) {
-            if (enunciation.isExecutionOf(calling)) {
+            if (enunciation.isExecutionOf(calling) || enunciation.isOutcome) {
                 if (result == null) result = mutableListOf()
             } else {
                 conclude()
@@ -153,7 +154,7 @@ fun <P> Cogitation.toTurns(
                 else -> {
                     val text = phenomenon.toText(contents, cut = result != null, enunciationIndex, phenomenonIndex)
                     val perceived = result ?: turns.userParts()
-                    perceived.appendText(if (headed) text else "${enunciation.actantTag()}\n$text")
+                    perceived.appendText(if (headed) text else "${enunciation.headingTag()}\n$text")
                     headed = true
                     if (phenomenon is Phenomenon.Data) contents.readBytes(phenomenon).toAttachment()?.let { perceived += it }
                     if (result == null) turns.replaceUserParts(perceived)
@@ -188,6 +189,17 @@ private val Enunciation.isExpressed: Boolean get() = actant == Actant.SELF && re
  */
 private fun Enunciation.isExecutionOf(intent: Phenomenon.Intent): Boolean =
     respondsTo == intent.id || (actant == Actant.SELF && respondsTo == null && inference == null)
+
+/**
+ * The tag heading this enunciation, see [actantTag]:
+ * an outcome of an invoked cogitation is headed as an outcome arriving, rather than as an actant of self,
+ * which the model takes for what it expressed itself, distrusting it as words it never wrote.
+ */
+private fun Enunciation.headingTag(): String = if (isOutcome) buildString {
+    append("<annie:outcome")
+    appendTimes(this@headingTag)
+    append("/>")
+} else actantTag()
 
 private fun ByteArray.toAttachment(): Perceived.Attachment? {
     val mediaType = detectMediaType() ?: return null
@@ -233,11 +245,15 @@ private fun Enunciation.actantTag(): String = buildString {
     append("<annie:actant")
     append(" type=\"").append(actant.type.name.lowercase()).append('"')
     append(" name=\"").append(actant.name.xmlEscaped()).append('"')
-    append(" initiated=\"").append(initiated.toMillisecondsString()).append('"')
-    if (finalized != initiated) {
-        append(" finalized=\"").append(finalized.toMillisecondsString()).append('"')
-    }
+    appendTimes(this@actantTag)
     append("/>")
+}
+
+private fun StringBuilder.appendTimes(enunciation: Enunciation) {
+    append(" initiated=\"").append(enunciation.initiated.toMillisecondsString()).append('"')
+    if (enunciation.finalized != enunciation.initiated) {
+        append(" finalized=\"").append(enunciation.finalized.toMillisecondsString()).append('"')
+    }
 }
 
 /** Sub-millisecond precision only costs tokens. */

@@ -56,7 +56,7 @@ class AggregateComputerProviderTest {
         override fun content(ref: String): ByteArray? = null
     }
 
-    private val context = IntentContext(cogitation = Cogitation(constitution = "", enunciations = emptyList()), parentCogitation = null, contents = contents)
+    private val context = IntentContext(cogitation = Cogitation(constitution = "", enunciations = emptyList()), ancestorCogitations = emptyList(), contents = contents)
 
     @Test
     fun `should offer the types of every provider`() {

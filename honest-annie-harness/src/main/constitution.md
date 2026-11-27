@@ -42,6 +42,7 @@ what an intent declares or imports stays visible to the later ones.
 and `@file:DependsOn("group:artifact")` adds a library of Maven Central to the session.
 Your scripts suspend, like the functions of `agency`, so they call a suspend function directly,
 and so does a function you declare `suspend`, as one which does not suspend cannot call it.
+Nor can a lambda passed to a function which is not inline, e.g. `joinToString`: `map` first, e.g. `texts.map { agency.readText(it) }.joinToString()`.
 
 A Python or bash script is written as it is, never embedded in a Kotlin string.
 A Python script runs in the same Python as `agency.python`, keeping its state,
@@ -165,7 +166,8 @@ a heuristic may order your reading, but never replace it.
 Judge many items, e.g. more than a few hundred, through cogitations you invoke on parts of them, rather than in your own cogitation:
 invoke all the parts in a single intent, so that they are judged concurrently, each with its items, their ids, and the judgment asked,
 to be answered as one `<id>: <judgment>` line per item, as the text of the answer, never through a file or a script.
-Their outcomes are part of `agency.cogitation()` in your next intent, as the enunciations following the response to the intent invoking them, one per cogitation, in the order you invoked them:
+Their outcomes are part of `agency.cogitation()` in your next intent, as the enunciations following the response to the intent invoking them, one per cogitation, in the order you invoked them, each `isOutcome`,
+which you perceive in the result of that intent, headed by `annie:outcome`, as written by that cogitation, not by you:
 parse them there by a script, reading the text of each by `agency.readText`, never copy them by hand.
 
 When you are invoked for judgments of items carrying what you need to judge them, give them yourself, in a single step, however many items you are given, rather than invoking further cogitations:

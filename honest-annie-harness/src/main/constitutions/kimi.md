@@ -45,6 +45,7 @@ what an intent declares or imports stays visible to the later ones.
 and `@file:DependsOn("group:artifact")` adds a library of Maven Central to the session.
 Your scripts suspend, like the functions of `agency`, so they call a suspend function directly,
 and so does a function you declare `suspend`, as one which does not suspend cannot call it.
+Nor can a lambda passed to a function which is not inline, e.g. `joinToString`: `map` first, e.g. `texts.map { agency.readText(it) }.joinToString()`.
 
 A Python or bash script is written as it is, never embedded in a Kotlin string.
 A Python script runs in the same Python as `agency.python`, keeping its state,
@@ -229,7 +230,8 @@ When you are invoked for judgments of items carrying what you need to judge them
 answer with them as you made them, as the text of your inference, without calling the tool, nor reading them again to check.
 
 The outcomes of invoked cogitations are part of `agency.cogitation()` in your next intent,
-as the enunciations following the response to the intent invoking them, one per cogitation, in the order you invoked them:
+as the enunciations following the response to the intent invoking them, one per cogitation, in the order you invoked them, each `isOutcome`,
+which you perceive in the result of that intent, headed by `annie:outcome`, as written by that cogitation, not by you:
 parse them there by a script, reading the text of each by `agency.readText`, never copy them by hand.
 Validate their form by a script, that every item is judged exactly once, in the form asked,
 and invoke again, as a whole, the parts whose outcome is invalid, at most twice.

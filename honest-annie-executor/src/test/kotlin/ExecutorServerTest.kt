@@ -44,7 +44,10 @@ class ExecutorServerTest {
         depth = 2
     )
 
-    private val parentCogitation = Cogitation(constitution = "Be curious", enunciations = emptyList(), depth = 1)
+    private val ancestorCogitations = listOf(
+        Cogitation(constitution = "Be wise", enunciations = emptyList(), depth = 0),
+        Cogitation(constitution = "Be curious", enunciations = emptyList(), depth = 1)
+    )
 
     /**
      * Serves the requests sent to the channel of [block], whose responses it receives, until the block returns,
@@ -59,7 +62,7 @@ class ExecutorServerTest {
             ExecutorServer { SessionScriptExecutor() }.serve(requests) { responses.trySend(it) }
         }
         try {
-            Serving(requests, responses, cogitation, parentCogitation, contents).block()
+            Serving(requests, responses, cogitation, ancestorCogitations, contents).block()
         } finally {
             requests.close()
             server.join()
@@ -70,7 +73,7 @@ class ExecutorServerTest {
         private val requests: Channel<String>,
         private val responses: Channel<String>,
         private val cogitation: Cogitation,
-        private val parentCogitation: Cogitation,
+        private val ancestorCogitations: List<Cogitation>,
         private val contents: Contents
     ) {
         /** The recalls answered, in their order. */
@@ -85,7 +88,7 @@ class ExecutorServerTest {
                 when (val response = checkNotNull(decodeResponse(responses.receive()))) {
                     is ExecutorResponse.Recall -> {
                         recalls += response
-                        send(ExecutorRequest.Recalled(response.recall, if (response.parent) parentCogitation else cogitation))
+                        send(ExecutorRequest.Recalled(response.recall, if (response.ancestors) ancestorCogitations else listOf(cogitation)))
                     }
                     is ExecutorResponse.Load -> {
                         loads += response
@@ -138,16 +141,16 @@ class ExecutorServerTest {
         val unasked = receive()
         val unaskedRecalls = recalls.toList()
         send(execute("request-2", $$"""
-            "${agency.cogitation().depth} ${agency.cogitation().constitution} ${agency.parentCogitation()?.depth} ${agency.parentCogitation()?.constitution}"
+            "${agency.cogitation().depth} ${agency.cogitation().constitution} ${agency.ancestorCogitations().map { it.depth }} ${agency.ancestorCogitations().map { it.constitution }}"
         """.trimIndent()))
         val asked = receive()
 
         // then
         assert(unasked == executed("request-1", "42"))
         assert(unaskedRecalls.isEmpty())
-        assert(asked == executed("request-2", "2 Be honest 1 Be curious"))
-        // the cogitation of the intent recalled once, being the same for the whole intent, the parent one at each call
-        assert(recalls.map { it.id to it.parent } == listOf("request-2" to false, "request-2" to true, "request-2" to true))
+        assert(asked == executed("request-2", "2 Be honest [0, 1] [Be wise, Be curious]"))
+        // the cogitation of the intent recalled once, being the same for the whole intent, the ancestor ones at each call
+        assert(recalls.map { it.id to it.ancestors } == listOf("request-2" to false, "request-2" to true, "request-2" to true))
     }
 
     @Test

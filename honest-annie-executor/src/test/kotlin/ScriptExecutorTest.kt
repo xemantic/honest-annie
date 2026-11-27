@@ -65,7 +65,7 @@ class ScriptExecutorTest {
         private val contents: Contents = InMemoryContents()
     ) : Agency {
         override suspend fun cogitation() = cogitation
-        override suspend fun parentCogitation(): Cogitation? = null
+        override suspend fun ancestorCogitations(): List<Cogitation> = emptyList()
         override suspend fun invoke(prompt: String, constitution: String?, computer: String?, repl: String?, independent: Boolean): Unit =
             throw UnsupportedOperationException()
         override suspend fun enunciate(text: String, contentType: String): Unit = throw UnsupportedOperationException()

@@ -109,7 +109,7 @@ internal class Computers(
         val open = hosts.computeIfAbsent(name) { own }.repl(name)
         val context = object : IntentContext {
             override suspend fun cogitation() = cogitation
-            override suspend fun parentCogitation() = agency.parentCogitation()
+            override suspend fun ancestorCogitations() = agency.ancestorCogitations()
             override suspend fun content(ref: String) = contents.content(ref)
         }
         return open.mutex.withLock { open.repl.execute(intent, context) }

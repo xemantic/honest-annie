@@ -77,7 +77,7 @@ class ExecutorServer(
     ): Unit = coroutineScope {
         val sessions = HashMap<String, Session>()
         val executions = ConcurrentHashMap<String, Job>()
-        val recalls = ConcurrentHashMap<String, CompletableDeferred<Cogitation?>>()
+        val recalls = ConcurrentHashMap<String, CompletableDeferred<List<Cogitation>>>()
         val loads = ConcurrentHashMap<String, CompletableDeferred<ByteArray?>>()
         val lock = Any()
         fun send(response: ExecutorResponse) {
@@ -85,12 +85,12 @@ class ExecutorServer(
             synchronized(lock) { respond(line) }
         }
         fun context(execution: String) = RecallingContext(
-            recall = { parent ->
+            recall = { ancestors ->
                 val recall = randomId()
-                val recalled = CompletableDeferred<Cogitation?>()
+                val recalled = CompletableDeferred<List<Cogitation>>()
                 recalls[recall] = recalled
                 try {
-                    send(ExecutorResponse.Recall(execution, recall, parent))
+                    send(ExecutorResponse.Recall(execution, recall, ancestors))
                     recalled.await()
                 } finally {
                     recalls.remove(recall)
@@ -139,7 +139,7 @@ class ExecutorServer(
                         execution.invokeOnCompletion { executions.remove(request.id) }
                         execution.start()
                     }
-                    is ExecutorRequest.Recalled -> recalls[request.recall]?.complete(request.cogitation)
+                    is ExecutorRequest.Recalled -> recalls[request.recall]?.complete(request.cogitations)
                     is ExecutorRequest.Loaded -> loads[request.load]?.complete(request.content)
                     is ExecutorRequest.Cancel -> executions[request.id]?.cancel()
                     is ExecutorRequest.Close -> sessions.remove(request.session)?.executor?.close()
@@ -168,7 +168,7 @@ class ExecutorServer(
  * and loading the content of their phenomena from it, each time it is read, as the executor keeps none.
  */
 internal class RecallingContext(
-    private val recall: suspend (parent: Boolean) -> Cogitation?,
+    private val recall: suspend (ancestors: Boolean) -> List<Cogitation>,
     private val load: suspend (ref: String) -> ByteArray?
 ) : IntentContext {
 
@@ -177,10 +177,10 @@ internal class RecallingContext(
     private var cogitation: Cogitation? = null
 
     override suspend fun cogitation(): Cogitation = mutex.withLock {
-        cogitation ?: checkNotNull(recall(false)) { "The harness recalled no cogitation of the intent" }.also { cogitation = it }
+        cogitation ?: checkNotNull(recall(false).singleOrNull()) { "The harness recalled no cogitation of the intent" }.also { cogitation = it }
     }
 
-    override suspend fun parentCogitation(): Cogitation? = recall(true)
+    override suspend fun ancestorCogitations(): List<Cogitation> = recall(true)
 
     override suspend fun content(ref: String): ByteArray? = load(ref)
 
@@ -206,7 +206,7 @@ internal class ProtocolAgency(
 
     override suspend fun cogitation(): Cogitation = context.cogitation()
 
-    override suspend fun parentCogitation(): Cogitation? = context.parentCogitation()
+    override suspend fun ancestorCogitations(): List<Cogitation> = context.ancestorCogitations()
 
     override suspend fun invoke(
         prompt: String,

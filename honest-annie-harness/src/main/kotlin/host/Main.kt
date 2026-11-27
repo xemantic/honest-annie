@@ -42,6 +42,7 @@ import com.xemantic.annie.harness.cognizer.openai.openAIProvider
 import com.xemantic.annie.harness.constitution
 import kotlin.io.path.Path
 import kotlinx.coroutines.runBlocking
+import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -62,6 +63,9 @@ import kotlin.time.Duration.Companion.seconds
  * and infers after a refused inference by `ANNIE_FALLBACK_MODEL`, `claude-opus-5-5` by default, or by its own model when `none`.
  * The Python of the intents runs in the virtual environment of `VIRTUAL_ENV`, or of `ANNIE_PYTHON_VENV`,
  * created with `ANNIE_PYTHON` when it does not exist, see `PythonVenv` of the executor.
+ *
+ * The process exits with 1 when the root cogitation rests impeded, e.g. by an inference failing, as one of an invalid API key,
+ * so that a script running it tells a task left undone, the impediment still printed as its output.
  */
 fun main(args: Array<String>) {
     val cogitationsDir = Path(System.getenv("ANNIE_COGITATIONS_DIR") ?: "cogitations")
@@ -80,7 +84,11 @@ fun main(args: Array<String>) {
     val client: AutoCloseable
     val cognizer: Cognizer
     if (claudeModel != null) {
-        // the API key is read from ANTHROPIC_API_KEY, the proxy from HTTPS_PROXY, see httpsProxy
+        // the API key is read from ANTHROPIC_API_KEY, the proxy from HTTPS_PROXY, see httpsProxy:
+        // without a key every inference fails, which would only be told once the root cogitation rests impeded
+        if (System.getenv("ANTHROPIC_API_KEY") == null && System.getenv("ANTHROPIC_AUTH_TOKEN") == null) {
+            error("ANTHROPIC_MODEL is set, but neither ANTHROPIC_API_KEY nor ANTHROPIC_AUTH_TOKEN is")
+        }
         val claude = AnthropicOkHttpClient.builder()
             .fromEnv()
             .apply {
@@ -120,7 +128,7 @@ fun main(args: Array<String>) {
         }
     }
     // the intents are executed on computers of the host, each one an executor process of its own, each REPL a session of it
-    client.use { LocalComputerProvider(computerTypes).use { computers ->
+    val impeded = client.use { LocalComputerProvider(computerTypes).use { computers ->
         runBlocking {
             val output = HarnessHost(
                 cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism,
@@ -143,6 +151,8 @@ fun main(args: Array<String>) {
                     printed.replace(text.toString(), "Text(text=${contents.readText(text)}, contentType=${text.contentType})")
                 }
             })
+            output.phenomena.any { it is Phenomenon.Impediment }
         }
     } }
+    if (impeded) exitProcess(1)
 }

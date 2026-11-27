@@ -112,7 +112,7 @@ class TurnsTest {
     }
 
     @Test
-    fun `should perceive output enunciated by intent and response to it as result of its tool call, and later outcomes after it`() {
+    fun `should perceive output enunciated by intent, response to it, and outcomes of cogitations it invoked as result of its tool call`() {
         // given
         val intent = Phenomenon.Intent(script = "agency.invoke(\"judge\")", id = "call_1")
         val cogitation = Cogitation(
@@ -141,6 +141,9 @@ class TurnsTest {
 
         // then
         assert(turns.size == 3)
+        // the id of the invoked cogitation is never rendered, its outcome perceived in the order of the invocations,
+        // within the result of the intent invoking it, headed as an outcome:
+        // as an actant of self the model takes it for its own words, and after the result for the words of the user
         assert((turns[2] as Turn.User).parts == listOf(
             Perceived.Result("call_1", listOf(Perceived.Text("""
                 <annie:actant type="self" name="self" initiated="2026-10-24T10:15:30Z"/>
@@ -149,12 +152,10 @@ class TurnsTest {
                 <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
                 <annie:text content-type="text/plain"/>
                 Spent
-            """.trimIndent()))),
-            // the id of the invoked cogitation is never rendered, its outcome perceived in the order of the invocations
-            Perceived.Text("""
-                <annie:actant type="self" name="self" initiated="2026-10-24T10:15:30Z"/>
+
+                <annie:outcome initiated="2026-10-24T10:15:30Z"/>
                 judged
-            """.trimIndent())
+            """.trimIndent())))
         ))
     }
 

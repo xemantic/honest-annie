@@ -135,8 +135,8 @@ class ExecutorProcess(
                 while (outcome == null) {
                     when (val response = responses.receive()) {
                         is ExecutorResponse.Recall -> {
-                            val cogitation = if (response.parent) context.parentCogitation() else context.cogitation()
-                            send(ExecutorRequest.Recalled(response.recall, cogitation))
+                            val cogitations = if (response.ancestors) context.ancestorCogitations() else listOf(context.cogitation())
+                            send(ExecutorRequest.Recalled(response.recall, cogitations))
                         }
                         is ExecutorResponse.Load -> send(ExecutorRequest.Loaded(response.load, context.content(response.ref)))
                         else -> outcome = response
