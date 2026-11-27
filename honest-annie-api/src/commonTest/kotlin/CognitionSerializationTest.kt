@@ -22,7 +22,6 @@ import com.xemantic.kotlin.test.assert
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
@@ -31,11 +30,11 @@ class CognitionSerializationTest {
     private val initiated = Instant.parse("2026-11-24T12:00:00Z")
 
     private val intent = Phenomenon.Intent(
-        script = "1 + 1",
         edits = listOf(
             Edit(path = "a.py", new = "x = 1\n"),
             Edit(path = "b.py", new = "y", old = "x", all = true)
-        )
+        ),
+        script = "1 + 1"
     )
 
     private val invocation = Phenomenon.Invocation(id = "invocation-1", prompt = "Count", constitution = "Be brief")
@@ -86,35 +85,6 @@ class CognitionSerializationTest {
     }
 
     @Test
-    fun `should serialize the bytes of data as Base64 rather than as an array of numbers`() {
-        // given
-        val data = Phenomenon.Data(byteArrayOf(0, 1, -1, 127), "image/png")
-
-        // when
-        val json = Json.parseToJsonElement(Json.encodeToString<Phenomenon>(data))
-
-        // then
-        assert(json["bytes"].string == "AAH/fw==")
-        assert(json["contentType"].string == "image/png")
-    }
-
-    @Test
-    fun `should name the kind of a phenomenon in its JSON`() {
-        // when
-        val kinds = listOf(
-            Phenomenon.Text("a"),
-            Phenomenon.Data(byteArrayOf()),
-            intent,
-            invocation,
-            Phenomenon.Impediment("b"),
-            Phenomenon.Monologue("c")
-        ).map { Json.parseToJsonElement(Json.encodeToString<Phenomenon>(it))["type"].string }
-
-        // then
-        assert(kinds == listOf("text", "data", "intent", "invocation", "impediment", "monologue"))
-    }
-
-    @Test
     fun `should keep the id of an enunciation responding to a request`() {
         // given
         val enunciation = cogitation.enunciations.last()
@@ -128,24 +98,12 @@ class CognitionSerializationTest {
     }
 
     @Test
-    fun `should serialize an allowance to JSON and back`() {
-        // given
-        val allowance = Allowance(tokens = 1000, spentTokens = 10, time = 30.minutes, started = initiated)
-
-        // when
-        val decoded = Json.decodeFromString<Allowance>(Json.encodeToString(allowance))
-
-        // then
-        assert(decoded == allowance)
-    }
-
-    @Test
     fun `should not serialize the properties derived from others`() {
         // when
         val json: JsonElement = Json.parseToJsonElement(Json.encodeToString(cogitation))
 
         // then
-        assert(json.keys == setOf("constitution", "enunciations", "depth"))
+        assert(json.keys == setOf("constitution", "enunciations", "depth", "computer", "repl"))
         assert(json["enunciations"][1].keys == setOf("actant", "initiated", "finalized", "id", "phenomena", "inference"))
         assert(json["enunciations"][1]["inference"].keys == setOf("model", "provider", "tokens", "stop"))
     }

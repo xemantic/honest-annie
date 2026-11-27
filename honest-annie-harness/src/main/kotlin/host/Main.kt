@@ -25,6 +25,8 @@ import com.xemantic.annie.harness.cognizer.httpsProxy
 import java.net.URI
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Computer
+import com.xemantic.annie.computer.local.LocalComputerProvider
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.harness.cognizer.Cognizer
@@ -48,6 +50,9 @@ import kotlin.time.Duration.Companion.seconds
  * Cogitations are recorded in `ANNIE_COGITATIONS_DIR`, `cogitations` by default, and unfolded
  * spending at most `ANNIE_TOKEN_BUDGET` tokens within `ANNIE_TIME_LIMIT` seconds, and stepping at most `ANNIE_PARALLELISM` cogitations
  * at a time, when set, see [HarnessHost].
+ * The cogitations may start computers of the `ANNIE_COMPUTER_TYPES`, separated by commas, `default` when not set,
+ * the root one running on a computer of the first of them, see [Computer],
+ * each computer, whatever its type, being an executor process of the host, see [LocalComputerProvider].
  * The cognizer reasons with the `ANNIE_EFFORT`, e.g. `xhigh`, see [Effort], the default of its model when not set,
  * inferring at most `ANNIE_MAX_TOKENS` tokens at a time, when set.
  * Claude caches what it reads for `ANNIE_CACHE_TTL`, `5m` by default, or `1h`, see [ClaudeInference],
@@ -61,6 +66,8 @@ fun main(args: Array<String>) {
     val tokenBudget = System.getenv("ANNIE_TOKEN_BUDGET")?.toLong()
     val timeLimit = System.getenv("ANNIE_TIME_LIMIT")?.toLong()?.seconds
     val parallelism = System.getenv("ANNIE_PARALLELISM")?.toInt()
+    val computerTypes = System.getenv("ANNIE_COMPUTER_TYPES")?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+        ?.ifEmpty { null } ?: listOf("default")
     val effort = System.getenv("ANNIE_EFFORT")?.let { Effort.valueOf(it.uppercase()) }
     val maxTokens = System.getenv("ANNIE_MAX_TOKENS")?.toLong()
     val claudeModel = System.getenv("ANTHROPIC_MODEL")
@@ -107,14 +114,15 @@ fun main(args: Array<String>) {
             OpenAIInference(openAI, model, provider = openAIProvider, effort = effort)
         }
     }
-    // the intents are executed by an executor process of their own, each cogitation in a session of its own
-    client.use { ExecutorProcess().use { executor ->
+    // the intents are executed on computers of the host, each one an executor process of its own, each REPL a session of it
+    client.use { LocalComputerProvider(computerTypes).use { computers ->
         runBlocking {
             val output = HarnessHost(
                 cognizer, recordingDir = cogitationsDir, tokenBudget = tokenBudget, timeLimit = timeLimit, parallelism = parallelism,
-                executors = executor::session
+                computers = computers
             ).cognize(Cogitation(
                 constitution = constitution(model, constitutionFile),
+                computer = Computer(type = computerTypes.first()),
                 enunciations = listOf(Enunciation(
                     actant = Actant(
                         type = Actant.Type.HUMAN,

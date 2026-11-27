@@ -56,7 +56,7 @@ class CogitationRecorderTest {
                 ),
                 Enunciation(
                     actant = Actant.SELF,
-                    phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent("1"))
+                    phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent(script = "1"))
                 ),
                 Enunciation(
                     actant = computer,
@@ -90,6 +90,34 @@ class CogitationRecorderTest {
             "003-2-computer-invocation.md",
             "003-3-computer-text.md"
         ))
+    }
+
+    @Test
+    fun `should record script of intent in file of its language`() = runTest {
+        // given
+        val recordingDir = createTempDirectory("cogitations")
+        val cogitation = Cogitation(
+            constitution = "",
+            enunciations = listOf(Enunciation(
+                actant = Actant.SELF,
+                phenomena = listOf(
+                    Phenomenon.Intent(script = "6 * 7"),
+                    Phenomenon.Intent(language = Phenomenon.Intent.Language.PYTHON, script = "print(42)"),
+                    Phenomenon.Intent(language = Phenomenon.Intent.Language.BASH, script = "echo 42")
+                )
+            ))
+        )
+
+        // when
+        CogitationRecorder(recordingDir).record(cogitation)
+
+        // then
+        val root = recordingDir.listDirectoryEntries().single()
+        val files = root.listDirectoryEntries().map { it.name }.sorted() - setOf(
+            "cogitation.md", "constitution.md", "inferences.json"
+        )
+        assert(files == listOf("001-1-self-intent.kts", "001-2-self-intent.py", "001-3-self-intent.sh"))
+        assert(root.resolve("001-2-self-intent.py").readText() == "print(42)")
     }
 
     @Test
@@ -128,7 +156,7 @@ class CogitationRecorderTest {
             enunciations = listOf(
                 Enunciation(
                     actant = Actant.SELF,
-                    phenomena = listOf(Phenomenon.Intent("1")),
+                    phenomena = listOf(Phenomenon.Intent(script = "1")),
                     inference = Inference(
                         model = "claude-opus-5-5",
                         provider = "anthropic",
@@ -161,7 +189,7 @@ class CogitationRecorderTest {
         actant = Actant.SELF,
         initiated = Instant.parse("2026-10-23T13:14:40Z"),
         finalized = Instant.parse("2026-10-23T13:14:42Z"),
-        phenomena = listOf(Phenomenon.Intent("1")),
+        phenomena = listOf(Phenomenon.Intent(script = "1")),
         inference = Inference(model = "claude-opus-5-5", provider = "anthropic", tokens = tokens, stop = stop)
     )
 
@@ -285,7 +313,7 @@ class CogitationRecorderTest {
         )
         recorder.record(Cogitation(constitution = "", enunciations = listOf(question)))
         val discarded = inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L))
-            .copy(phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent("<invoke name=\"fetch\">")))
+            .copy(phenomena = listOf(Phenomenon.Monologue("thinking"), Phenomenon.Intent(script = "<invoke name=\"fetch\">")))
 
         // when
         recorder.record(
@@ -354,11 +382,11 @@ class CogitationRecorderTest {
                 actant = Actant.SELF,
                 initiated = Instant.parse("2026-10-23T13:14:39Z"),
                 phenomena = listOf(Phenomenon.Intent(
-                    script = "1",
                     edits = listOf(
                         Edit(path = "/app/f.py", old = "    return 1\n", new = "    \"\"\"Docstring.\"\"\"\n"),
                         Edit(path = "/app/g.py", new = "x\n", old = null, all = false)
-                    )
+                    ),
+                    script = "1"
                 ))
             ))
         )

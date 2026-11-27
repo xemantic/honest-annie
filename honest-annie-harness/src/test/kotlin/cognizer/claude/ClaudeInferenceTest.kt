@@ -104,7 +104,7 @@ class ClaudeInferenceTest {
         assert(body["tool_choice"] == json("""{"type": "auto", "disable_parallel_tool_use": true}"""))
         // a call cannot be forced on the latest models, but its arguments always fit the schema
         assert(body["tools"] == json("""
-            [{"name": "kotlin_script", "description": ${jsonMapper().writeValueAsString(IntentTool.DESCRIPTION)},
+            [{"name": "execute", "description": ${jsonMapper().writeValueAsString(IntentTool.DESCRIPTION)},
               "input_schema": {"type": "object", "properties": $intentProperties, "additionalProperties": false},
               "strict": true}]
         """))
@@ -238,7 +238,7 @@ class ClaudeInferenceTest {
                 Monologue("thought", id = "thought"),
                 Monologue("", id = "redacted"),
                 Monologue("thought of another cognizer", id = "unknown"),
-                Phenomenon.Intent("6 * 7", id = "toolu_1")
+                Phenomenon.Intent(script = "6 * 7", id = "toolu_1")
             )
         ))
 
@@ -250,7 +250,7 @@ class ClaudeInferenceTest {
             {"role": "assistant", "content": [
                 {"type": "thinking", "thinking": "thought", "signature": "sig"},
                 {"type": "redacted_thinking", "data": "redacted"},
-                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}}
+                {"type": "tool_use", "id": "toolu_1", "name": "execute", "input": {"script": "6 * 7"}}
             ]}
         """))
     }
@@ -313,7 +313,7 @@ class ClaudeInferenceTest {
                 initiated = initiated,
                 phenomena = listOf(
                     Phenomenon.Text("Computing it."),
-                    Phenomenon.Intent("6 * 7", id = "toolu_1")
+                    Phenomenon.Intent(script = "6 * 7", id = "toolu_1")
                 )
             ),
             Enunciation(
@@ -331,7 +331,7 @@ class ClaudeInferenceTest {
         assert(body["messages"][1] == json("""
             {"role": "assistant", "content": [
                 {"type": "text", "text": "Computing it."},
-                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}}
+                {"type": "tool_use", "id": "toolu_1", "name": "execute", "input": {"script": "6 * 7"}}
             ]}
         """))
         assert(body["messages"][2] == json("""
@@ -360,7 +360,7 @@ class ClaudeInferenceTest {
                 {"type": "thinking", "thinking": "", "signature": "sig"},
                 {"type": "redacted_thinking", "data": "redacted"},
                 {"type": "text", "text": "Computing it."},
-                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}}
+                {"type": "tool_use", "id": "toolu_1", "name": "execute", "input": {"script": "6 * 7"}}
               ],
               "stop_reason": "end_turn",
               "stop_sequence": null,
@@ -378,7 +378,7 @@ class ClaudeInferenceTest {
             Monologue("", id = thinking.id),
             Monologue("", id = redacted.id),
             Phenomenon.Text("Computing it."),
-            Phenomenon.Intent("6 * 7", id = intent.id)
+            Phenomenon.Intent(script = "6 * 7", id = intent.id)
         ))
         assert(thinking.id != redacted.id)
     }
@@ -417,7 +417,7 @@ class ClaudeInferenceTest {
 
         // then
         val impediment = phenomena.single() as Phenomenon.Impediment
-        assert("bash" in impediment.reason && "kotlin_script" in impediment.reason)
+        assert("bash" in impediment.reason && "execute" in impediment.reason)
     }
 
     @Test
@@ -432,7 +432,7 @@ class ClaudeInferenceTest {
               "model": "claude-opus-5-5",
               "content": [
                 {"type": "thinking", "thinking": "first", "signature": "sig1"},
-                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}},
+                {"type": "tool_use", "id": "toolu_1", "name": "execute", "input": {"script": "6 * 7"}},
                 {"type": "thinking", "thinking": "as if the result was perceived", "signature": "sig2"},
                 {"type": "text", "text": "42"}
               ],
@@ -568,7 +568,7 @@ class ClaudeInferenceTest {
             Enunciation(
                 actant = Actant.SELF,
                 initiated = initiated,
-                phenomena = listOf(Monologue("thought", id = "thought"), Phenomenon.Intent("6 * 7", id = "toolu_1")),
+                phenomena = listOf(Monologue("thought", id = "thought"), Phenomenon.Intent(script = "6 * 7", id = "toolu_1")),
                 inference = Inference(model = "claude-fable-5-2", provider = "anthropic")
             ),
             Enunciation(
@@ -598,7 +598,7 @@ class ClaudeInferenceTest {
         assert(body["model"].asText() == "claude-opus-5-5")
         assert(body["messages"][1] == json("""
             {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "6 * 7"}}
+                {"type": "tool_use", "id": "toolu_1", "name": "execute", "input": {"script": "6 * 7"}}
             ]}
         """))
         assert(body["messages"].size() == 3)
@@ -631,7 +631,7 @@ class ClaudeInferenceTest {
               "role": "assistant",
               "model": "claude-opus-5-5",
               "content": [
-                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {
+                {"type": "tool_use", "id": "toolu_1", "name": "execute", "input": {
                   "script": "agency.bash(\"pytest\")",
                   "edits": [
                     {"path": "/app/f.py", "old": "    return 1\n", "new": "    \"\"\"Costs ${'$'}1.\"\"\"\n    return 2\n"},
@@ -667,8 +667,8 @@ class ClaudeInferenceTest {
                 actant = Actant.SELF,
                 initiated = initiated,
                 phenomena = listOf(Phenomenon.Intent(
-                    script = "",
                     edits = listOf(Edit(path = "/app/g.py", new = "x = 1\n"), Edit(path = "/app/h.py", old = "a", new = "b", all = true)),
+                    script = "",
                     id = "toolu_1"
                 ))
             ),
@@ -686,7 +686,7 @@ class ClaudeInferenceTest {
         // then
         assert(body["messages"][1] == json("""
             {"role": "assistant", "content": [
-                {"type": "tool_use", "id": "toolu_1", "name": "kotlin_script", "input": {"script": "", "edits": [
+                {"type": "tool_use", "id": "toolu_1", "name": "execute", "input": {"script": "", "edits": [
                   {"path": "/app/g.py", "new": "x = 1\n"},
                   {"path": "/app/h.py", "old": "a", "new": "b", "all": true}
                 ]}}

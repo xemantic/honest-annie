@@ -18,7 +18,6 @@
 
 package com.xemantic.annie
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -43,7 +42,6 @@ sealed interface ExecutorRequest {
      * not when the intent fails, which is its result.
      */
     @Serializable
-    @SerialName("execute")
     data class Execute(
         val id: String,
         val session: String,
@@ -53,25 +51,22 @@ sealed interface ExecutorRequest {
 
     /** Cancels the execution of the [Execute] request of this [id], e.g. as the cogitation is impeded, responded by nothing. */
     @Serializable
-    @SerialName("cancel")
     data class Cancel(val id: String) : ExecutorRequest
 
     /** Closes the [session], e.g. as its cogitation rests, cancelling what its intents still execute, responded by nothing. */
     @Serializable
-    @SerialName("close")
     data class Close(val session: String) : ExecutorRequest
 
 }
 
 /**
  * What the agency of the harness tells of the cogitation of an intent, see [Agency]:
- * a snapshot taken as the intent is requested, e.g. the [allowance] not changing while it executes.
+ * a snapshot taken as the intent is requested.
  */
 @Serializable
 data class IntentContext(
     val cogitation: Cogitation,
-    val parentCogitation: Cogitation?,
-    val allowance: Allowance
+    val parentCogitation: Cogitation?
 )
 
 /** A response of the executor to the [ExecutorRequest] of the same [id]. */
@@ -85,7 +80,6 @@ sealed interface ExecutorResponse {
      * and its [output], see [ExecutedIntent].
      */
     @Serializable
-    @SerialName("executed")
     data class Executed(
         override val id: String,
         val result: List<Phenomenon>,
@@ -94,7 +88,6 @@ sealed interface ExecutorResponse {
 
     /** The executor failed to execute the intent, for the [reason], e.g. its session failing to start. */
     @Serializable
-    @SerialName("failed")
     data class Failed(
         override val id: String,
         val reason: String
@@ -132,3 +125,23 @@ fun decodeResponse(line: String): ExecutorResponse? = line.message()?.let {
 /** The message following the last separator of this line, as something else might precede it on the same line. */
 private fun String.message(): String? =
     if (MESSAGE_SEPARATOR in this) substringAfterLast(MESSAGE_SEPARATOR).trimEnd('\r') else null
+
+/**
+ * The invocation of a cogitation, see [Agency.invoke], made by the agency of the harness, or of the executor:
+ * on a new [Computer] of the [computer] type, its first REPL being the [repl] given, or a new one,
+ * or on the computer of the invoker, in the [repl] given, or else in a new one when [independent], or in the one of the invoker.
+ */
+fun invocation(
+    prompt: String,
+    constitution: String,
+    computer: String?,
+    repl: String?,
+    independent: Boolean
+): Phenomenon.Invocation = Phenomenon.Invocation(
+    id = randomId(),
+    prompt = prompt,
+    constitution = constitution,
+    computer = computer?.let { Computer(type = it) },
+    repl = repl ?: if (computer != null || independent) randomId() else null,
+    independent = independent
+)

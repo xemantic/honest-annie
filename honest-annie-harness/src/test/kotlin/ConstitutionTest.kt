@@ -120,6 +120,23 @@ class ConstitutionTest {
     }
 
     @Test
+    fun `should show the declarations of the API, not their implementation`() {
+        // when
+        val constitutions = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3")
+            .map { constitution(model = it) }
+
+        // then
+        // the implementation would only fill the context of a cognizer, which needs to know how to call the API
+        assert(constitutions.all {
+            "operator fun JsonElement.get(key: String): JsonElement\n" in it &&
+                "operator fun CharSequence?.unaryPlus(): Appending\n" in it
+        })
+        assert(constitutions.none {
+            "fun JsonElement.kind()" in it || "appendable.append(" in it || Regex("^expect ", RegexOption.MULTILINE) in it
+        })
+    }
+
+    @Test
     fun `should show the cognition without the annotations of its serialization`() {
         // when
         val constitutions = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3")
@@ -128,9 +145,22 @@ class ConstitutionTest {
         // then
         // the serialization is the protocol between the harness and the executor, not what a cognizer acts through
         // the constitution teaches @Serializable for the JSON of HTTP, so only the declarations of the API and the cognition are checked
-        assert(constitutions.none { "@SerialName" in it || "UseSerializers" in it || "Base64Serializer" in it })
-        assert(constitutions.all { "\ndata class Cogitation(" in it && "\nsealed interface Phenomenon {" in it && "\ndata class Allowance(" in it })
-        assert(constitutions.none { "@Serializable\ndata class Cogitation(" in it || "@Serializable\nsealed interface Phenomenon {" in it || "@Serializable\ndata class Allowance(" in it })
+        assert(constitutions.all { "\ndata class Cogitation(" in it && "\nsealed interface Phenomenon {" in it })
+        assert(constitutions.none { "@Serializable\ndata class Cogitation(" in it || "@Serializable\nsealed interface Phenomenon {" in it })
+    }
+
+    @Test
+    fun `should show the functions navigating JSON in the HTTP section`() {
+        // when
+        val constitutions = listOf("claude-opus-5-5", "claude-fable-5-2", "deepseek-v4_1-flash", "kimi-k3")
+            .map { constitution(model = it) }
+
+        // then
+        assert(constitutions.all {
+            val http = it.substringAfter("\n## HTTP\n").substringBefore("\n## ")
+            "operator fun JsonElement.get(key: String): JsonElement" in http && "{{json}}" !in it
+        })
+        assert(constitutions.none { "operator fun JsonElement.get(key: String)" in it.substringAfter("\n## API\n") })
     }
 
     @Test

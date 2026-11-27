@@ -62,7 +62,7 @@ class OpenAIInferenceTest {
     private fun arguments(script: String): String = jsonMapper().writeValueAsString(mapOf(IntentTool.PARAMETER to script))
 
     private val tool = """
-        {"name": "kotlin_script", "description": ${jsonMapper().writeValueAsString(IntentTool.DESCRIPTION)},
+        {"name": "execute", "description": ${jsonMapper().writeValueAsString(IntentTool.DESCRIPTION)},
          "parameters": {"type": "object", "properties": ${jsonMapper().writeValueAsString(IntentTool.properties)}}}
     """
 
@@ -80,7 +80,7 @@ class OpenAIInferenceTest {
                 initiated = initiated,
                 phenomena = listOf(
                     Phenomenon.Text("Computing it."),
-                    Phenomenon.Intent("6 * 7", id = "call_1")
+                    Phenomenon.Intent(script = "6 * 7", id = "call_1")
                 )
             ),
             Enunciation(
@@ -124,7 +124,7 @@ class OpenAIInferenceTest {
         // when
         val body = json(inference.chatRequest(cogitation(
             Monologue("thought"),
-            Phenomenon.Intent("6 * 7", id = "call_1")
+            Phenomenon.Intent(script = "6 * 7", id = "call_1")
         ))._body())
 
         // then
@@ -134,7 +134,7 @@ class OpenAIInferenceTest {
                 {"role": "system", "content": "constitution"},
                 {"role": "user", "content": ${jsonMapper().writeValueAsString(userTurn)}},
                 {"role": "assistant", "tool_calls": [{"id": "call_1", "type": "function",
-                  "function": {"name": "kotlin_script", "arguments": ${jsonMapper().writeValueAsString(arguments("6 * 7"))}}}]}
+                  "function": {"name": "execute", "arguments": ${jsonMapper().writeValueAsString(arguments("6 * 7"))}}}]}
               ],
               "model": "glm-5.3-flash",
               "max_completion_tokens": 8000,
@@ -235,8 +235,8 @@ class OpenAIInferenceTest {
                 "message": {
                   "role": "assistant", "content": "Computing it.", "refusal": null,
                   "tool_calls": [
-                    {"id": "call-1", "type": "function", "function": {"name": "kotlin_script", "arguments": "{\"script\": \"6 * 7\"}"}},
-                    {"id": "call-2", "type": "function", "function": {"name": "kotlin_script", "arguments": "{\"script\": \"42\"}"}}
+                    {"id": "call-1", "type": "function", "function": {"name": "execute", "arguments": "{\"script\": \"6 * 7\"}"}},
+                    {"id": "call-2", "type": "function", "function": {"name": "execute", "arguments": "{\"script\": \"42\"}"}}
                   ]
                 }
               }]
@@ -287,7 +287,7 @@ class OpenAIInferenceTest {
         // then
         assert((phenomena.first() as Monologue).text == "Let's run.")
         val impediment = phenomena.last() as Phenomenon.Impediment
-        assert("kotlin" in impediment.reason && "kotlin_script" in impediment.reason)
+        assert("kotlin" in impediment.reason && "execute" in impediment.reason)
     }
 
     @Test
@@ -309,7 +309,7 @@ class OpenAIInferenceTest {
                   "tool_calls": [{
                     "id": "call-1",
                     "type": "function",
-                    "function": {"name": "kotlin_script", "arguments": "{\"code\": \"6 * 7\"}"}
+                    "function": {"name": "execute", "arguments": "{\"code\": \"6 * 7\"}"}
                   }]
                 }
               }]
@@ -343,7 +343,7 @@ class OpenAIInferenceTest {
                   "tool_calls": [{
                     "id": "call-1",
                     "type": "function",
-                    "function": {"name": "kotlin_script", "arguments": "{\"script\": \"6 *"}
+                    "function": {"name": "execute", "arguments": "{\"script\": \"6 *"}
                   }]
                 }
               }]
@@ -423,7 +423,7 @@ class OpenAIInferenceTest {
         """))
     }
 
-    private val perceivingDocument = cogitation(Phenomenon.Intent("document()", id = "call_1")).let {
+    private val perceivingDocument = cogitation(Phenomenon.Intent(script = "document()", id = "call_1")).let {
         it.copy(enunciations = it.enunciations + Enunciation(
             actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
             initiated = initiated,
@@ -432,7 +432,7 @@ class OpenAIInferenceTest {
         ))
     }
 
-    private val perceivingImage = cogitation(Phenomenon.Intent("image()", id = "call_1")).let {
+    private val perceivingImage = cogitation(Phenomenon.Intent(script = "image()", id = "call_1")).let {
         it.copy(enunciations = it.enunciations + Enunciation(
             actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
             initiated = initiated,
@@ -468,7 +468,7 @@ class OpenAIInferenceTest {
             Monologue("other thought", id = "other"),
             Monologue("thought", id = "thought"),
             Monologue("thought of another cognizer", id = "unknown"),
-            Phenomenon.Intent("6 * 7", id = "call_1")
+            Phenomenon.Intent(script = "6 * 7", id = "call_1")
         ))._body())
 
         // then
@@ -486,7 +486,7 @@ class OpenAIInferenceTest {
             [
               {"type": "message", "role": "user", "content": ${jsonMapper().writeValueAsString(userTurn)}},
               {"type": "reasoning", "id": "rs_1", "summary": [{"type": "summary_text", "text": "thought"}], "encrypted_content": "secret"},
-              {"type": "function_call", "call_id": "call_1", "name": "kotlin_script", "arguments": ${jsonMapper().writeValueAsString(arguments("6 * 7"))}}
+              {"type": "function_call", "call_id": "call_1", "name": "execute", "arguments": ${jsonMapper().writeValueAsString(arguments("6 * 7"))}}
             ]
         """))
     }
@@ -529,7 +529,7 @@ class OpenAIInferenceTest {
                 {"type": "message", "id": "msg_1", "role": "assistant", "status": "completed", "content": [
                   {"type": "output_text", "text": "Computing it.", "annotations": []}
                 ]},
-                {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "kotlin_script",
+                {"type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "execute",
                  "arguments": "{\"script\": \"6 * 7\"}", "status": "completed"},
                 {"type": "message", "id": "msg_2", "role": "assistant", "status": "completed", "content": [
                   {"type": "output_text", "text": "42", "annotations": []}
@@ -751,7 +751,7 @@ class OpenAIInferenceTest {
         )
 
         // when
-        val intents = arguments.map { IntentTool.intent("kotlin_script", it) }
+        val intents = arguments.map { IntentTool.intent("execute", it) }
 
         // then
         intents.forEach { intent ->
@@ -770,7 +770,7 @@ class OpenAIInferenceTest {
         ]}"""
 
         // when
-        val intent = IntentTool.intent("kotlin_script", arguments)
+        val intent = IntentTool.intent("execute", arguments)
 
         // then
         assert(intent is Phenomenon.Intent && intent.edits == listOf(
@@ -786,7 +786,7 @@ class OpenAIInferenceTest {
         val impediments = listOf(
             """{"script": "1", "edits": [{"path": "/app/a.py", "new": "b"}, {"path": "/app/b.py", "new": "c"}, {"new": "d", "old": "c"}]}""",
             """{"script": "1", "edits": [{"new": "d", "old": "c"}, {"new": "f", "old": "e"}]}"""
-        ).map { IntentTool.intent("kotlin_script", it) }
+        ).map { IntentTool.intent("execute", it) }
 
         // then
         assert(impediments.all { it is Phenomenon.Impediment && "had no `path`" in it.reason })
@@ -795,11 +795,11 @@ class OpenAIInferenceTest {
     @Test
     fun `should perceive call of the tool of intents with malformed edits as an impediment`() {
         // when
-        val impediment = IntentTool.intent("kotlin_script", """{"script": "1", "edits": [{"file": "/app/g.py", "new": "x"}]}""")
+        val impediment = IntentTool.intent("execute", """{"script": "1", "edits": [{"file": "/app/g.py", "new": "x"}]}""")
 
         // then
         assert(impediment == Phenomenon.Impediment(
-            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+            "Your call of `execute` carried a malformed edit, so nothing was executed: " +
                     "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
                     "but edit 1 of 1 had no `path`, being {\"file\": a text of 9 characters, \"new\": a text of 1 character}: " +
                     "give every edit its own `path`, even one changing the file of the edit before it, or of an earlier call"
@@ -813,11 +813,11 @@ class OpenAIInferenceTest {
         val arguments = """{"script": "1", "edits": [{"old": "a", "new": "b"}, {"old": "c", "new": "d"}]}"""
 
         // when
-        val impediment = IntentTool.intent("kotlin_script", arguments)
+        val impediment = IntentTool.intent("execute", arguments)
 
         // then
         assert(impediment == Phenomenon.Impediment(
-            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+            "Your call of `execute` carried a malformed edit, so nothing was executed: " +
                     "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
                     "but edit 1 of 2 had no `path`, being {\"old\": a text of 1 character, \"new\": a text of 1 character}, " +
                     "and edit 2 of 2 had no `path`, being {\"old\": a text of 1 character, \"new\": a text of 1 character}: " +
@@ -840,11 +840,11 @@ class OpenAIInferenceTest {
         ))
 
         // when
-        val impediment = IntentTool.intent("kotlin_script", arguments)
+        val impediment = IntentTool.intent("execute", arguments)
 
         // then
         assert(impediment == Phenomenon.Impediment(
-            "Your call of `kotlin_script` carried a malformed edit, so nothing was executed: " +
+            "Your call of `execute` carried a malformed edit, so nothing was executed: " +
                     "each edit is {\"path\", \"old\", \"new\", \"all\"}, `path` and `new` being required texts, `old` a text, and `all` a boolean, " +
                     // its path taken from the other edit, as the edits name a single file
                     "but edit 2 of 3 had `all` being a text, being " +

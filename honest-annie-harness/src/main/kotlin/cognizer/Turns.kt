@@ -66,6 +66,16 @@ sealed interface Perceived {
 /** The result of the tool call of an intent never executed, e.g. interrupted, as an API rejects a tool call without one. */
 const val NOT_EXECUTED: String = "<annie:impediment/>\nThe intent was not executed."
 
+/**
+ * How many characters of each text of the result of an intent the model perceives, see [Perceived.Result]:
+ * the cogitation keeps the whole text, perceived again at every later step, so that a single result would flood the context,
+ * while a script can still read the rest of it from `agency.cogitation`, as the cut tells.
+ *
+ * The limit is the one of Claude Code for the output of a command, which its models are used to:
+ * cut at 10,000 characters, a model reading source files in ranges spent a step on every cut file.
+ */
+const val MAX_RESULT_TEXT_LENGTH: Int = 30_000
+
 /** The maximal size of an image accepted by every API, the one of Claude, a larger one is perceived only as markup. */
 const val MAX_IMAGE_SIZE: Int = 5 * 1024 * 1024
 
@@ -83,6 +93,7 @@ private val imageMediaTypes = setOf(MediaType.JPEG, MediaType.PNG, MediaType.GIF
  * the output an intent enunciates, and the output of an invoked cogitation, are enunciated by [Actant.Type.SELF], yet perceived.
  * The execution of an intent, expressed as a tool call, is perceived as its [Perceived.Result]:
  * the output the intent enunciated, and the response of the computer to it, see [isExecutionOf],
+ * each text of them cut beyond [MAX_RESULT_TEXT_LENGTH] characters, telling where the whole one is in the cogitation,
  * while what follows, e.g. the outcomes of the cogitations it invoked, is perceived after it.
  *
  * @param intent the assistant part of the intent.
@@ -108,7 +119,7 @@ fun <P> Cogitation.toTurns(
         called = null
         result = null
     }
-    enunciations.forEach { enunciation ->
+    enunciations.forEachIndexed { enunciationIndex, enunciation ->
         val calling = called
         val expressed = enunciation.isExpressed
         if (calling != null && !expressed) {
@@ -121,7 +132,7 @@ fun <P> Cogitation.toTurns(
             conclude()
         }
         var headed = false
-        enunciation.phenomena.forEach { phenomenon ->
+        enunciation.phenomena.forEachIndexed { phenomenonIndex, phenomenon ->
             when (phenomenon) {
                 is Intent -> {
                     turns.appendAssistant(intent(phenomenon))
@@ -132,7 +143,11 @@ fun <P> Cogitation.toTurns(
                 // a tool call which could not be executed, perceived in the response of the computer to it
                 is Phenomenon.Impediment if expressed -> {}
                 else -> {
-                    val text = phenomenon.toText()
+                    val text = if (result != null && phenomenon is Phenomenon.Text) {
+                        phenomenon.cut(enunciationIndex, phenomenonIndex).toText()
+                    } else {
+                        phenomenon.toText()
+                    }
                     val perceived = result ?: turns.userParts()
                     perceived.appendText(if (headed) text else "${enunciation.actantTag(invocations)}\n$text")
                     headed = true
@@ -229,6 +244,18 @@ private fun String.xmlEscaped(): String = this
     .replace(">", "&gt;")
     .replace("\"", "&quot;")
 
+/**
+ * This text of the result of an intent, the phenomenon of the [phenomenonIndex] in the enunciation of the [enunciationIndex],
+ * cut beyond [MAX_RESULT_TEXT_LENGTH] characters, telling how many more are omitted, and how a Kotlin script reads the whole text,
+ * as the ids of intents are never rendered to the model.
+ */
+private fun Phenomenon.Text.cut(enunciationIndex: Int, phenomenonIndex: Int): Phenomenon.Text {
+    if (text.length <= MAX_RESULT_TEXT_LENGTH) return this
+    return copy(text = text.take(MAX_RESULT_TEXT_LENGTH) +
+            "\n… ${text.length - MAX_RESULT_TEXT_LENGTH} more characters omitted, the whole text being " +
+            "`(agency.cogitation.enunciations[$enunciationIndex].phenomena[$phenomenonIndex] as Phenomenon.Text).text` in a Kotlin script")
+}
+
 private fun Phenomenon.toText(): String = when (this) {
     is Intent -> script
     is Text -> if (contentType == "text/markdown") text else {
@@ -242,6 +269,12 @@ private fun Phenomenon.toText(): String = when (this) {
     }
     is Invocation -> buildString {
         append("<annie:invocation id=\"").append(id.xmlEscaped()).append('"')
+        computer?.let {
+            append(" computer=\"").append(it.id.xmlEscaped()).append('"')
+            append(" computer-type=\"").append(it.type.xmlEscaped()).append('"')
+        }
+        repl?.let { append(" repl=\"").append(it.xmlEscaped()).append('"') }
+        if (independent) append(" independent=\"true\"")
         append("/>")
     }
     is Impediment -> "<annie:impediment/>\n$reason"

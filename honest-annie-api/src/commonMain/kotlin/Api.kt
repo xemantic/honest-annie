@@ -21,54 +21,33 @@ package com.xemantic.annie
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.coroutineScope
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.longOrNull
-import kotlinx.io.buffered
-import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
-import kotlinx.io.readString
-import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Instant
 
-/**
- * The agency within the current cogitation: how the harness, and the intents it executes, act within it,
- * provided to both as `agency`, see [Cogitation], always acting within the current step of the harness.
- * Its functions suspend, called directly by a script, e.g. `agency.enunciate(answer)`,
- * or by a function the script declares `suspend`, while its properties do not.
- */
 interface Agency {
-    /**
-     * The current cogitation: the one the harness unfolds,
-     * or, within an intent, the one including the enunciation which expressed it, see [ScriptExecutor.execute].
-     */
+    /** Current cogitation and what has already unfolded */
     val cogitation: Cogitation
-    /** [Cogitation] which invoked the current one, `null` for the root one. */
+    /** `null` for the root. */
     val parentCogitation: Cogitation?
-    /** What the whole tree of the current cogitation may still spend, unlimited unless its host limits it. */
-    val allowance: Allowance get() = Allowance()
     /**
-     * Invokes a cogitation under the [constitution], by default the one of the current [cogitation], see [Cogitation.constitution].
-     * The invoked cogitation is unfolded by the same harness and cognizer, starting with the [prompt]
-     * enunciated by [Actant.INVOKER].
+     * Invokes a child-cogitation under the [constitution].
      *
      * Returns immediately: the returned [Phenomenon.Invocation] is enunciated in the result
      * of the current intent, and the outcome of the invoked cogitation is perceived later,
      * as an enunciation responding to its [Phenomenon.Invocation.id].
+     *
+     * @param computer the type of a new computer to start for it, one the host offers, otherwise it runs on the current one.
+     * @param repl the REPL to run in, opened when the computer has none of that name,
+     * otherwise the current one, sharing its declarations, or a new one on a new [computer], or when [independent].
+     * @param independent whether it perceives itself as a root, unable to reach the current cogitation as a parent, only its outcome returning:
+     * with a new [computer] too, it shares nothing with it.
      */
     suspend fun invoke(
         prompt: String,
-        constitution: String = cogitation.constitution
+        constitution: String = cogitation.constitution,
+        computer: String? = null,
+        repl: String? = null,
+        independent: Boolean = false
     ): Phenomenon.Invocation
     /**
      * Enunciates a [Phenomenon.Text] as the output of the current cogitation,
@@ -81,21 +60,8 @@ interface Agency {
     suspend fun enunciate(bytes: ByteArray, contentType: String? = null)
     /** Enunciates a [Phenomenon.Impediment] as the output of the current cogitation, like the text [enunciate]. */
     suspend fun impede(reason: String)
-    /**
-     * Renders the Kotlin declaration of the fully qualified [name], as available to scripts,
-     * e.g. `kotlinx.coroutines.flow.Flow`: its current signature, together with the extensions of a type,
-     * paged by [pageSize] declarations, the first [page] being `1`.
-     * Only Kotlin declarations can be resolved: Java classes, e.g. of the JDK, have no Kotlin metadata.
-     *
-     * @return the rendered declaration, or `null` when nothing is found.
-     */
+    /** Renders the Kotlin declaration of the fully qualified [name], as available to scripts */
     suspend fun resolveDeclaration(name: String, page: Int = 1, pageSize: Int = 10): String?
-    /**
-     * Lists the fully qualified names of the Kotlin declarations available to scripts containing the [query],
-     * to be resolved with [resolveDeclaration], paged like it.
-     *
-     * @return the names, or `null` when nothing is found.
-     */
     suspend fun searchDeclarations(query: String, page: Int = 1, pageSize: Int = 10): String?
     /**
      * Executes the [command] as a process of the user's computer, e.g. `listOf("bash", "-c", script)`, see [bash],
@@ -103,7 +69,8 @@ interface Agency {
      * Suspends until the process exits, and its outputs are read.
      * The process is destroyed, together with its descendants, when the [timeout] elapses,
      * or when the intent executing it is cancelled.
-     * Each of its outputs is truncated to [maxOutputLength] characters, the truncation being marked.
+     * Its outputs are kept whole, e.g. to be processed by the script, also when long:
+     * you perceive only the beginning of a long text of the result of an intent.
      *
      * What the process outputs is perceived only when the script makes it so:
      * by evaluating to it, so that you perceive it in the result of the intent,
@@ -114,10 +81,16 @@ interface Agency {
         input: String? = null,
         directory: String? = null,
         environment: Map<String, String> = emptyMap(),
-        timeout: Duration = 1.minutes,
-        maxOutputLength: Int = 100_000
+        timeout: Duration = 1.minutes
     ): Execution
-    /** The Python interpreter of the current cogitation, see [Python]. */
+    /**
+     * The [lines] of the file at the [path] of the user's computer, each range of line numbers, e.g. `120..260`, numbered as by `cat -n`,
+     * ranges overlapping or adjacent read as one, and apart ones separated by `…`, the whole file when none is given,
+     * so that one intent reads all the code the next decision needs, e.g. whole functions of several files:
+     * `agency.read("fastapi/routing.py", 1..60, 420..610) + agency.read("fastapi/applications.py", 900..1100)`.
+     */
+    suspend fun read(path: String, vararg lines: IntRange): String
+    /** Python interpreter of the current cogitation */
     val python: Python
     /**
      * The HTTP client of every cogitation, whose functions suspend, like the ones of the agency,
@@ -127,25 +100,6 @@ interface Agency {
      * and throws on a response with an error status, e.g. `ClientRequestException` on `404`.
      */
     val http: HttpClient
-}
-
-/**
- * What a tree of cogitations may spend, see [Agency.allowance]: its [tokens], and its [time], each `null` when unlimited.
- *
- * @property spentTokens inferred so far by the whole tree, see [Inference.total].
- * @property started when the tree started unfolding, its [time] being measured from it.
- */
-@Serializable
-data class Allowance(
-    val tokens: Long? = null,
-    val spentTokens: Long = 0,
-    val time: Duration? = null,
-    val started: Instant = Clock.System.now()
-) {
-    /** The tokens left to spend, `null` when unlimited. */
-    val tokensLeft: Long? get() = tokens?.let { (it - spentTokens).coerceAtLeast(0) }
-    /** The time left until the [time] has passed, `null` when unlimited. */
-    val timeLeft: Duration? get() = time?.let { (started + it - Clock.System.now()).coerceAtLeast(Duration.ZERO) }
 }
 
 /**
@@ -224,88 +178,6 @@ suspend fun <T> await(block: suspend CoroutineScope.() -> T): T = coroutineScope
 const val TQ: String = "\"\"\""
 
 /**
- * The [lines] of the file at the [path], each range of line numbers, e.g. `120..260`, numbered as by `cat -n`,
- * ranges overlapping or adjacent read as one, and apart ones separated by `…`, the whole file when none is given,
- * so that one intent reads all the code the next decision needs, e.g. whole functions of several files:
- * `read("fastapi/routing.py", 1..60, 420..610) + read("fastapi/applications.py", 900..1100)`.
- */
-fun read(path: String, vararg lines: IntRange): String {
-    val text = SystemFileSystem.source(Path(path)).buffered().use { it.readString() }
-    return text.numbered(lines.toList().ifEmpty { listOf(1..Int.MAX_VALUE) }, context = 0, spanLines = Int.MAX_VALUE)
-}
-
-/*
- * Navigating JSON of an unknown shape, received e.g. with `agency.http.get(url).body<JsonElement>()`,
- * as in JavaScript or Python, e.g. `gene["Transcript"][0]["Translation"]["id"].string`.
- * Each one fails on JSON of another kind, or on an absent key or index, telling what there is instead.
- */
-
-/** The value of the [key] of this JSON object, failing when absent, naming the keys present. */
-operator fun JsonElement.get(key: String): JsonElement = when (this) {
-    is JsonObject -> get(key) ?: throw NoSuchElementException(
-        "No key \"$key\" in JSON object of keys: ${keys.joinToString()}"
-    )
-    else -> error("Key \"$key\" of JSON ${kind()}, not object")
-}
-
-/** The value of the [key] of this JSON object, `null` when absent or JSON `null`. */
-fun JsonElement.getOrNull(key: String): JsonElement? = when (this) {
-    is JsonObject -> get(key)?.takeUnless { it is JsonNull }
-    else -> error("Key \"$key\" of JSON ${kind()}, not object")
-}
-
-/** The element at the [index] of this JSON array, failing when absent, naming its size. */
-operator fun JsonElement.get(index: Int): JsonElement = when (this) {
-    is JsonArray -> getOrNull(index) ?: throw IndexOutOfBoundsException(
-        "No index $index in JSON array of size $size"
-    )
-    else -> error("Index $index of JSON ${kind()}, not array")
-}
-
-/** The keys of this JSON object. */
-val JsonElement.keys: Set<String> get() = (this as? JsonObject)?.keys ?: error("Keys of JSON ${kind()}, not object")
-
-/** The elements of this JSON array. */
-val JsonElement.list: List<JsonElement> get() = this as? JsonArray ?: error("List of JSON ${kind()}, not array")
-
-/** The content of this JSON string, or of a number or boolean, as written. */
-val JsonElement.string: String get() = primitive("String").content
-val JsonElement.int: Int get() = primitive("Int").intOrNull ?: error("Int of JSON $this")
-val JsonElement.long: Long get() = primitive("Long").longOrNull ?: error("Long of JSON $this")
-val JsonElement.double: Double get() = primitive("Double").doubleOrNull ?: error("Double of JSON $this")
-/** This JSON boolean, also `1` or `0`, as some APIs encode booleans, e.g. `is_canonical` of Ensembl. */
-val JsonElement.boolean: Boolean get() = primitive("Boolean").toBoolean() ?: error("Boolean of JSON $this")
-
-/*
- * The same values, `null` for JSON `null`, or for JSON of another kind, e.g. an object, or text not being a number,
- * e.g. `transcript.getOrNull("phase")?.intOrNull ?: 0`.
- */
-val JsonElement.contentOrNull: String? get() = (this as? JsonPrimitive)?.contentOrNull
-val JsonElement.intOrNull: Int? get() = (this as? JsonPrimitive)?.intOrNull
-val JsonElement.longOrNull: Long? get() = (this as? JsonPrimitive)?.longOrNull
-val JsonElement.doubleOrNull: Double? get() = (this as? JsonPrimitive)?.doubleOrNull
-val JsonElement.booleanOrNull: Boolean? get() = (this as? JsonPrimitive)?.toBoolean()
-
-private fun JsonPrimitive.toBoolean(): Boolean? = booleanOrNull ?: if (isString) null else when (content) {
-    "1" -> true
-    "0" -> false
-    else -> null
-}
-
-private fun JsonElement.primitive(type: String): JsonPrimitive = when (this) {
-    is JsonNull -> error("$type of JSON null")
-    is JsonPrimitive -> this
-    else -> error("$type of JSON ${kind()}, not primitive: ${toString().take(200)}")
-}
-
-private fun JsonElement.kind(): String = when (this) {
-    is JsonObject -> "object"
-    is JsonArray -> "array"
-    is JsonNull -> "null"
-    is JsonPrimitive -> "primitive"
-}
-
-/**
  * Opens the scope of this appendable, e.g. a `StringBuilder`, where `+text` appends the text,
  * see [unaryPlus], evaluating to the appendable, e.g.:
  * ```kotlin
@@ -325,15 +197,9 @@ operator fun <T : Appendable> T.invoke(block: T.() -> Unit): T = apply(block)
  * appending also whatever is joined to it with `+`, e.g. `+"exons: " + exons.size + "\n"`, see [Appending].
  */
 context(appendable: Appendable)
-operator fun CharSequence?.unaryPlus(): Appending {
-    appendable.append(this)
-    return Appending(appendable)
-}
+expect operator fun CharSequence?.unaryPlus(): Appending
 
 /** Appends to the appendable what is joined with `+` after [unaryPlus], as its text, `null` as `"null"`. */
-class Appending(private val appendable: Appendable) {
-    operator fun plus(value: Any?): Appending {
-        appendable.append(value.toString())
-        return this
-    }
+interface Appending {
+    operator fun plus(value: Any?): Appending
 }

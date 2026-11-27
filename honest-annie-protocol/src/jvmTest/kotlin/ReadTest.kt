@@ -32,7 +32,7 @@ class ReadTest {
     @Test
     fun `should read ranges of lines numbered, apart ones separated, none omitted`() {
         // when
-        val read = read(file.toString(), 3..5, 40..90)
+        val read = readNumbered(file.toString(), listOf(3..5, 40..90))
 
         // then
         assert(read == (numbered(3..5) + "     …" + numbered(40..90)).joinToString("\n"))
@@ -41,7 +41,7 @@ class ReadTest {
     @Test
     fun `should read adjacent and overlapping ranges as one, within the file`() {
         // when
-        val read = read(file.toString(), 95..120, 10..12, 13..14, 11..12)
+        val read = readNumbered(file.toString(), listOf(95..120, 10..12, 13..14, 11..12))
 
         // then
         assert(read == (numbered(10..14) + "     …" + numbered(95..100)).joinToString("\n"))
@@ -50,7 +50,7 @@ class ReadTest {
     @Test
     fun `should read the whole file numbered when no range is given`() {
         // when
-        val read = read(file.toString())
+        val read = readNumbered(file.toString(), emptyList())
 
         // then
         assert(read == numbered(1..100).joinToString("\n"))

@@ -37,8 +37,7 @@ class ExecutorServerTest {
 
     private val context = IntentContext(
         cogitation = cogitation,
-        parentCogitation = null,
-        allowance = Allowance(tokens = 1000, spentTokens = 10)
+        parentCogitation = null
     )
 
     /** Serves the requests sent to the channel of [block], whose responses it receives, until the block returns. */
@@ -68,7 +67,7 @@ class ExecutorServerTest {
     }
 
     private fun execute(id: String, script: String, session: String = "session-1", edits: List<Edit> = emptyList()) =
-        ExecutorRequest.Execute(id = id, session = session, intent = Phenomenon.Intent(script, edits), context = context)
+        ExecutorRequest.Execute(id = id, session = session, intent = Phenomenon.Intent(edits = edits, script = script), context = context)
 
     @Test
     fun `should respond with the result of the intent and what it enunciated`() = serving {
@@ -78,7 +77,7 @@ class ExecutorServerTest {
             agency.enunciate(byteArrayOf(4, 2), "image/png")
             agency.impede("stuck")
             agency.invoke("Count", "Be brief")
-            "${agency.cogitation.depth} ${agency.allowance.tokensLeft} ${agency.cogitation.constitution}"
+            "${agency.cogitation.depth} ${agency.cogitation.constitution}"
         """.trimIndent()))
         val response = receive() as ExecutorResponse.Executed
 
@@ -86,7 +85,7 @@ class ExecutorServerTest {
         assert(response.id == "request-1")
         val invocation = response.result.first() as Phenomenon.Invocation
         assert(invocation.prompt == "Count" && invocation.constitution == "Be brief")
-        assert(response.result.drop(1) == listOf(Phenomenon.Text("2 990 Be honest", "text/plain")))
+        assert(response.result.drop(1) == listOf(Phenomenon.Text("2 Be honest", "text/plain")))
         assert(response.output == listOf(
             Phenomenon.Text("first"),
             Phenomenon.Data(byteArrayOf(4, 2), "image/png"),

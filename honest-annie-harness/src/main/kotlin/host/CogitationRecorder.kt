@@ -42,7 +42,7 @@ import kotlinx.coroutines.withContext
  * Records a cogitation as a folder within [parentDir], named after the moment of its first
  * enunciation, e.g. `2026-10-14T15-02-02.543893Z`. Each phenomenon becomes a file named after
  * its enunciation number, its position within the enunciation, actant type and kind,
- * e.g. `001-1-human-text.md`, `002-1-self-monologue.md`, `002-2-self-intent.kts`, the script of an intent,
+ * e.g. `001-1-human-text.md`, `002-1-self-monologue.md`, `002-2-self-intent.kts`, the script of an intent, `.py` or `.sh` of a Python or bash one,
  * followed by `002-2-self-edits.json`, the edits of files it carries, if any,
  * so that the files are listed in the order of their enunciation, while `cogitation.md` indexes the enunciations, and `constitution.md` holds the constitution,
  * which embeds the source of the harness unfolding the cogitation.
@@ -303,13 +303,23 @@ internal val Phenomenon.kind: String get() = when (this) {
 private fun Phenomenon.toFile(): Triple<String, String, ByteArray> = when (this) {
     is Text -> Triple(kind, contentType.extension ?: "txt", text.encodeToByteArray())
     is Data -> Triple(kind, contentType?.extension ?: "bin", bytes)
-    is Intent -> Triple(kind, "kts", script.encodeToByteArray())
+    is Intent -> Triple(kind, language.scriptExtension, script.encodeToByteArray())
     is Invocation -> Triple(kind, "md", buildString {
         append("id: `$id`  \n")
+        computer?.let { append("computer: `${it.id}` of the type `${it.type}`  \n") }
+        repl?.let { append("repl: `$it`  \n") }
+        if (independent) append("independent  \n")
         append("\n").append(prompt)
     }.encodeToByteArray())
     is Impediment -> Triple(kind, "md", reason.encodeToByteArray())
     is Monologue -> Triple(kind, "md", text.encodeToByteArray())
+}
+
+/** The extension of a file of a script of this language. */
+private val Phenomenon.Intent.Language.scriptExtension: String get() = when (this) {
+    Phenomenon.Intent.Language.KOTLIN -> "kts"
+    Phenomenon.Intent.Language.PYTHON -> "py"
+    Phenomenon.Intent.Language.BASH -> "sh"
 }
 
 private val String.extension: String? get() = when (substringBefore(';').trim().lowercase()) {
