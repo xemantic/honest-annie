@@ -168,7 +168,7 @@ and its counting of tokens a reading of its inferences.
 
 | Module | Holds | Depends on |
 |---|---|---|
-| `honest-annie-api` | `Api.kt`, `Json.kt` and `Cognition.kt`, what scripts compile against, serializable, pasted into the constitutions | nothing |
+| `honest-annie-api` | `Api.kt` and `Json.kt`, what scripts compile against, serializable, pasted into the constitutions | nothing |
 | `honest-annie-protocol` | `Protocol.kt`, `ScriptExecutor`, and the edits of intents | `api` |
 | `honest-annie-executor` | the sessions of scripts, Python, processes, `RemoteAgency`, a `main` speaking the protocol | `protocol` |
 | `honest-annie-computer` | `ComputerProvider`, the plugins starting computers and opening REPLs on them, and their aggregate | `protocol` |

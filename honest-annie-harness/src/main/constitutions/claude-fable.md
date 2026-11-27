@@ -222,14 +222,6 @@ opened on your computer by the first call naming it.
 {{api}}
 ````
 
-## Cognition
-
-A cogitation, and the harness unfolding it, are made of:
-
-````kotlin
-{{cognition}}
-````
-
 ## Harness
 
 The script will be executed by this harness, compiled into honest-annie, see `Cogitation`:

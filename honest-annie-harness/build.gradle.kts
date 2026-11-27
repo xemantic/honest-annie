@@ -61,19 +61,18 @@ tasks.named<JavaExec>("run") {
     doFirst { (this as JavaExec).environment("VIRTUAL_ENV", virtualEnv) }
 }
 
-// Fills the constitution templates with the API, JSON, cognition and harness sources, as resources,
+// Fills the constitution templates with the API, JSON and harness sources, as resources,
 // the API without its implementation, being of expect declarations, whose actual ones the constitutions omit:
 // constitution.md, the default one, and constitutions/<family>.md, the ones of model families, see Constitution.kt.
 val generateConstitution = tasks.register("generateConstitution") {
     group = "annie"
-    description = "Generates the constitution resources from their templates and the API, JSON, cognition and harness sources"
+    description = "Generates the constitution resources from their templates and the API, JSON and harness sources"
     val default = layout.projectDirectory.file("src/main/constitution.md")
     val families = layout.projectDirectory.dir("src/main/constitutions")
     val apiSourceDir = rootProject.layout.projectDirectory.dir("honest-annie-api/src/commonMain/kotlin")
     val sources = mapOf(
         "api" to apiSourceDir.file("Api.kt"),
         "json" to apiSourceDir.file("Json.kt"),
-        "cognition" to apiSourceDir.file("Cognition.kt"),
         "harness" to layout.projectDirectory.file("src/main/kotlin/Harness.kt")
     )
     val outputDir = layout.buildDirectory.dir("generated/constitution/resources")
