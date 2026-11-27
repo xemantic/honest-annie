@@ -20,9 +20,12 @@ package com.xemantic.annie.harness.cognizer
 
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Contents
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Phenomenon.Monologue
+import com.xemantic.annie.readBytes
+import com.xemantic.annie.readText
 import com.xemantic.ai.file.magic.MediaType
 import com.xemantic.ai.file.magic.detectMediaType
 import kotlin.io.encoding.Base64
@@ -42,19 +45,26 @@ sealed interface Turn<out P> {
 sealed interface Perceived {
     data class Text(val text: String) : Perceived
     /**
-     * The [data] passed to the model as is, of the [mediaType] detected from its bytes, not the declared one:
+     * The [bytes] of a [Phenomenon.Data] passed to the model as is, of the [mediaType] detected from them, not the declared one:
      * the cogitation is replayed at every inference, so data which an API rejects would impede all of them.
      */
     sealed interface Attachment : Perceived {
-        val data: Phenomenon.Data
+        val bytes: ByteArray
         val mediaType: String
-        val base64: String get() = Base64.encode(data.bytes)
+        val base64: String get() = Base64.encode(bytes)
         val dataUrl: String get() = "data:$mediaType;base64,$base64"
     }
-    data class Image(override val data: Phenomenon.Data, override val mediaType: String) : Attachment
+    class Image(override val bytes: ByteArray, override val mediaType: String) : Attachment {
+        override fun equals(other: Any?): Boolean = other is Image && mediaType == other.mediaType && bytes.contentEquals(other.bytes)
+        override fun hashCode(): Int = 31 * bytes.contentHashCode() + mediaType.hashCode()
+        override fun toString(): String = "Image(mediaType=$mediaType, size=${bytes.size})"
+    }
     /** A PDF document, which a model not accepting one, e.g. served by vLLM, rejects. */
-    data class Document(override val data: Phenomenon.Data) : Attachment {
+    class Document(override val bytes: ByteArray) : Attachment {
         override val mediaType: String get() = MediaType.PDF.mime
+        override fun equals(other: Any?): Boolean = other is Document && bytes.contentEquals(other.bytes)
+        override fun hashCode(): Int = bytes.contentHashCode()
+        override fun toString(): String = "Document(size=${bytes.size})"
     }
     /**
      * The result of the tool call expressing the [intent], see [IntentTool]: what its execution enunciated,
@@ -69,7 +79,7 @@ const val NOT_EXECUTED: String = "<annie:impediment/>\nThe intent was not execut
 /**
  * How many characters of each text of the result of an intent the model perceives, see [Perceived.Result]:
  * the cogitation keeps the whole text, perceived again at every later step, so that a single result would flood the context,
- * while a script can still read the rest of it from `agency.cogitation()`, as the cut tells.
+ * while a script can still read the rest of it by `agency.readText`, as the cut tells.
  *
  * The limit is the one of Claude Code for the output of a command, which its models are used to:
  * cut at 10,000 characters, a model reading source files in ranges spent a step on every cut file.
@@ -93,17 +103,19 @@ private val imageMediaTypes = setOf(MediaType.JPEG, MediaType.PNG, MediaType.GIF
  * the output an intent enunciates, and the output of an invoked cogitation, are enunciated by [Actant.Type.SELF], yet perceived.
  * The execution of an intent, expressed as a tool call, is perceived as its [Perceived.Result]:
  * the output the intent enunciated, and the response of the computer to it, see [isExecutionOf],
- * each text of them cut beyond [MAX_RESULT_TEXT_LENGTH] characters, telling where the whole one is in the cogitation,
+ * each text of them cut beyond [MAX_RESULT_TEXT_LENGTH] characters, telling how a script reads the rest of it,
  * while what follows, e.g. the outcomes of the cogitations it invoked, is perceived after it.
  *
+ * @param contents keeping the content of the texts and data of the cogitation.
  * @param intent the assistant part of the intent.
  * @param monologue the assistant part of the monologue, `null` when it cannot be replayed to the model.
  * @param text the assistant part of the text the cognizer expressed, `null` when there is nothing to replay, e.g. a blank one.
  */
 fun <P> Cogitation.toTurns(
+    contents: Contents,
     intent: (Phenomenon.Intent) -> P,
     monologue: (Monologue) -> P?,
-    text: (Phenomenon.Text) -> P?
+    text: (String) -> P?
 ): List<Turn<P>> {
     val turns = mutableListOf<Turn<P>>()
     // the intent whose tool call awaits its result, and the result perceived so far
@@ -135,19 +147,15 @@ fun <P> Cogitation.toTurns(
                     called = phenomenon
                 }
                 is Monologue -> monologue(phenomenon)?.let { turns.appendAssistant(it) }
-                is Phenomenon.Text if expressed -> text(phenomenon)?.let { turns.appendAssistant(it) }
+                is Phenomenon.Text if expressed -> text(contents.readText(phenomenon))?.let { turns.appendAssistant(it) }
                 // a tool call which could not be executed, perceived in the response of the computer to it
                 is Phenomenon.Impediment if expressed -> {}
                 else -> {
-                    val text = if (result != null && phenomenon is Phenomenon.Text) {
-                        phenomenon.cut(enunciationIndex, phenomenonIndex).toText()
-                    } else {
-                        phenomenon.toText()
-                    }
+                    val text = phenomenon.toText(contents, cut = result != null, enunciationIndex, phenomenonIndex)
                     val perceived = result ?: turns.userParts()
                     perceived.appendText(if (headed) text else "${enunciation.actantTag()}\n$text")
                     headed = true
-                    if (phenomenon is Phenomenon.Data) phenomenon.toAttachment()?.let { perceived += it }
+                    if (phenomenon is Phenomenon.Data) contents.readBytes(phenomenon).toAttachment()?.let { perceived += it }
                     if (result == null) turns.replaceUserParts(perceived)
                 }
             }
@@ -181,11 +189,11 @@ private val Enunciation.isExpressed: Boolean get() = actant == Actant.SELF && re
 private fun Enunciation.isExecutionOf(intent: Phenomenon.Intent): Boolean =
     respondsTo == intent.id || (actant == Actant.SELF && respondsTo == null && inference == null)
 
-private fun Phenomenon.Data.toAttachment(): Perceived.Attachment? {
-    val mediaType = bytes.detectMediaType() ?: return null
+private fun ByteArray.toAttachment(): Perceived.Attachment? {
+    val mediaType = detectMediaType() ?: return null
     return when (mediaType) {
-        in imageMediaTypes if bytes.size <= MAX_IMAGE_SIZE -> Perceived.Image(this, mediaType.mime)
-        MediaType.PDF if bytes.size <= MAX_DOCUMENT_SIZE -> Perceived.Document(this)
+        in imageMediaTypes if size <= MAX_IMAGE_SIZE -> Perceived.Image(this, mediaType.mime)
+        MediaType.PDF if size <= MAX_DOCUMENT_SIZE -> Perceived.Document(this)
         else -> null
     }
 }
@@ -243,28 +251,30 @@ private fun String.xmlEscaped(): String = this
     .replace("\"", "&quot;")
 
 /**
- * This text of the result of an intent, the phenomenon of the [phenomenonIndex] in the enunciation of the [enunciationIndex],
- * cut beyond [MAX_RESULT_TEXT_LENGTH] characters, telling how many more are omitted, and how a Kotlin script reads the whole text,
- * as the ids of intents are never rendered to the model.
+ * The [text] of this phenomenon of the result of an intent, the one of the [phenomenonIndex] in the enunciation of the [enunciationIndex],
+ * cut beyond [MAX_RESULT_TEXT_LENGTH] characters, telling how many more are omitted, and how a Kotlin script reads the rest,
+ * by lines, as a cut line is read whole, the ids of intents never being rendered to the model.
  */
-private fun Phenomenon.Text.cut(enunciationIndex: Int, phenomenonIndex: Int): Phenomenon.Text {
-    if (text.length <= MAX_RESULT_TEXT_LENGTH) return this
-    return copy(text = text.take(MAX_RESULT_TEXT_LENGTH) +
-            "\n… ${text.length - MAX_RESULT_TEXT_LENGTH} more characters omitted, the whole text being " +
-            "`(agency.cogitation().enunciations[$enunciationIndex].phenomena[$phenomenonIndex] as Phenomenon.Text).text` in a Kotlin script")
+private fun Phenomenon.Text.cut(text: String, enunciationIndex: Int, phenomenonIndex: Int): String {
+    if (text.length <= MAX_RESULT_TEXT_LENGTH) return text
+    val kept = text.take(MAX_RESULT_TEXT_LENGTH)
+    val line = kept.count { it == '\n' } + 1
+    return kept + "\n… ${text.length - MAX_RESULT_TEXT_LENGTH} more characters omitted, of $lines lines, " +
+            "read by `agency.readText(agency.cogitation().enunciations[$enunciationIndex].phenomena[$phenomenonIndex], $line..$lines)` in a Kotlin script"
 }
 
-private fun Phenomenon.toText(): String = when (this) {
+/** The text of this phenomenon, of a [Text] of the result of an intent [cut], see [Phenomenon.Text.cut]. */
+private fun Phenomenon.toText(contents: Contents, cut: Boolean, enunciationIndex: Int, phenomenonIndex: Int): String = when (this) {
     is Intent -> script
-    is Text -> if (contentType == "text/markdown") text else {
-        "<annie:text content-type=\"${contentType.xmlEscaped()}\"/>\n$text"
+    is Text -> contents.readText(this).let { if (cut) cut(it, enunciationIndex, phenomenonIndex) else it }.let { text ->
+        if (contentType == "text/markdown") text else "<annie:text content-type=\"${contentType.xmlEscaped()}\"/>\n$text"
     }
     // an image or a PDF document is perceived after this markup, see `toAttachment`
     is Data -> buildString {
         append("<annie:data")
         contentType?.let { append(" content-type=\"").append(it.xmlEscaped()).append('"') }
-        append(" size=\"").append(bytes.size).append("\"/>")
+        append(" size=\"").append(size).append("\"/>")
     }
     is Impediment -> "<annie:impediment/>\n$reason"
-    is Monologue -> text
+    is Monologue -> contents.readText(this)
 }

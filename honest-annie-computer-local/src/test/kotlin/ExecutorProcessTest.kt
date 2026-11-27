@@ -18,11 +18,15 @@
 
 package com.xemantic.annie.computer.local
 
+import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Edit
+import com.xemantic.annie.Enunciation
+import com.xemantic.annie.InMemoryContents
 import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.IntentContext
 import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.data
 import com.xemantic.annie.computer.Repl
 import com.xemantic.kotlin.test.assert
 import kotlinx.coroutines.Dispatchers
@@ -49,9 +53,18 @@ class ExecutorProcessTest {
         executor.close()
     }
 
-    private val cogitation = Cogitation(constitution = "Be honest", enunciations = emptyList(), depth = 1)
+    /** The content of the phenomena of the [cogitation], kept by the harness. */
+    private val contents = InMemoryContents()
 
-    private val context = IntentContext(cogitation, parentCogitation = null)
+    private val image = contents.data(byteArrayOf(4, 2, 0), "image/png")
+
+    private val cogitation = Cogitation(
+        constitution = "Be honest",
+        enunciations = listOf(Enunciation(actant = Actant.INVOKER, phenomena = listOf(image))),
+        depth = 1
+    )
+
+    private val context = IntentContext(cogitation, parentCogitation = null, contents = contents)
 
     private suspend fun Repl.execute(script: String): ExecutedIntent = execute(Phenomenon.Intent(script = script), context)
 
@@ -69,7 +82,7 @@ class ExecutorProcessTest {
             "\"${'$'}{ProcessHandle.current().pid() != ${ProcessHandle.current().pid()}L} ${'$'}{agency.cogitation().depth}\"").result
 
         // then
-        assert(result == listOf(Phenomenon.Text("true 1", "text/plain")))
+        assert(result == listOf(text("true 1", "text/plain")))
     }
 
     @Test
@@ -79,6 +92,7 @@ class ExecutorProcessTest {
         val recording = object : IntentContext {
             override suspend fun cogitation() = cogitation.also { recalled += "cogitation" }
             override suspend fun parentCogitation() = cogitation.copy(depth = 0).also { recalled += "parent" }
+            override suspend fun content(ref: String) = contents.content(ref).also { recalled += "content" }
         }
         val session = executor.repl()
 
@@ -90,10 +104,32 @@ class ExecutorProcessTest {
         ).result
 
         // then
-        assert(unasked == listOf(Phenomenon.Text("42", "text/plain")))
+        assert(unasked == listOf(text("42", "text/plain")))
         assert(unaskedRecalls.isEmpty())
-        assert(asked == listOf(Phenomenon.Text("1 0", "text/plain")))
+        assert(asked == listOf(text("1 0", "text/plain")))
         assert(recalled == listOf("cogitation", "parent"))
+    }
+
+    @Test
+    fun `should load the content of a phenomenon from the harness when the intent reads it`() = test {
+        // given
+        val session = executor.repl()
+
+        // when
+        val result = session.execute("agency.readBytes(agency.cogitation().enunciations[0].phenomena[0]).sum()").result
+
+        // then
+        assert(result == listOf(text("6", "text/plain")))
+    }
+
+    @Test
+    fun `should send the content of what the intent created along its result`() = test {
+        // when
+        val executed = executor.repl().execute("agency.enunciate(byteArrayOf(4, 2))\n\"value\"")
+
+        // then
+        assert(executed.text(executed.result.single()) == "value")
+        assert(executed.contents.getValue(data(byteArrayOf(4, 2)).ref).contentEquals(byteArrayOf(4, 2)))
     }
 
     @Test
@@ -114,8 +150,8 @@ class ExecutorProcessTest {
         assert(invocation.prompt == "Count" && invocation.constitution == "Be brief")
         assert(executed.result.isEmpty())
         assert(executed.output == listOf(
-            Phenomenon.Text("first"),
-            Phenomenon.Data(byteArrayOf(4, 2), "image/png"),
+            text("first"),
+            data(byteArrayOf(4, 2), "image/png"),
             Phenomenon.Impediment("stuck")
         ))
     }
@@ -131,7 +167,7 @@ class ExecutorProcessTest {
 
         // then
         assert(file.readText() == "x = 1\n")
-        assert(result.last() == Phenomenon.Text("x = 1\n", "text/plain"))
+        assert(result.last() == text("x = 1\n", "text/plain"))
     }
 
     @Test
@@ -145,8 +181,8 @@ class ExecutorProcessTest {
             Phenomenon.Intent(language = Phenomenon.Intent.Language.BASH, script = "seq 1 3", timeout = 30.seconds)).result
 
         // then
-        assert(python == listOf(Phenomenon.Text("[0, 1, 4, 9]", "text/plain")))
-        assert(bash == listOf(Phenomenon.Text("1\n2\n3\nexit code: 0", "text/plain")))
+        assert(python == listOf(text("[0, 1, 4, 9]", "text/plain")))
+        assert(bash == listOf(text("1\n2\n3\nexit code: 0", "text/plain")))
     }
 
     @Test
@@ -163,9 +199,9 @@ class ExecutorProcessTest {
         val reopened = executor.repl().execute("6 * 7").result
 
         // then
-        assert(same == listOf(Phenomenon.Text("42", "text/plain")))
+        assert(same == listOf(text("42", "text/plain")))
         assert(apart.single() is Phenomenon.Impediment)
-        assert(reopened == listOf(Phenomenon.Text("42", "text/plain")))
+        assert(reopened == listOf(text("42", "text/plain")))
     }
 
     @Test
@@ -179,7 +215,7 @@ class ExecutorProcessTest {
             """.trimIndent()).result
 
         // then
-        assert(result == listOf(Phenomenon.Text("42", "text/plain")))
+        assert(result == listOf(text("42", "text/plain")))
     }
 
     // suspending in delay, as a cancelled intent blocking the thread of its session, e.g. in Thread.sleep, is not interrupted
@@ -201,7 +237,7 @@ class ExecutorProcessTest {
         val next = session.execute("6 * 7").result
 
         // then
-        assert(next == listOf(Phenomenon.Text("42", "text/plain")))
+        assert(next == listOf(text("42", "text/plain")))
     }
 
     @Test

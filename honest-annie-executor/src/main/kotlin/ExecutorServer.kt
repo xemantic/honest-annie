@@ -28,6 +28,9 @@ import com.xemantic.annie.IntentContext
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Python
 import com.xemantic.annie.ScriptExecutor
+import com.xemantic.annie.bytesOf
+import com.xemantic.annie.ref
+import com.xemantic.annie.textOf
 import com.xemantic.annie.decodeRequest
 import com.xemantic.annie.encodeMessage
 import com.xemantic.annie.randomId
@@ -75,22 +78,36 @@ class ExecutorServer(
         val sessions = HashMap<String, Session>()
         val executions = ConcurrentHashMap<String, Job>()
         val recalls = ConcurrentHashMap<String, CompletableDeferred<Cogitation?>>()
+        val loads = ConcurrentHashMap<String, CompletableDeferred<ByteArray?>>()
         val lock = Any()
         fun send(response: ExecutorResponse) {
             val line = response.encodeMessage()
             synchronized(lock) { respond(line) }
         }
-        fun context(execution: String) = RecallingContext { parent ->
-            val recall = randomId()
-            val recalled = CompletableDeferred<Cogitation?>()
-            recalls[recall] = recalled
-            try {
-                send(ExecutorResponse.Recall(execution, recall, parent))
-                recalled.await()
-            } finally {
-                recalls.remove(recall)
+        fun context(execution: String) = RecallingContext(
+            recall = { parent ->
+                val recall = randomId()
+                val recalled = CompletableDeferred<Cogitation?>()
+                recalls[recall] = recalled
+                try {
+                    send(ExecutorResponse.Recall(execution, recall, parent))
+                    recalled.await()
+                } finally {
+                    recalls.remove(recall)
+                }
+            },
+            load = { ref ->
+                val load = randomId()
+                val loaded = CompletableDeferred<ByteArray?>()
+                loads[load] = loaded
+                try {
+                    send(ExecutorResponse.Load(execution, load, ref))
+                    loaded.await()
+                } finally {
+                    loads.remove(load)
+                }
             }
-        }
+        )
         try {
             for (line in lines) {
                 val request = try {
@@ -123,6 +140,7 @@ class ExecutorServer(
                         execution.start()
                     }
                     is ExecutorRequest.Recalled -> recalls[request.recall]?.complete(request.cogitation)
+                    is ExecutorRequest.Loaded -> loads[request.load]?.complete(request.content)
                     is ExecutorRequest.Cancel -> executions[request.id]?.cancel()
                     is ExecutorRequest.Close -> sessions.remove(request.session)?.executor?.close()
                 }
@@ -138,18 +156,20 @@ class ExecutorServer(
         executor: ScriptExecutor,
         context: IntentContext
     ): ExecutorResponse {
-        val (result, output, invoked) = executor.execute(request.intent, context)
-        return ExecutorResponse.Executed(request.id, result, output, invoked)
+        val (result, output, invoked, contents) = executor.execute(request.intent, context)
+        return ExecutorResponse.Executed(request.id, result, output, invoked, contents)
     }
 
 }
 
 /**
  * The [IntentContext] of an intent executed for a harness of another process, recalling the cogitations from it,
- * the cogitation of the intent only once, as it is the same for the whole intent, see [Agency.cogitation].
+ * the cogitation of the intent only once, as it is the same for the whole intent, see [Agency.cogitation],
+ * and loading the content of their phenomena from it, each time it is read, as the executor keeps none.
  */
 internal class RecallingContext(
-    private val recall: suspend (parent: Boolean) -> Cogitation?
+    private val recall: suspend (parent: Boolean) -> Cogitation?,
+    private val load: suspend (ref: String) -> ByteArray?
 ) : IntentContext {
 
     private val mutex = Mutex()
@@ -161,6 +181,8 @@ internal class RecallingContext(
     }
 
     override suspend fun parentCogitation(): Cogitation? = recall(true)
+
+    override suspend fun content(ref: String): ByteArray? = load(ref)
 
 }
 
@@ -213,6 +235,17 @@ internal class ProtocolAgency(
     ): Execution = onComputer()
 
     override suspend fun read(path: String, vararg lines: IntRange): String = onComputer()
+
+    override suspend fun readText(phenomenon: Phenomenon, vararg lines: IntRange): String =
+        phenomenon.textOf(content(phenomenon), lines.toList())
+
+    override suspend fun readBytes(phenomenon: Phenomenon): ByteArray =
+        phenomenon.bytesOf(content(phenomenon))
+
+    /** The content of the [phenomenon] the harness keeps, `null` when it carries its content itself, e.g. an intent. */
+    private suspend fun content(phenomenon: Phenomenon): ByteArray? = phenomenon.ref?.let { ref ->
+        context.content(ref) ?: throw NoSuchElementException("The harness keeps no content of $ref")
+    }
 
     override val python: Python get() = onComputer()
 

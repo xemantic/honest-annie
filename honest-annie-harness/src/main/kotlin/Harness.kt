@@ -21,10 +21,14 @@ package com.xemantic.annie.harness
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Agency
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Contents
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.ScriptExecutor
+import com.xemantic.annie.keepAll
+import com.xemantic.annie.ref
+import com.xemantic.annie.text
 // The harness: unfolds the cogitation by a single inference of the cognizer, executing the intent it expresses.
 // The host calls it again for the next inference, unless the cogitation rests, or awaits the cogitations it invoked.
 //
@@ -44,6 +48,9 @@ import com.xemantic.annie.ScriptExecutor
 // perceived by its invoker, and by the cognizer too, if the cogitation is unfolded further.
 // The result of the intent is enunciated by the computer, responding to the intent:
 // its value, unless `Unit` or `null`, or the impediment describing its failure, if it failed.
+// The content of the texts and data of the cogitation is kept apart, by its ref, see `Contents`:
+// the content of what an intent created arrives along its result, to be kept with the rest,
+// while a text or data it returned, whose content is kept nowhere, e.g. made up, is perceived as an impediment.
 // The cogitations it invoked are unfolded by the host, each one from its prompt, the current one awaiting their outcomes,
 // enunciated in it after the response to the intent, once all of them rest, in the order they were invoked.
 // The cogitation rests, until another interaction progresses it, when the intent is not responded:
@@ -68,6 +75,7 @@ import kotlin.time.Clock
 /**
  * Unfolds the cogitation of the [agency] by a single step, see [Cogitation]:
  * an inference of the [cognizer], and the intent it expresses, executed by the [executor],
+ * the content of the texts and data being kept by the [contents],
  * telling what the whole tree may still spend, by the [allowance] its host gives, once little is left.
  * This source is part of every constitution, see `generateConstitution`, so that the cognizer knows how it is unfolded.
  */
@@ -75,11 +83,12 @@ internal suspend fun unfold(
     cognizer: Cognizer,
     executor: ScriptExecutor,
     agency: Agency,
+    contents: Contents,
     allowance: () -> Allowance
 ): Cogitation {
     val cogitation = agency.cogitation()
     val computer = Actant(type = Actant.Type.COMPUTER, name = "user's computer")
-    val nothingPerceived = Phenomenon.Text(
+    val nothingPerceived = contents.text(
         "The intent evaluated to nothing, and enunciated nothing, so that nothing of it is perceived, " +
                 "e.g. what it printed: evaluate to what you need to know, or enunciate your answer.",
         "text/plain"
@@ -95,7 +104,7 @@ internal suspend fun unfold(
         )
         val little = (tokensLeft != null && tokensLeft * 5 <= allowance.tokens!!)
                 || (timeLeft != null && timeLeft * 5 <= allowance.time!!)
-        return Phenomenon.Text(
+        return contents.text(
             "Spent by this cogitation so far: ${inferences.size} inference(s), ${inferences.sumOf { it.total }} token(s)." +
                     // told only once little is left: a model told a large allowance at every step spends more of it
                     (if (!little) "" else " Left to the whole tree of cogitations: ${left.joinToString(", ")}." +
@@ -132,10 +141,18 @@ internal suspend fun unfold(
         }
     } else {
         val initiated = Clock.System.now()
-        val (result, output, invoked) = executor.execute(intent, object : Agency by agency {
+        val (executedResult, executedOutput, invoked, created) = executor.execute(intent, object : Agency by agency {
             override suspend fun cogitation() = inferred
         })
         val executed = Clock.System.now()
+        contents.keepAll(created)
+        fun kept(phenomena: List<Phenomenon>) = phenomena.map { phenomenon ->
+            val ref = phenomenon.ref
+            if (ref == null || contents.content(ref) != null) phenomenon
+            else Phenomenon.Impediment("No content of $ref is kept: a script returns a text or data of a cogitation, never one made up")
+        }
+        val result = kept(executedResult)
+        val output = kept(executedOutput)
         val enunciated = if (output.isEmpty()) inferred else inferred + Enunciation(
             actant = Actant.SELF,
             initiated = initiated,

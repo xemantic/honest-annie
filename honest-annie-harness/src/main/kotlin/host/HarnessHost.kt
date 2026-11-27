@@ -20,6 +20,8 @@ package com.xemantic.annie.harness.host
 
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
+import com.xemantic.annie.Contents
+import com.xemantic.annie.InMemoryContents
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Execution
 import com.xemantic.annie.ExecutedIntent
@@ -33,6 +35,9 @@ import com.xemantic.annie.computer.ComputerProvider
 import com.xemantic.annie.Python
 import com.xemantic.annie.harness.cognizer.Cognizer
 import com.xemantic.annie.randomId
+import com.xemantic.annie.readBytes
+import com.xemantic.annie.readText
+import com.xemantic.annie.text
 import com.xemantic.annie.harness.unfold
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.HttpClient
@@ -100,6 +105,8 @@ const val COMPUTERS_PLACEHOLDER: String = "{{computers}}"
  * @param computers providing the computers of the cogitations, see [ComputerProvider]: the one of the root cogitation,
  * and the ones a cogitation may start for the ones it invokes, see [Agency.invoke], of its types,
  * told to the cognizer in the constitution, by its `{{computers}}`.
+ * @property contents keeping the content of the texts and data of every cogitation, see [Contents]:
+ * the ones of a cogitation given to [cognize], and the ones the [cognizer] expresses, are kept by it too.
  */
 class HarnessHost(
     private val cognizer: Cognizer,
@@ -108,7 +115,8 @@ class HarnessHost(
     private val tokenBudget: Long? = null,
     private val timeLimit: Duration? = null,
     private val parallelism: Int? = null,
-    private val computers: ComputerProvider
+    private val computers: ComputerProvider,
+    val contents: Contents = InMemoryContents()
 ) {
 
     private val computerTypes: List<String> get() = computers.types
@@ -164,14 +172,14 @@ class HarnessHost(
         val job = SupervisorJob(coroutineContext[Job])
         val queue = Channel<String>(Channel.UNLIMITED)
         val runtime = Runtime(
-            recorder = recordingDir?.let(::CogitationRecorder),
+            recorder = recordingDir?.let { CogitationRecorder(it, contents) },
             job = job,
             rested = rested,
             queue = queue,
             spent = AtomicLong(),
             started = Clock.System.now(),
             handler = CoroutineExceptionHandler { _, e -> rested.completeExceptionally(e) },
-            computers = Computers(computers).apply { start(told.computer, told.repl) }
+            computers = Computers(computers, contents).apply { start(told.computer, told.repl) }
         )
         runtimes[root.id] = runtime
         store.save(root)
@@ -231,7 +239,7 @@ class HarnessHost(
             }
             val failure = try {
                 unfolding = unfolding.copy(
-                    cogitation = unfold(recordingCognizer(id, runtime), executor, agency) {
+                    cogitation = unfold(recordingCognizer(id, runtime), executor, agency, contents) {
                         Allowance(tokens = tokenBudget, spentTokens = runtime.spent.get(), time = timeLimit, started = runtime.started)
                     },
                     invoked = unfolding.invoked + invoked
@@ -342,7 +350,7 @@ class HarnessHost(
                             enunciations = listOf(Enunciation(
                                 actant = if (invocation.independent) unidentified else Actant.INVOKER,
                                 id = invocation.id,
-                                phenomena = listOf(Phenomenon.Text(invocation.prompt))
+                                phenomena = listOf(contents.text(invocation.prompt))
                             )),
                             depth = if (invocation.independent) 0 else unfolding.cogitation.depth + 1,
                             // on the computer of the REPL it names, when a cogitation of the tree has it
@@ -498,6 +506,11 @@ class HarnessHost(
         ): Execution = onComputer()
 
         override suspend fun read(path: String, vararg lines: IntRange): String = onComputer()
+
+        override suspend fun readText(phenomenon: Phenomenon, vararg lines: IntRange): String =
+            contents.readText(phenomenon, lines.toList())
+
+        override suspend fun readBytes(phenomenon: Phenomenon): ByteArray = contents.readBytes(phenomenon)
 
         override val python: Python get() = onComputer()
 

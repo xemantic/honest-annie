@@ -18,6 +18,11 @@
 
 package com.xemantic.annie.harness.cognizer.openai
 
+import com.xemantic.annie.harness.content
+import com.xemantic.annie.harness.data
+import com.xemantic.annie.harness.monologue
+import com.xemantic.annie.harness.testContents
+import com.xemantic.annie.harness.text
 import com.fasterxml.jackson.databind.JsonNode
 import com.openai.client.okhttp.OpenAIOkHttpClient
 import com.openai.core.jsonMapper
@@ -73,13 +78,13 @@ class OpenAIInferenceTest {
             Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),
                 initiated = initiated,
-                phenomena = listOf(Phenomenon.Text("test"))
+                phenomena = listOf(text("test"))
             ),
             Enunciation(
                 actant = Actant.SELF,
                 initiated = initiated,
                 phenomena = listOf(
-                    Phenomenon.Text("Computing it."),
+                    text("Computing it."),
                     Phenomenon.Intent(script = "6 * 7", id = "call_1")
                 )
             ),
@@ -87,7 +92,7 @@ class OpenAIInferenceTest {
                 actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
                 initiated = initiated,
                 respondsTo = "call_1",
-                phenomena = listOf(Phenomenon.Text("42"), Phenomenon.Data(redPixelPng, "image/png"))
+                phenomena = listOf(text("42"), data(redPixelPng, "image/png"))
             )
         )
     )
@@ -101,7 +106,7 @@ class OpenAIInferenceTest {
             Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),
                 initiated = initiated,
-                phenomena = listOf(Phenomenon.Text("test"))
+                phenomena = listOf(text("test"))
             ),
             Enunciation(
                 actant = Actant(type = Actant.Type.SELF, name = "model"),
@@ -115,6 +120,7 @@ class OpenAIInferenceTest {
     fun `should request chat completion with reasoning effort and the tool executing intents, never forced, without replaying reasoning`() {
         // given
         val inference = OpenAIInference(
+            contents = testContents,
             client = client,
             model = "glm-5.3-flash",
             maxTokens = 8000,
@@ -123,7 +129,7 @@ class OpenAIInferenceTest {
 
         // when
         val body = json(inference.chatRequest(cogitation(
-            Monologue("thought"),
+            monologue("thought"),
             Phenomenon.Intent(script = "6 * 7", id = "call_1")
         ))._body())
 
@@ -149,7 +155,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should replay text as content of tool call, and execution of intent as its result in chat completion`() {
         // given
-        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "deepseek-v4_1-flash")
 
         // when
         val body = json(inference.chatRequest(executed)._body())
@@ -168,7 +174,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should request chat completion without system message when constitution is blank`() {
         // given
-        val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "glm-5.3-flash")
 
         // when
         val body = json(inference.chatRequest(cogitation().copy(constitution = ""))._body())
@@ -182,7 +188,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should request response without instructions when constitution is blank`() {
         // given
-        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+        val inference = OpenAIInference(contents = testContents, client = client, model = "gpt-6", responses = true)
 
         // when
         val body = json(inference.responseRequest(cogitation().copy(constitution = ""))._body())
@@ -194,7 +200,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should perceive reasoning content of chat completion`() {
         // given
-        val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "glm-5.3-flash")
         val completion = jsonMapper().readValue("""
             {
               "id": "chatcmpl-1",
@@ -215,13 +221,13 @@ class OpenAIInferenceTest {
 
         // then
         val monologue = phenomena.first() as Monologue
-        assert(phenomena == listOf(Monologue("thought", id = monologue.id), Phenomenon.Text("6 * 7")))
+        assert(phenomena == listOf(monologue("thought", id = monologue.id), text("6 * 7")))
     }
 
     @Test
     fun `should perceive call of the tool of intents in chat completion as intent`() {
         // given
-        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "deepseek-v4_1-flash")
         val completion = jsonMapper().readValue("""
             {
               "id": "chatcmpl-1",
@@ -248,7 +254,7 @@ class OpenAIInferenceTest {
 
         // then
         assert(phenomena.size == 2)
-        assert(phenomena.first() == Phenomenon.Text("Computing it."))
+        assert(phenomena.first() == text("Computing it."))
         val intent = phenomena.last() as Phenomenon.Intent
         assert(intent.script == "6 * 7")
         // the id of the provider, foreign to the cogitation, is replaced by one of its own
@@ -258,7 +264,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should perceive call of another tool in chat completion as an impediment`() {
         // given
-        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "deepseek-v4_1-flash")
         val completion = jsonMapper().readValue("""
             {
               "id": "chatcmpl-1",
@@ -285,7 +291,7 @@ class OpenAIInferenceTest {
         val phenomena = inference.phenomena(completion)
 
         // then
-        assert((phenomena.first() as Monologue).text == "Let's run.")
+        assert(phenomena.first().content == "Let's run.")
         val impediment = phenomena.last() as Phenomenon.Impediment
         assert("kotlin" in impediment.reason && "execute" in impediment.reason)
     }
@@ -293,7 +299,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should perceive the only text argument of a call of the tool of intents as its script, whatever its name`() {
         // given
-        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "deepseek-v4_1-flash")
         val completion = jsonMapper().readValue("""
             {
               "id": "chatcmpl-1",
@@ -320,14 +326,14 @@ class OpenAIInferenceTest {
         val phenomena = inference.phenomena(completion)
 
         // then
-        assert(phenomena.first() == Phenomenon.Text("Found it."))
+        assert(phenomena.first() == text("Found it."))
         assert((phenomena.last() as Phenomenon.Intent).script == "6 * 7")
     }
 
     @Test
     fun `should perceive call of tool of intents without script in chat completion as an impediment`() {
         // given
-        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "deepseek-v4_1-flash")
         val completion = jsonMapper().readValue("""
             {
               "id": "chatcmpl-1",
@@ -362,7 +368,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should request chat completion with image perceived after its markup`() {
         // given
-        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "deepseek-v4_1-flash")
 
         // when
         val body = json(inference.chatRequest(perceivingImage)._body())
@@ -379,7 +385,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should request response with image perceived after its markup`() {
         // given
-        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+        val inference = OpenAIInference(contents = testContents, client = client, model = "gpt-6", responses = true)
 
         // when
         val body = json(inference.responseRequest(perceivingImage)._body())
@@ -398,7 +404,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should request chat completion with PDF document perceived after its markup`() {
         // given
-        val inference = OpenAIInference(client = client, model = "gpt-6")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "gpt-6")
 
         // when
         val body = json(inference.chatRequest(perceivingDocument)._body())
@@ -412,7 +418,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should request response with PDF document perceived after its markup`() {
         // given
-        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+        val inference = OpenAIInference(contents = testContents, client = client, model = "gpt-6", responses = true)
 
         // when
         val body = json(inference.responseRequest(perceivingDocument)._body())
@@ -428,7 +434,7 @@ class OpenAIInferenceTest {
             actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
             initiated = initiated,
             respondsTo = "call_1",
-            phenomena = listOf(Phenomenon.Data(minimalPdf, "application/pdf"))
+            phenomena = listOf(data(minimalPdf, "application/pdf"))
         ))
     }
 
@@ -437,7 +443,7 @@ class OpenAIInferenceTest {
             actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
             initiated = initiated,
             respondsTo = "call_1",
-            phenomena = listOf(Phenomenon.Data(redPixelPng, "image/png"))
+            phenomena = listOf(data(redPixelPng, "image/png"))
         ))
     }
 
@@ -449,6 +455,7 @@ class OpenAIInferenceTest {
         // given
         val monologues = InMemoryMonologueStore()
         val inference = OpenAIInference(
+            contents = testContents,
             client = client,
             model = "gpt-6",
             responses = true,
@@ -465,9 +472,9 @@ class OpenAIInferenceTest {
 
         // when
         val body = json(inference.responseRequest(cogitation(
-            Monologue("other thought", id = "other"),
-            Monologue("thought", id = "thought"),
-            Monologue("thought of another cognizer", id = "unknown"),
+            monologue("other thought", id = "other"),
+            monologue("thought", id = "thought"),
+            monologue("thought of another cognizer", id = "unknown"),
             Phenomenon.Intent(script = "6 * 7", id = "call_1")
         ))._body())
 
@@ -494,7 +501,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should replay text, and execution of intent as output of its function call in response`() {
         // given
-        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+        val inference = OpenAIInference(contents = testContents, client = client, model = "gpt-6", responses = true)
 
         // when
         val body = json(inference.responseRequest(executed)._body())
@@ -517,7 +524,7 @@ class OpenAIInferenceTest {
     fun `should perceive encrypted reasoning as monologue, output text, and function call as intent of response`() {
         // given
         val monologues = InMemoryMonologueStore()
-        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true, monologues = monologues)
+        val inference = OpenAIInference(contents = testContents, client = client, model = "gpt-6", responses = true, monologues = monologues)
         val response = jsonMapper().readValue("""
             {
               "id": "resp_1",
@@ -543,12 +550,12 @@ class OpenAIInferenceTest {
 
         // then
         val monologue = phenomena.first() as Monologue
-        assert(monologue.text == "thought")
+        assert(monologue.content == "thought")
         assert(monologues[monologue.id] == MonologueTrace.OpenAIReasoning(
             producedBy = "gpt-6", itemId = "rs_1", summary = listOf("thought"), encryptedContent = "secret"
         ))
         assert(phenomena.size == 3)
-        assert(phenomena[1] == Phenomenon.Text("Computing it."))
+        assert(phenomena[1] == text("Computing it."))
         val intent = phenomena.last() as Phenomenon.Intent
         assert(intent.script == "6 * 7")
         // the id of the provider, foreign to the cogitation, is replaced by one of its own
@@ -559,6 +566,7 @@ class OpenAIInferenceTest {
     fun `should count tokens of chat completion by category`() {
         // given
         val inference = OpenAIInference(
+            contents = testContents,
             client = client,
             model = "glm-5.3-flash",
             modelId = "zai-org/glm-5.3-flash",
@@ -607,7 +615,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should count no tokens of chat completion without usage`() {
         // given
-        val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "glm-5.3-flash")
         val completion = jsonMapper().readValue("""
             {
               "id": "chatcmpl-1",
@@ -637,7 +645,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should report finish reason of chat completion by kind`() {
         // given
-        val inference = OpenAIInference(client = client, model = "glm-5.3-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "glm-5.3-flash")
 
         // when
         val stops = listOf("stop", "tool_calls", "length", "content_filter", "abort").map { reason ->
@@ -671,7 +679,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should report status of response by kind`() {
         // given
-        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+        val inference = OpenAIInference(contents = testContents, client = client, model = "gpt-6", responses = true)
 
         // when
         val stops = listOf(
@@ -704,7 +712,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should count tokens of response by category`() {
         // given
-        val inference = OpenAIInference(client = client, model = "gpt-6", responses = true)
+        val inference = OpenAIInference(contents = testContents, client = client, model = "gpt-6", responses = true)
         val response = jsonMapper().readValue("""
             {
               "id": "resp_1",
@@ -742,7 +750,7 @@ class OpenAIInferenceTest {
     @Test
     fun `should perceive edits of call of the tool of intents in chat completion, also when passed as JSON text`() {
         // given
-        val inference = OpenAIInference(client = client, model = "deepseek-v4_1-flash")
+        val inference = OpenAIInference(contents = testContents, client = client, model = "deepseek-v4_1-flash")
         val edits = """[{"path": "/app/g.py", "new": "x = 1\n"}]"""
         val arguments = listOf(
             jsonMapper().writeValueAsString(mapOf("script" to "1", "edits" to jsonMapper().readTree(edits))),

@@ -20,6 +20,7 @@ package com.xemantic.annie.computer.local
 
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Computer
+import com.xemantic.annie.InMemoryContents
 import com.xemantic.annie.IntentContext
 import com.xemantic.annie.Phenomenon
 import com.xemantic.kotlin.test.assert
@@ -40,7 +41,9 @@ class LocalComputerProviderTest {
         provider.close()
     }
 
-    private val context = IntentContext(Cogitation(constitution = "", enunciations = emptyList()), parentCogitation = null)
+    private val contents = InMemoryContents()
+
+    private val context = IntentContext(Cogitation(constitution = "", enunciations = emptyList()), parentCogitation = null, contents = contents)
 
     private val pid = Phenomenon.Intent(script = "ProcessHandle.current().pid()")
 
@@ -54,7 +57,7 @@ class LocalComputerProviderTest {
 
         // when
         val pids = listOf(first.openRepl(), first.openRepl(), second.openRepl()).map { repl ->
-            (repl.execute(pid, context).result.single() as Phenomenon.Text).text.toLong()
+            repl.execute(pid, context).let { it.text(it.result.single()) }.toLong()
         }
 
         // then

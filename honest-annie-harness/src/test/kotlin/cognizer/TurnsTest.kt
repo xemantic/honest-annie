@@ -18,6 +18,12 @@
 
 package com.xemantic.annie.harness.cognizer
 
+import com.xemantic.annie.harness.content
+import com.xemantic.annie.readBytes
+import com.xemantic.annie.harness.data
+import com.xemantic.annie.harness.monologue
+import com.xemantic.annie.harness.testContents
+import com.xemantic.annie.harness.text
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Enunciation
@@ -41,7 +47,7 @@ class TurnsTest {
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("judge"))),
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("judge"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
                 Enunciation(
                     actant = computer,
@@ -54,7 +60,7 @@ class TurnsTest {
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert(turns.size == 3)
@@ -79,11 +85,11 @@ class TurnsTest {
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("task"))),
                 Enunciation(
                     actant = Actant.SELF,
                     initiated = initiated,
-                    phenomena = listOf(Phenomenon.Text("Found it."), impediment),
+                    phenomena = listOf(text("Found it."), impediment),
                     inference = inference
                 ),
                 Enunciation(actant = computer, initiated = initiated, phenomena = listOf(impediment))
@@ -91,7 +97,7 @@ class TurnsTest {
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert(turns.size == 3)
@@ -112,26 +118,26 @@ class TurnsTest {
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("task"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
-                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(Phenomenon.Text("so far"))),
+                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(text("so far"))),
                 Enunciation(
                     actant = computer,
                     initiated = initiated,
                     respondsTo = intent.id,
-                    phenomena = listOf(Phenomenon.Text("Spent", "text/plain"))
+                    phenomena = listOf(text("Spent", "text/plain"))
                 ),
                 Enunciation(
                     actant = Actant.SELF,
                     initiated = initiated,
                     respondsTo = "c1",
-                    phenomena = listOf(Phenomenon.Text("judged"))
+                    phenomena = listOf(text("judged"))
                 )
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert(turns.size == 3)
@@ -156,18 +162,18 @@ class TurnsTest {
     fun `should perceive image responding to intent within result of its tool call`() {
         // given
         val intent = Phenomenon.Intent(script = "render()", id = "call_1")
-        val image = Phenomenon.Data(redPixelPng, "image/png")
+        val image = data(redPixelPng, "image/png")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("draw"))),
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("draw"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
                 Enunciation(actant = computer, initiated = initiated, respondsTo = intent.id, phenomena = listOf(image))
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert((turns[2] as Turn.User).parts == listOf(Perceived.Result("call_1", listOf(
@@ -175,7 +181,7 @@ class TurnsTest {
                 <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
                 <annie:data content-type="image/png" size="70"/>
             """.trimIndent()),
-            Perceived.Image(image, "image/png")
+            Perceived.Image(testContents.readBytes(image), "image/png")
         ))))
     }
 
@@ -186,18 +192,18 @@ class TurnsTest {
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("task"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
                 Enunciation(
                     actant = Actant(type = Actant.Type.HUMAN, name = "user"),
                     initiated = initiated,
-                    phenomena = listOf(Phenomenon.Text("stop"))
+                    phenomena = listOf(text("stop"))
                 )
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert((turns[2] as Turn.User).parts == listOf(
@@ -212,7 +218,7 @@ class TurnsTest {
     @Test
     fun `should perceive image after its markup, and data which is not an image only as markup`() {
         // given
-        val image = Phenomenon.Data(redPixelPng, "image/png")
+        val image = data(redPixelPng, "image/png")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
@@ -220,18 +226,18 @@ class TurnsTest {
                     actant = Actant(type = Actant.Type.HUMAN, name = "user"),
                     initiated = initiated,
                     phenomena = listOf(
-                        Phenomenon.Text("what is it?"),
+                        text("what is it?"),
                         image,
                         // an error page mislabelled as an image, which an API would reject as one
-                        Phenomenon.Data("<html>".encodeToByteArray(), "image/jpeg"),
-                        Phenomenon.Text("and this?")
+                        data("<html>".encodeToByteArray(), "image/jpeg"),
+                        text("and this?")
                     )
                 )
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert(turns.size == 1)
@@ -243,7 +249,7 @@ class TurnsTest {
 
                 <annie:data content-type="image/png" size="70"/>
             """.trimIndent()),
-            Perceived.Image(image, "image/png"),
+            Perceived.Image(testContents.readBytes(image), "image/png"),
             Perceived.Text("""
                 <annie:data content-type="image/jpeg" size="6"/>
 
@@ -255,7 +261,7 @@ class TurnsTest {
     @Test
     fun `should perceive image of undeclared content type by its detected media type`() {
         // given
-        val image = Phenomenon.Data(redPixelPng)
+        val image = data(redPixelPng)
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
@@ -268,16 +274,16 @@ class TurnsTest {
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
-        assert((turns.single() as Turn.User).parts.last() == Perceived.Image(image, "image/png"))
+        assert((turns.single() as Turn.User).parts.last() == Perceived.Image(testContents.readBytes(image), "image/png"))
     }
 
     @Test
     fun `should perceive PDF document after its markup`() {
         // given
-        val document = Phenomenon.Data(minimalPdf, "application/pdf")
+        val document = data(minimalPdf, "application/pdf")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
@@ -290,7 +296,7 @@ class TurnsTest {
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert((turns.single() as Turn.User).parts == listOf(
@@ -299,7 +305,7 @@ class TurnsTest {
                 <annie:actant type="computer" name="user's computer" initiated="2026-10-24T10:15:30Z"/>
                 <annie:data content-type="application/pdf" size="${minimalPdf.size}"/>
             """.trimIndent()),
-            Perceived.Document(document)
+            Perceived.Document(testContents.readBytes(document))
         ))
     }
 
@@ -312,13 +318,13 @@ class TurnsTest {
                 Enunciation(
                     actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
                     initiated = initiated,
-                    phenomena = listOf(Phenomenon.Data(minimalPdf + ByteArray(MAX_DOCUMENT_SIZE), "application/pdf"))
+                    phenomena = listOf(data(minimalPdf + ByteArray(MAX_DOCUMENT_SIZE), "application/pdf"))
                 )
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert((turns.single() as Turn.User).parts.single() is Perceived.Text)
@@ -334,13 +340,13 @@ class TurnsTest {
                 Enunciation(
                     actant = Actant(type = Actant.Type.COMPUTER, name = "user's computer"),
                     initiated = initiated,
-                    phenomena = listOf(Phenomenon.Data(jpegHeader + ByteArray(MAX_IMAGE_SIZE), "image/jpeg"))
+                    phenomena = listOf(data(jpegHeader + ByteArray(MAX_IMAGE_SIZE), "image/jpeg"))
                 )
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert((turns.single() as Turn.User).parts.single() is Perceived.Text)
@@ -354,26 +360,26 @@ class TurnsTest {
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("compute"))),
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("compute"))),
                 Enunciation(
                     actant = Actant.SELF,
                     initiated = initiated,
-                    phenomena = listOf(Phenomenon.Monologue("thought"), Phenomenon.Text("Computing it."), intent),
+                    phenomena = listOf(monologue("thought"), text("Computing it."), intent),
                     inference = inference
                 ),
-                Enunciation(actant = computer, initiated = initiated, respondsTo = intent.id, phenomena = listOf(Phenomenon.Text("42"))),
+                Enunciation(actant = computer, initiated = initiated, respondsTo = intent.id, phenomena = listOf(text("42"))),
                 Enunciation(
                     actant = Actant.SELF,
                     initiated = initiated,
-                    phenomena = listOf(Phenomenon.Text("The answer is 42.")),
+                    phenomena = listOf(text("The answer is 42.")),
                     inference = inference
                 ),
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("and twice that?")))
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("and twice that?")))
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { "<${it.text}>" }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { "<${it.content}>" }, text = { it })
 
         // then
         assert(turns.size == 5)
@@ -390,14 +396,14 @@ class TurnsTest {
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("compute"))),
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("compute"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
-                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(Phenomenon.Text("42")))
+                Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(text("42")))
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert(turns.size == 3)
@@ -408,34 +414,36 @@ class TurnsTest {
 
 
     @Test
-    fun `should cut text of tool result beyond 30000 characters, telling where the whole text is in the cogitation`() {
+    fun `should cut text of tool result beyond 30000 characters telling how a script reads the rest`() {
         // given
-        val intent = Phenomenon.Intent(script = "\"a\".repeat(30_010)", id = "call_1")
+        val intent = Phenomenon.Intent(script = "lines", id = "call_1")
+        // 3,001 lines of 9 characters and a line break, the cut falling within the line 3,001
+        val long = (1..3_001).joinToString("\n") { "line %04d".format(it) }
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text("task"))),
+                Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text("task"))),
                 Enunciation(actant = Actant.SELF, initiated = initiated, phenomena = listOf(intent)),
                 Enunciation(
                     actant = computer,
                     initiated = initiated,
                     respondsTo = intent.id,
-                    phenomena = listOf(Phenomenon.Text("short", "text/plain"), Phenomenon.Text("a".repeat(30_010), "text/plain"))
+                    phenomena = listOf(text("short", "text/plain"), text(long, "text/plain"))
                 )
             )
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         val result = (turns[2] as Turn.User).parts.single() as Perceived.Result
         assert(result.parts == listOf(Perceived.Text(
             "<annie:actant type=\"computer\" name=\"user's computer\" initiated=\"2026-10-24T10:15:30Z\"/>\n" +
                 "<annie:text content-type=\"text/plain\"/>\nshort\n\n" +
-                "<annie:text content-type=\"text/plain\"/>\n" + "a".repeat(30_000) +
-                "\n… 10 more characters omitted, the whole text being " +
-                "`(agency.cogitation().enunciations[2].phenomena[1] as Phenomenon.Text).text` in a Kotlin script"
+                "<annie:text content-type=\"text/plain\"/>\n" + long.take(30_000) +
+                "\n… 9 more characters omitted, of 3001 lines, read by " +
+                "`agency.readText(agency.cogitation().enunciations[2].phenomena[1], 3001..3001)` in a Kotlin script"
         )))
     }
 
@@ -445,11 +453,11 @@ class TurnsTest {
         val task = "a".repeat(40_000)
         val cogitation = Cogitation(
             constitution = "",
-            enunciations = listOf(Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(Phenomenon.Text(task))))
+            enunciations = listOf(Enunciation(actant = Actant.INVOKER, initiated = initiated, phenomena = listOf(text(task))))
         )
 
         // when
-        val turns = cogitation.toTurns(intent = { it.script }, monologue = { null }, text = { it.text })
+        val turns = cogitation.toTurns(testContents, intent = { it.script }, monologue = { null }, text = { it })
 
         // then
         assert(((turns.single() as Turn.User).parts.single() as Perceived.Text).text.endsWith(task))

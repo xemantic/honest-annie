@@ -18,6 +18,10 @@
 
 package com.xemantic.annie.harness.host
 
+import com.xemantic.annie.harness.content
+import com.xemantic.annie.harness.data
+import com.xemantic.annie.harness.testContents
+import com.xemantic.annie.harness.text
 import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Enunciation
@@ -52,28 +56,28 @@ class LocalComputersTest {
             val prompt = cogitation.enunciations.first().phenomena.single() as Phenomenon.Text
             Cognized(listOf(
                 when {
-                    cogitation.depth > 0 -> Phenomenon.Text("echo: ${prompt.text}")
+                    cogitation.depth > 0 -> text("echo: ${prompt.content}")
                     cogitation.enunciations.size == 1 -> Phenomenon.Intent(script = "agency.invoke(\"sub\")")
                     // the task, the intent invoking, the response to the intent, and the one to the invocation
                     cogitation.enunciations.size == 4 -> Phenomenon.Intent(
-                        script = "agency.enunciate(\"got: \" + (agency.cogitation().enunciations[3].phenomena.single() as Phenomenon.Text).text)"
+                        script = "agency.enunciate(\"got: \" + agency.readText(agency.cogitation().enunciations[3].phenomena.single()))"
                     )
                     // answering, so that the cogitation rests, rather than inferring again and again
-                    else -> Phenomenon.Text("unexpected: ${cogitation.enunciations.last().phenomena}")
+                    else -> text("unexpected: ${cogitation.enunciations.last().phenomena}")
                 }
             ))
         }
 
         // when
-        val output = HarnessHost(cognizer, computers = computers).cognize(Cogitation(
+        val output = HarnessHost(cognizer, computers = computers, contents = testContents).cognize(Cogitation(
             constitution = "",
             enunciations = listOf(Enunciation(
                 actant = Actant(type = Actant.Type.HUMAN, name = "user"),
-                phenomena = listOf(Phenomenon.Text("test"))
+                phenomena = listOf(text("test"))
             ))
         ))
 
         // then
-        assert(output.phenomena == listOf(Phenomenon.Text("got: echo: sub")))
+        assert(output.phenomena == listOf(text("got: echo: sub")))
     }
 }

@@ -20,6 +20,7 @@ package com.xemantic.annie.computer.local
 
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Computer
+import com.xemantic.annie.InMemoryContents
 import com.xemantic.annie.IntentContext
 import com.xemantic.annie.Phenomenon
 import com.xemantic.kotlin.test.assert
@@ -29,7 +30,9 @@ import kotlin.time.Duration.Companion.minutes
 
 class InProcessComputerProviderTest {
 
-    private val context = IntentContext(Cogitation(constitution = "", enunciations = emptyList(), depth = 2), parentCogitation = null)
+    private val contents = InMemoryContents()
+
+    private val context = IntentContext(Cogitation(constitution = "", enunciations = emptyList(), depth = 2), parentCogitation = null, contents = contents)
 
     @Test
     fun `should execute intents in the process of the host, the declarations of each REPL apart`() = runTest(timeout = 5.minutes) {
@@ -44,7 +47,7 @@ class InProcessComputerProviderTest {
         computer.close()
 
         // then
-        assert(inHost == listOf(Phenomenon.Text("${ProcessHandle.current().pid()}", "text/plain")))
+        assert(inHost == listOf(text("${ProcessHandle.current().pid()}", "text/plain")))
         assert(apart.single() is Phenomenon.Impediment)
     }
 
@@ -62,7 +65,7 @@ class InProcessComputerProviderTest {
         // then
         assert(executed.invoked.single().prompt == "sub")
         assert(executed.result.isEmpty())
-        assert(executed.output == listOf(Phenomenon.Text("depth 2")))
+        assert(executed.output == listOf(text("depth 2")))
     }
 
 }

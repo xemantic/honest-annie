@@ -62,7 +62,7 @@ sealed interface Phenomenon {
      * a bash process is destroyed, while a Kotlin or Python script blocking its thread, rather than suspending, runs to its end,
      * and the next intents wait for it.
      * Its result is kept whole in the cogitation, while the cognizer perceives at most 30,000 characters of each text of it,
-     * the cut telling where in `agency.cogitation()` the whole text is.
+     * the cut telling how `agency.readText` reads the rest of it.
      * A [Text] the cognizer expresses along it, in the same enunciation, is its commentary, not an output.
      * The cognizer expresses it by calling the only tool it is offered, whose result is the response,
      * the call being replayed with the [id] of the intent, rather than the one the cognizer gave it.
@@ -86,22 +86,37 @@ sealed interface Phenomenon {
     /**
      * Text, e.g. the prompt of a task, the value of an intent, or what the cognizer says:
      * an inference expressing text, and no [Intent], answers with it, which is the output of its cogitation.
+     * The text itself is kept apart, by the [ref] of its content, read on demand, see [Agency.readText],
+     * so that a cogitation is recalled without the texts of its phenomena.
+     *
+     * @property ref the address of its content, the same for the same content, wherever it occurs.
+     * @property length how many characters the text has.
+     * @property lines how many lines the text has, as [Agency.readText] numbers them.
      */
     @Serializable
-    data class Text(val text: String, val contentType: String = "text/markdown") : Phenomenon
+    data class Text(
+        val ref: String,
+        val length: Int,
+        val lines: Int,
+        val contentType: String = "text/markdown"
+    ) : Phenomenon
+    /**
+     * Data, e.g. an image the cognizer sees, of the [size] in bytes,
+     * the bytes kept apart by the [ref] of their content, like the ones of a [Text], read by [Agency.readBytes].
+     */
     @Serializable
-    class Data(val bytes: ByteArray, val contentType: String? = null) : Phenomenon {
-        override fun equals(other: Any?): Boolean = other is Data
-                && contentType == other.contentType && bytes.contentEquals(other.bytes)
-        override fun hashCode(): Int = 31 * bytes.contentHashCode() + contentType.hashCode()
-        override fun toString(): String = "Data(contentType=$contentType, size=${bytes.size})"
-    }
+    data class Data(
+        val ref: String,
+        val size: Long,
+        val contentType: String? = null
+    ) : Phenomenon
     /** What impeded the cogitation, or an intent, as the [reason] for it, see [Agency.impede]. */
     @Serializable
     data class Impediment(val reason: String) : Phenomenon
     /**
-     * What the cognizer thought before expressing anything else in the same inference, as far as its provider reveals it:
-     * the [text] is empty when nothing of it is revealed.
+     * What the cognizer thought before expressing anything else in the same inference, as far as its provider reveals it,
+     * its text kept apart, by the [ref] of its content, like the one of a [Text], read by [Agency.readText]:
+     * the text is empty, of no [length], when nothing of it is revealed.
      * Never an output of its cogitation, and replayed only to the model which thought it.
      *
      * @property id unique within its cogitation, like the id of a [Request]:
@@ -109,7 +124,9 @@ sealed interface Phenomenon {
      */
     @Serializable
     data class Monologue(
-        val text: String,
+        val ref: String,
+        val length: Int,
+        val lines: Int,
         val id: String = randomId()
     ) : Phenomenon
 }
@@ -253,11 +270,14 @@ data class Computer(
  *   no file being changed, and the script not executed; then it executes the script, unless blank,
  *   in the [Phenomenon.Intent.language] of the intent, a Python or bash one acting through no agency, while a Kotlin one is executed
  *   in the session of the intents of this cogitation, providing it with the `agency`, and returns
- *   `data class ExecutedIntent(val result: List<Phenomenon>, val output: List<Phenomenon>, val invoked: List<Invocation>)`:
+ *   `data class ExecutedIntent(val result: List<Phenomenon>, val output: List<Phenomenon>, val invoked: List<Invocation>, val contents: Map<String, ByteArray>)`:
  *   the `result` of the intent, the value of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`,
  *   or, when the script fails, the [Phenomenon.Impediment] describing the failure;
  *   its `output`, what the intent enunciated through the agency, and the cogitations it `invoked`, see [Agency.invoke],
- *   neither of them part of its result.
+ *   neither of them part of its result, and the `contents` of the texts and data of both, by their refs,
+ * - `contents`: `Contents`, keeping the content of every text and data of the cogitations of the host by its ref, see [Phenomenon.Text.ref],
+ *   whose `keepAll(contents: Map<String, ByteArray>)` keeps the contents of an executed intent,
+ *   and whose `text(text: String, contentType: String): Phenomenon.Text` keeps a text, returning its phenomenon.
  *
  * The harness unfolds the cogitation by a single step, one inference and the intent it expresses, and is called
  * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded,

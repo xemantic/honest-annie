@@ -33,7 +33,16 @@ import kotlin.time.Duration.Companion.minutes
 
 class ExecutorServerTest {
 
-    private val cogitation = Cogitation(constitution = "Be honest", enunciations = emptyList(), depth = 2)
+    /** The content of the phenomena of the [cogitation], kept by the harness. */
+    private val contents = InMemoryContents()
+
+    private val prompt = contents.text("Count the lines\nof this prompt")
+
+    private val cogitation = Cogitation(
+        constitution = "Be honest",
+        enunciations = listOf(Enunciation(actant = Actant.INVOKER, phenomena = listOf(prompt))),
+        depth = 2
+    )
 
     private val parentCogitation = Cogitation(constitution = "Be curious", enunciations = emptyList(), depth = 1)
 
@@ -50,7 +59,7 @@ class ExecutorServerTest {
             ExecutorServer { SessionScriptExecutor() }.serve(requests) { responses.trySend(it) }
         }
         try {
-            Serving(requests, responses, cogitation, parentCogitation).block()
+            Serving(requests, responses, cogitation, parentCogitation, contents).block()
         } finally {
             requests.close()
             server.join()
@@ -61,22 +70,39 @@ class ExecutorServerTest {
         private val requests: Channel<String>,
         private val responses: Channel<String>,
         private val cogitation: Cogitation,
-        private val parentCogitation: Cogitation
+        private val parentCogitation: Cogitation,
+        private val contents: Contents
     ) {
         /** The recalls answered, in their order. */
         val recalls = mutableListOf<ExecutorResponse.Recall>()
+        /** The loads answered, in their order. */
+        val loads = mutableListOf<ExecutorResponse.Load>()
         suspend fun send(request: ExecutorRequest) = requests.send(request.encodeMessage())
         suspend fun send(line: String) = requests.send(line)
-        /** The next response other than a recall, the recalls before it answered. */
+        /** The next response other than a recall or a load, the recalls and loads before it answered. */
         suspend fun receive(): ExecutorResponse {
             while (true) {
-                val response = checkNotNull(decodeResponse(responses.receive()))
-                if (response !is ExecutorResponse.Recall) return response
-                recalls += response
-                send(ExecutorRequest.Recalled(response.recall, if (response.parent) parentCogitation else cogitation))
+                when (val response = checkNotNull(decodeResponse(responses.receive()))) {
+                    is ExecutorResponse.Recall -> {
+                        recalls += response
+                        send(ExecutorRequest.Recalled(response.recall, if (response.parent) parentCogitation else cogitation))
+                    }
+                    is ExecutorResponse.Load -> {
+                        loads += response
+                        send(ExecutorRequest.Loaded(response.load, contents.content(response.ref)))
+                    }
+                    else -> return response
+                }
             }
         }
     }
+
+    /** The response executing the request of the [id] to the [texts], in plain text, sent with their content. */
+    private fun executed(id: String, vararg texts: String) = ExecutorResponse.Executed(
+        id = id,
+        result = texts.map { text(it, "text/plain") },
+        contents = texts.associate { textOf(it, "text/plain").let { (text, content) -> text.ref to content } }
+    )
 
     private fun execute(id: String, script: String, session: String = "session-1", edits: List<Edit> = emptyList()) =
         ExecutorRequest.Execute(id = id, session = session, intent = Phenomenon.Intent(edits = edits, script = script))
@@ -97,10 +123,10 @@ class ExecutorServerTest {
         assert(response.id == "request-1")
         val invocation = response.invoked.single()
         assert(invocation.prompt == "Count" && invocation.constitution == "Be brief")
-        assert(response.result == listOf(Phenomenon.Text("2 Be honest", "text/plain")))
+        assert(response.result == listOf(text("2 Be honest", "text/plain")))
         assert(response.output == listOf(
-            Phenomenon.Text("first"),
-            Phenomenon.Data(byteArrayOf(4, 2), "image/png"),
+            text("first"),
+            data(byteArrayOf(4, 2), "image/png"),
             Phenomenon.Impediment("stuck")
         ))
     }
@@ -117,11 +143,38 @@ class ExecutorServerTest {
         val asked = receive()
 
         // then
-        assert(unasked == ExecutorResponse.Executed("request-1", result = listOf(Phenomenon.Text("42", "text/plain"))))
+        assert(unasked == executed("request-1", "42"))
         assert(unaskedRecalls.isEmpty())
-        assert(asked == ExecutorResponse.Executed("request-2", result = listOf(Phenomenon.Text("2 Be honest 1 Be curious", "text/plain"))))
+        assert(asked == executed("request-2", "2 Be honest 1 Be curious"))
         // the cogitation of the intent recalled once, being the same for the whole intent, the parent one at each call
         assert(recalls.map { it.id to it.parent } == listOf("request-2" to false, "request-2" to true, "request-2" to true))
+    }
+
+    @Test
+    fun `should load the content of a phenomenon only when the intent reads it`() = serving {
+        // when
+        send(execute("request-1", "agency.cogitation().enunciations[0].phenomena[0]"))
+        val unread = receive()
+        val unreadLoads = loads.toList()
+        send(execute("request-2", "agency.readText(agency.cogitation().enunciations[0].phenomena[0], 2..2)"))
+        val read = receive()
+
+        // then
+        assert(unread == ExecutorResponse.Executed("request-1", result = listOf(prompt)))
+        assert(unreadLoads.isEmpty())
+        assert(read == executed("request-2", "of this prompt"))
+        assert(loads.map { it.id to it.ref } == listOf("request-2" to prompt.ref))
+    }
+
+    @Test
+    fun `should fail the intent reading a content the harness does not keep`() = serving {
+        // when
+        send(execute("request-1", """agency.readText(Phenomenon.Text(ref = "sha256:00", length = 1, lines = 1))"""))
+        val response = receive() as ExecutorResponse.Executed
+
+        // then
+        val impediment = response.result.single() as Phenomenon.Impediment
+        assert("The harness keeps no content of sha256:00" in impediment.reason)
     }
 
     @Test
@@ -136,7 +189,7 @@ class ExecutorServerTest {
 
         // then
         assert(declared == ExecutorResponse.Executed("request-1", result = emptyList()))
-        assert(same == ExecutorResponse.Executed("request-2", result = listOf(Phenomenon.Text("42", "text/plain"))))
+        assert(same == executed("request-2", "42"))
         assert(other is ExecutorResponse.Executed && other.result.single() is Phenomenon.Impediment)
     }
 
@@ -151,7 +204,7 @@ class ExecutorServerTest {
 
         // then
         assert(file.readText() == "x = 1\n")
-        assert((response.result.single() as Phenomenon.Text).text.startsWith("Wrote $file"))
+        assert(response.contents.getValue((response.result.single() as Phenomenon.Text).ref).decodeToString().startsWith("Wrote $file"))
     }
 
     // The slow intents suspend in delay, as a cancelled intent is not interrupted, see ScriptSession of xemantic-kotlin-script,
@@ -165,7 +218,7 @@ class ExecutorServerTest {
         send(ExecutorRequest.Cancel("slow"))
 
         // then
-        assert(response == ExecutorResponse.Executed("fast", result = listOf(Phenomenon.Text("42", "text/plain"))))
+        assert(response == executed("fast", "42"))
     }
 
     @Test
@@ -178,7 +231,7 @@ class ExecutorServerTest {
 
         // then
         // the cancelled intent is responded by nothing, as nothing awaits it anymore
-        assert(response == ExecutorResponse.Executed("next", result = listOf(Phenomenon.Text("42", "text/plain"))))
+        assert(response == executed("next", "42"))
     }
 
     @Test
@@ -221,7 +274,7 @@ class ExecutorServerTest {
         val response = receive()
 
         // then
-        assert(response == ExecutorResponse.Executed("request-1", result = listOf(Phenomenon.Text("42", "text/plain"))))
+        assert(response == executed("request-1", "42"))
     }
 
 }

@@ -18,8 +18,15 @@
 
 package com.xemantic.annie
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
+import kotlin.io.encoding.Base64
 
 /*
  * The protocol between the harness and an executor of another process, see [ScriptExecutor]:
@@ -27,7 +34,9 @@ import kotlinx.serialization.json.Json
  * and the executor responds with the result of each intent, together with what the intent did within its cogitation,
  * so that the harness enunciates it, as if the intent acted through the agency of the harness itself.
  * While executing an intent, the executor recalls its cogitation from the harness, only when the intent asks for it,
- * see [ExecutorResponse.Recall], as the cogitations stay with the harness, e.g. apart from an isolated computer.
+ * see [ExecutorResponse.Recall], as the cogitations stay with the harness, e.g. apart from an isolated computer,
+ * and so does the content of their texts and data, loaded only when the intent reads it, see [ExecutorResponse.Load],
+ * while the content of the texts and data the intent creates is sent along its result, see [ExecutorResponse.Executed.contents].
  *
  * Each message is a line of JSON, see [encodeMessage], so that a single channel carries the requests of many sessions,
  * e.g. the standard input and output of the executor, the responses following in any order, matched by their id.
@@ -57,6 +66,18 @@ sealed interface ExecutorRequest {
         val cogitation: Cogitation?
     ) : ExecutorRequest
 
+    /** The [content] the [ExecutorResponse.Load] of the [load] id asks for, `null` when the harness keeps none of its ref. */
+    @Serializable
+    data class Loaded(
+        val load: String,
+        @Serializable(with = Base64Serializer::class)
+        val content: ByteArray?
+    ) : ExecutorRequest {
+        override fun equals(other: Any?): Boolean = other is Loaded && load == other.load
+                && (content?.contentEquals(other.content) ?: (other.content == null))
+        override fun hashCode(): Int = 31 * load.hashCode() + content.contentHashCode()
+    }
+
     /** Cancels the execution of the [Execute] request of this [id], e.g. as the cogitation is impeded, responded by nothing. */
     @Serializable
     data class Cancel(val id: String) : ExecutorRequest
@@ -69,17 +90,21 @@ sealed interface ExecutorRequest {
 
 /**
  * What the agency of the harness tells of the cogitation of an intent, see [Agency.cogitation] and [Agency.parentCogitation],
- * recalled by an executor of another process only when the intent asks for it, see [ExecutorResponse.Recall].
+ * and the content of its texts and data, see [Contents],
+ * recalled by an executor of another process only when the intent asks for it, see [ExecutorResponse.Recall] and [ExecutorResponse.Load].
  */
 interface IntentContext {
     suspend fun cogitation(): Cogitation
     suspend fun parentCogitation(): Cogitation?
+    /** The content of the [ref], see [Phenomenon.Text.ref], `null` when the harness keeps none. */
+    suspend fun content(ref: String): ByteArray?
 }
 
-/** The [IntentContext] of cogitations at hand, e.g. of a REPL in the process of the harness itself. */
-fun IntentContext(cogitation: Cogitation, parentCogitation: Cogitation?): IntentContext = object : IntentContext {
+/** The [IntentContext] of cogitations at hand, and of the [contents] of their phenomena, e.g. of a REPL in the process of the harness itself. */
+fun IntentContext(cogitation: Cogitation, parentCogitation: Cogitation?, contents: Contents): IntentContext = object : IntentContext {
     override suspend fun cogitation(): Cogitation = cogitation
     override suspend fun parentCogitation(): Cogitation? = parentCogitation
+    override suspend fun content(ref: String): ByteArray? = contents.content(ref)
 }
 
 /** A response of the executor to the [ExecutorRequest.Execute] of the same [id]. */
@@ -99,14 +124,34 @@ sealed interface ExecutorResponse {
         val parent: Boolean = false
     ) : ExecutorResponse
 
-    /** The [result] of the intent, see [ScriptExecutor.execute], its [output], and the cogitations it [invoked], see [ExecutedIntent]. */
+    /**
+     * Loads the content of the [ref], see [IntentContext.content],
+     * answered by [ExecutorRequest.Loaded] of the same [load] id, the intent still executing.
+     */
+    @Serializable
+    data class Load(
+        override val id: String,
+        val load: String,
+        val ref: String
+    ) : ExecutorResponse
+
+    /**
+     * The [result] of the intent, see [ScriptExecutor.execute], its [output], the cogitations it [invoked],
+     * and the [contents] of the texts and data of the [result] and the [output], see [ExecutedIntent].
+     */
     @Serializable
     data class Executed(
         override val id: String,
         val result: List<Phenomenon>,
         val output: List<Phenomenon> = emptyList(),
-        val invoked: List<Invocation> = emptyList()
-    ) : ExecutorResponse
+        val invoked: List<Invocation> = emptyList(),
+        val contents: Map<String, @Serializable(with = Base64Serializer::class) ByteArray> = emptyMap()
+    ) : ExecutorResponse {
+        override fun equals(other: Any?): Boolean = other is Executed && id == other.id && result == other.result
+                && output == other.output && invoked == other.invoked && contents.keys == other.contents.keys
+                && contents.all { (ref, content) -> content.contentEquals(other.contents[ref]) }
+        override fun hashCode(): Int = listOf(id, result, output, invoked, contents.keys).hashCode()
+    }
 
     /** The executor failed to execute the intent, for the [reason], e.g. its session failing to start. */
     @Serializable
@@ -125,6 +170,13 @@ sealed interface ExecutorResponse {
 const val MESSAGE_SEPARATOR: Char = '\u001E'
 
 private val protocolJson = Json { ignoreUnknownKeys = true }
+
+/** Content as Base64, rather than as an array of numbers, about 3 times longer. */
+private object Base64Serializer : KSerializer<ByteArray> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("com.xemantic.annie.Base64", PrimitiveKind.STRING)
+    override fun serialize(encoder: Encoder, value: ByteArray) = encoder.encodeString(Base64.encode(value))
+    override fun deserialize(decoder: Decoder): ByteArray = Base64.decode(decoder.decodeString())
+}
 
 /** The line of this request, ending with a line feed, see [MESSAGE_SEPARATOR]. */
 fun ExecutorRequest.encodeMessage(): String =

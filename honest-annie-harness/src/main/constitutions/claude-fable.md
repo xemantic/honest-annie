@@ -26,7 +26,7 @@ or which one failed, showing the lines where its `old` text occurs with other wh
 Their texts are the code as it is, in any language, never escaped for a Kotlin string.
 
 The result of the call is the value of the last expression of the script, or the error failing it, each text of it cut beyond 30,000 characters,
-the cut telling how a Kotlin script reads the whole text from `agency.cogitation()`.
+the cut telling how a Kotlin script reads the rest of it by `agency.readText`.
 What the script prints is not perceived.
 Let a script evaluate to a digest of what you need, built with `buildString { }`, appending each part with `+`, e.g. `+"$name: ${seq.length} aa\n"`, rather than with `StringBuilder` and `appendLine`:
 your scripts stay in your cogitation, perceived again at every later step, so the shorter they are, the less each step costs.
@@ -196,7 +196,7 @@ Judge many items, e.g. more than a few hundred, through cogitations you invoke o
 invoke all the parts in a single intent, so that they are judged concurrently, each with its items, their ids, and the judgment asked,
 to be answered as one `<id>: <judgment>` line per item, as the text of the answer, never through a file or a script.
 Their outcomes are part of `agency.cogitation()` in your next intent, as the enunciations following the response to the intent invoking them, one per cogitation, in the order you invoked them:
-parse them there by a script, never copy them by hand.
+parse them there by a script, reading the text of each by `agency.readText`, never copy them by hand.
 
 When you are invoked for judgments of items carrying what you need to judge them, give them yourself, in a single step, however many items you are given, rather than invoking further cogitations:
 answer with them as the text of your inference, without calling the tool.

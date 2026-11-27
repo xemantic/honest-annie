@@ -20,9 +20,12 @@ package com.xemantic.annie.computer
 
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Computer
+import com.xemantic.annie.Contents
 import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.IntentContext
 import com.xemantic.annie.Phenomenon
+import com.xemantic.annie.refOf
+import com.xemantic.annie.textOf
 import com.xemantic.kotlin.test.assert
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -38,7 +41,7 @@ class AggregateComputerProviderTest {
             override suspend fun openRepl(id: String): Repl = object : Repl {
                 override val id = id
                 override suspend fun execute(intent: Phenomenon.Intent, context: IntentContext) =
-                    ExecutedIntent(listOf(Phenomenon.Text(name)))
+                    ExecutedIntent(listOf(text(name)))
             }
             override fun close() {}
         }
@@ -47,7 +50,13 @@ class AggregateComputerProviderTest {
         }
     }
 
-    private val context = IntentContext(cogitation = Cogitation(constitution = "", enunciations = emptyList()), parentCogitation = null)
+    /** Keeping no content, as no intent reads any. */
+    private val contents = object : Contents {
+        override fun keep(content: ByteArray): String = refOf(content)
+        override fun content(ref: String): ByteArray? = null
+    }
+
+    private val context = IntentContext(cogitation = Cogitation(constitution = "", enunciations = emptyList()), parentCogitation = null, contents = contents)
 
     @Test
     fun `should offer the types of every provider`() {
@@ -68,8 +77,8 @@ class AggregateComputerProviderTest {
         val local = aggregate.start(Computer(type = "default")).openRepl("r").execute(Phenomenon.Intent(script = ""), context).result
 
         // then
-        assert(onGpu == listOf(Phenomenon.Text("fly")))
-        assert(local == listOf(Phenomenon.Text("local")))
+        assert(onGpu == listOf(text("fly")))
+        assert(local == listOf(text("local")))
     }
 
     @Test
@@ -108,3 +117,5 @@ class AggregateComputerProviderTest {
     }
 
 }
+
+private fun text(text: String) = textOf(text).first
