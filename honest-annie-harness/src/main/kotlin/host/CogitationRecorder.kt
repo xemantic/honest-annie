@@ -201,7 +201,7 @@ class CogitationRecorder(
         val width = enunciation.phenomena.size.toString().length
         val files = enunciation.phenomena.mapIndexed { index, phenomenon ->
             val position = "$label-${(index + 1).toString().padStart(width, '0')}"
-            if (phenomenon is Phenomenon.Request && !discarded) requests[phenomenon.id] = position
+            if (phenomenon is Phenomenon.Intent && !discarded) requests[phenomenon.id] = position
             val (kind, extension) = phenomenon.toFile()
             val content = contents.readBytes(phenomenon)
             val count = kinds.merge(kind, 1, Int::plus)!!
@@ -316,7 +316,7 @@ internal val Phenomenon.kind: String get() = when (this) {
 /** The kind of this phenomenon, and the extension of the file of its content. */
 private fun Phenomenon.toFile(): Pair<String, String> = when (this) {
     is Text -> kind to (contentType.extension ?: "txt")
-    is Data -> kind to (contentType?.extension ?: "bin")
+    is Data -> kind to (contentType.extension ?: "bin")
     is Intent -> kind to language.scriptExtension
     is Impediment, is Monologue -> kind to "md"
 }

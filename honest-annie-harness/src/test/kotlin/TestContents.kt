@@ -36,7 +36,7 @@ val testContents = InMemoryContents()
 fun text(text: String, contentType: String = "text/markdown"): Phenomenon.Text = testContents.text(text, contentType)
 
 /** The [Phenomenon.Data] of the [bytes], its content kept by the [testContents]. */
-fun data(bytes: ByteArray, contentType: String? = null): Phenomenon.Data = testContents.data(bytes, contentType)
+fun data(bytes: ByteArray, contentType: String): Phenomenon.Data = testContents.data(bytes, contentType)
 
 /** The [Phenomenon.Monologue] of the [text], its content kept by the [testContents]. */
 fun monologue(text: String, id: String = randomId()): Phenomenon.Monologue = testContents.monologue(text, id)

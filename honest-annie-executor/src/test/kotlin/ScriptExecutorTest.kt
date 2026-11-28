@@ -69,7 +69,7 @@ class ScriptExecutorTest {
         override suspend fun invoke(prompt: String, constitution: String?, computer: String?, repl: String?, independent: Boolean): Unit =
             throw UnsupportedOperationException()
         override suspend fun enunciate(text: String, contentType: String): Unit = throw UnsupportedOperationException()
-        override suspend fun enunciate(bytes: ByteArray, contentType: String?): Unit = throw UnsupportedOperationException()
+        override suspend fun enunciate(bytes: ByteArray, contentType: String): Unit = throw UnsupportedOperationException()
         override suspend fun impede(reason: String): Unit = throw UnsupportedOperationException()
         override suspend fun resolveDeclaration(name: String, page: Int, pageSize: Int): String? = null
         override suspend fun searchDeclarations(query: String, page: Int, pageSize: Int): String? = null
@@ -101,7 +101,7 @@ class ScriptExecutorTest {
             """
             agency.enunciate("first")
             agency.invoke("sub")
-            agency.enunciate(byteArrayOf(4, 2))
+            agency.enunciate(byteArrayOf(4, 2), "image/png")
             agency.impede("stuck")
             42
             """.trimIndent(),
@@ -113,7 +113,7 @@ class ScriptExecutorTest {
         assert(executed.invoked.single().prompt == "sub")
         assert(executed.output == listOf(
             text("first"),
-            data(byteArrayOf(4, 2)),
+            data(byteArrayOf(4, 2), "image/png"),
             Phenomenon.Impediment("stuck")
         ))
     }
@@ -233,8 +233,8 @@ class ScriptExecutorTest {
         val executed = executor.execute("byteArrayOf(4, 2)", TestAgency())
 
         // then
-        assert(executed.result == listOf(data(byteArrayOf(4, 2))))
-        assert(executed.contents.getValue(data(byteArrayOf(4, 2)).ref).contentEquals(byteArrayOf(4, 2)))
+        assert(executed.result == listOf(data(byteArrayOf(4, 2), "application/octet-stream")))
+        assert(executed.contents.getValue(data(byteArrayOf(4, 2), "application/octet-stream").ref).contentEquals(byteArrayOf(4, 2)))
     }
 
     @Test
@@ -536,22 +536,6 @@ class ScriptExecutorTest {
         assert(next == listOf(text("42", "text/plain")))
     }
 
-    // The REPL compiler of xemantic-kotlin-script before 0.3.0 crashed internally on a function calling `await`.
-    @Test
-    fun `should await within suspend function declared in intent`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute(
-            """
-            suspend fun answer(): Int = await { delay(1); 42 }
-            answer()
-            """.trimIndent(),
-            TestAgency()
-        ).result
-
-        // then
-        assert(phenomena == listOf(text("42", "text/plain")))
-    }
-
     // The functions of the agency suspend, so a helper calling one, as models wrote them, e.g. `fun sh(cmd: String) = agency.bash(cmd)`,
     // has to be declared suspend, which the error tells.
     @Test
@@ -568,22 +552,6 @@ class ScriptExecutorTest {
         // then
         val reason = (phenomena.single() as Phenomenon.Impediment).reason
         assert("can only be called from a coroutine or another suspend function" in reason)
-    }
-
-    // `await` is kept for the scripts written before xemantic-kotlin-script 0.3.0, when the snippets did not suspend.
-    @Test
-    fun `should await suspend function declared in intent`() = runTest(timeout = 5.minutes) {
-        // when
-        val phenomena = executor.execute(
-            """
-            suspend fun answer(): Int = coroutineScope { async { delay(1); 42 }.await() }
-            await { answer() }
-            """.trimIndent(),
-            TestAgency()
-        ).result
-
-        // then
-        assert(phenomena == listOf(text("42", "text/plain")))
     }
 
     // A function or class of inferred types, used in the intent declaring it, can still refer to what an earlier intent

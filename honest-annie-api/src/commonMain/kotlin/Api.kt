@@ -19,8 +19,6 @@
 package com.xemantic.annie
 
 import io.ktor.client.HttpClient
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.Serializable
 import kotlin.time.Clock
 import kotlin.time.Duration
@@ -56,13 +54,13 @@ interface Agency {
     )
     /**
      * Enunciates a [Phenomenon.Text] as the output of the current cogitation,
-     * which is perceived by its invoker once the cogitation rests, see [Cogitation.output].
+     * which is perceived by its invoker once the cogitation rests.
      * Enunciated by an intent, it is not part of the result of the intent, but precedes it in the cogitation:
      * what the intent needs to perceive in the response to it is the value of its last expression.
      */
     suspend fun enunciate(text: String, contentType: String = "text/markdown")
     /** Enunciates a [Phenomenon.Data] as the output of the current cogitation, like the text [enunciate]. */
-    suspend fun enunciate(bytes: ByteArray, contentType: String? = null)
+    suspend fun enunciate(bytes: ByteArray, contentType: String)
     /** Enunciates a [Phenomenon.Impediment] as the output of the current cogitation, like the text [enunciate]. */
     suspend fun impede(reason: String)
     /** Renders the Kotlin declaration of the fully qualified [name], as available to scripts */
@@ -206,53 +204,9 @@ interface Appending {
 }
 
 /**
- * Runs the suspending [block] in a scope of its own, returning its result,
- * waiting for the coroutines the [block] launches, like [coroutineScope],
- * e.g. `await { urls.map { async { agency.http.get(it).bodyAsText() } }.awaitAll() }`.
- */
-suspend fun <T> await(block: suspend CoroutineScope.() -> T): T = coroutineScope(block)
-
-/**
- * A cogitation is unfolded by the harness, the `unfold` function of `Harness.kt`, compiled into honest-annie,
- * whose source is part of the [constitution], and called by the host at each step with:
- * - `agency`: [Agency] within this cogitation, its [Agency.cogitation] being the one to unfold,
- *   local to the host, unlike for the intents, whose agency fetches it from the host,
- * - `cognizer`: `Cognizer` of the package `com.xemantic.annie.harness.cognizer`, whose
- *   `suspend fun cognize(cogitation: Cogitation): Cognized` makes a single inference, returning
- *   `data class Cognized(val phenomena: List<Phenomenon>, val inference: Inference? = null)`:
- *   the phenomena to be enunciated by [Actant.SELF], e.g. a [Phenomenon.Monologue], a [Phenomenon.Text] and a [Phenomenon.Intent],
- *   and the [Inference] expressing them, to be carried by that enunciation,
- * - `executor`: `ScriptExecutor`, whose
- *   `suspend fun execute(intent: Phenomenon.Intent, agency: Agency): ExecutedIntent`
- *   executes an intent expressed in the [Agency.cogitation] of the `agency`: it applies the edits of the `intent` first, all of them or none,
- *   returning where each one was applied as a [Phenomenon.Text], or only the [Phenomenon.Impediment] of the edit failing,
- *   no file being changed, and the script not executed; then it executes the script, unless blank,
- *   in the [Phenomenon.Intent.language] of the intent, a Python or bash one acting through no agency, while a Kotlin one is executed
- *   in the session of the intents of this cogitation, providing it with the `agency`, and returns
- *   `data class ExecutedIntent(val result: List<Phenomenon>, val output: List<Phenomenon>, val invoked: List<Invocation>, val contents: Map<String, ByteArray>)`:
- *   the `result` of the intent, the value of the script as a [Phenomenon.Text] in plain text, unless it is `Unit` or `null`,
- *   or, when the script fails, the [Phenomenon.Impediment] describing the failure;
- *   its `output`, what the intent enunciated through the agency, and the cogitations it `invoked`, see [Agency.invoke],
- *   neither of them part of its result, and the `contents` of the texts and data of both, by their refs,
- * - `contents`: `Contents`, keeping the content of every text and data of the cogitations of the host by its ref, see [Phenomenon.Text.ref],
- *   whose `keepAll(contents: Map<String, ByteArray>)` keeps the contents of an executed intent,
- *   and whose `text(text: String, contentType: String): Phenomenon.Text` keeps a text, returning its phenomenon.
- *
- * The harness unfolds the cogitation by a single step, one inference and the intent it expresses, and is called
- * again by the host for the next one, until [Actant.SELF] enunciates last, e.g. the output of an intent, which is not responded,
- * or the text of an inference expressing no intent:
- * then the cogitation rests, until another interaction progresses it.
- * The host unfolds each cogitation an intent invoked from its prompt, see [Actant.INVOKER],
- * the invoking cogitation awaiting all of them before it is unfolded further.
- * Once all of them rest, their outcomes follow the response to the intent, in the order they were invoked:
- * the [output] of each one, as the enunciation of [Actant.SELF] responding to the id of the invoked cogitation, the one of its prompt,
- * or the [Phenomenon.Impediment] of the host, when it could not be invoked.
- *
- * A step which throws, e.g. an inference failing, has its cogitation rested by the host,
- * with the reason enunciated as a [Phenomenon.Impediment].
- *
- * @property depth how deep this cogitation is in its tree: 0 for the root one, 1 for one it invokes, and so on.
- * @property computer the computer its intents execute on, unless an intent names a REPL open on another one, see [Phenomenon.Intent.repl].
+ * Cognitive process instance
+ * @property depth how deep this cogitation is in its recursive tree: 0
+ * @property computer the computer its intents execute on, unless an intent names a REPL open on another one
  * @property repl the REPL of the [computer] its intents execute in, keeping their declarations,
  * shared with the cogitations it invokes, unless they run in another one, see [Agency.invoke].
  */
@@ -263,29 +217,12 @@ data class Cogitation(
     val depth: Int = 0,
     val computer: Computer = Computer(),
     val repl: String = randomId()
-) {
-    operator fun plus(enunciation: Enunciation): Cogitation = copy(
-        enunciations = enunciations + enunciation
-    )
-    /**
-     * Requests enunciated in this cogitation without a response to them, e.g. an intent enunciating output,
-     * which is not responded.
-     */
-    val unansweredRequests: List<Phenomenon.Request> get() {
-        val responded = enunciations.mapNotNullTo(mutableSetOf()) { it.respondsTo }
-        return enunciations.flatMap { it.phenomena }
-            .filterIsInstance<Phenomenon.Request>()
-            .filterNot { it.id in responded }
-    }
-    /** The phenomena of every [Enunciation.isOutput] of this cogitation, in their order, without the monologues. */
-    val output: List<Phenomenon> get() = enunciations.filter { it.isOutput }.flatMap { it.phenomena }
-        .filter { it !is Phenomenon.Monologue }
-}
+)
 
 /**
  * @property initiated the moment the expression of this enunciation started, e.g. the inference request.
  * @property finalized the moment the expression was completed; equal to [initiated] for instantaneous ones.
- * @property respondsTo the id of the [Phenomenon.Request] this enunciation responds to,
+ * @property respondsTo the id of the [Phenomenon.Intent] this enunciation responds to,
  * or of the cogitation invoked, see [Agency.invoke], when this enunciation is its outcome.
  * @property id unique within its cogitation, the [responseId] of what it responds to,
  * so that enunciating the same response again is recognized as such.
@@ -308,15 +245,6 @@ data class Enunciation(
         }
     }
     val duration: Duration get() = finalized - initiated
-    /**
-     * Whether this is the output of its cogitation, addressed to its invoker, see [Cogitation.output]:
-     * enunciated by [Actant.SELF], not responding to anything, e.g. to a request, or as the outcome of an invoked cogitation, and expressing no intent, but something else than a monologue,
-     * e.g. what an intent enunciates through its agency, or the text of an inference answering without an intent,
-     * unless the inference also expressed a tool call which could not be executed, as an impediment, see `IntentTool`.
-     */
-    val isOutput: Boolean get() = actant == Actant.SELF && respondsTo == null
-            && phenomena.none { it is Phenomenon.Intent } && phenomena.any { it !is Phenomenon.Monologue }
-            && (inference == null || phenomena.none { it is Phenomenon.Impediment })
     /** Whether this is the outcome of a cogitation invoked by this one, its output, enunciated by [Actant.SELF] responding to the invocation. */
     val isOutcome: Boolean get() = actant == Actant.SELF && respondsTo != null
 }
@@ -324,31 +252,14 @@ data class Enunciation(
 /** Id of the enunciation responding to the request with [requestId], the same however many times it is enunciated. */
 fun responseId(requestId: String): String = "response-to-$requestId"
 
+/**
+ * The content of phenomena with `ref` can be retrieved through [Agency.readText] and [Agency.readBytes]
+ */
 @Serializable
 sealed interface Phenomenon {
-    /** Phenomenon awaiting a response, an [Enunciation] whose [Enunciation.respondsTo] is its [id], e.g. an [Intent]. */
-    sealed interface Request : Phenomenon {
-        val id: String
-    }
     /**
-     * Request to apply the [edits] of files, and then to execute the [script] of the [language], unless blank,
-     * in the [repl] it names, on the computer it is open on, by default the REPL of its cogitation, see [Cogitation.repl],
-     * a REPL no cogitation of the tree has yet being opened on the computer of its cogitation by the first intent naming it,
-     * e.g. one started for an invoked cogitation, see [Agency.invoke],
-     * its properties in the order of the execution, like the arguments of the tool expressing it,
-     * responded by where the edits were applied, followed by the result of the script, unless it produced no phenomena, see [Cogitation].
-     * When an edit fails, no file is changed, nor the script executed.
-     *
-     * The [language] is [Language.KOTLIN], the script executed in the session of the intents, coded against the API of the constitution,
-     * [Language.PYTHON], executed by the Python of the intents, see [Agency.python], or [Language.BASH], executed as a process.
-     * The script is cancelled once its [timeout] elapses, by default never, but for bash after a minute:
-     * a bash process is destroyed, while a Kotlin or Python script blocking its thread, rather than suspending, runs to its end,
-     * and the next intents wait for it.
-     * Its result is kept whole in the cogitation, while the cognizer perceives at most 30,000 characters of each text of it,
-     * the cut telling how `agency.readText` reads the rest of it.
-     * A [Text] the cognizer expresses along it, in the same enunciation, is its commentary, not an output.
-     * The cognizer expresses it by calling the only tool it is offered, whose result is the response,
-     * the call being replayed with the [id] of the intent, rather than the one the cognizer gave it.
+     * A request to learn about [Computer] state or to alter it, by editing files and executing scripts in REPL.
+     * A computer connected to the internet becomes a window for perceiving the state of affairs in the world and alter it.
      */
     @Serializable
     data class Intent(
@@ -357,25 +268,10 @@ sealed interface Phenomenon {
         val language: Language = Language.KOTLIN,
         val script: String,
         val timeout: Duration? = null,
-        override val id: String = randomId()
-    ) : Request {
-        /** The language of the [script] of an [Intent]. */
-        enum class Language {
-            KOTLIN,
-            PYTHON,
-            BASH
-        }
+        val id: String = randomId()
+    ) : Phenomenon {
+        enum class Language { KOTLIN, PYTHON, BASH }
     }
-    /**
-     * Text, e.g. the prompt of a task, the value of an intent, or what the cognizer says:
-     * an inference expressing text, and no [Intent], answers with it, which is the output of its cogitation.
-     * The text itself is kept apart, by the [ref] of its content, read on demand, see [Agency.readText],
-     * so that a cogitation is recalled without the texts of its phenomena.
-     *
-     * @property ref the address of its content, the same for the same content, wherever it occurs.
-     * @property length how many characters the text has.
-     * @property lines how many lines the text has, as [Agency.readText] numbers them.
-     */
     @Serializable
     data class Text(
         val ref: String,
@@ -383,28 +279,17 @@ sealed interface Phenomenon {
         val lines: Int,
         val contentType: String = "text/markdown"
     ) : Phenomenon
-    /**
-     * Data, e.g. an image the cognizer sees, of the [size] in bytes,
-     * the bytes kept apart by the [ref] of their content, like the ones of a [Text], read by [Agency.readBytes].
-     */
+    /** e.g. image, PDF, etc. */
     @Serializable
     data class Data(
         val ref: String,
         val size: Long,
-        val contentType: String? = null
+        val contentType: String
     ) : Phenomenon
-    /** What impeded the cogitation, or an intent, as the [reason] for it, see [Agency.impede]. */
+    /** What impeded an intent, as the [reason] for it, see [Agency.impede]. */
     @Serializable
     data class Impediment(val reason: String) : Phenomenon
-    /**
-     * What the cognizer thought before expressing anything else in the same inference, as far as its provider reveals it,
-     * its text kept apart, by the [ref] of its content, like the one of a [Text], read by [Agency.readText]:
-     * the text is empty, of no [length], when nothing of it is revealed.
-     * Never an output of its cogitation, and replayed only to the model which thought it.
-     *
-     * @property id unique within its cogitation, like the id of a [Request]:
-     * whatever the provider needs to replay the monologue exactly is kept by the cognizer under this id, not here.
-     */
+    /** Your reasoning trace */
     @Serializable
     data class Monologue(
         val ref: String,
@@ -415,28 +300,14 @@ sealed interface Phenomenon {
 }
 
 /**
- * A change of the file at the [path], carried by an intent, see [Phenomenon.Intent.edits]:
- * passed along the call of the tool, rather than written in its script, so that the code
- * of any language is written as it is, never escaped for a Kotlin string,
- * the only occurrence of the [old] text replaced by the [new] one, or each of its occurrences when [all],
- * or, without [old] text, the [new] text written as the whole file, created with its directories when absent.
- * It is the record of an edit, read in a cogitation, e.g. of the parent one, to learn what its intents changed:
- * an edit created in a script changes no file.
+ * A change of the file at the [path].
+ * @param old
+ * @param all
  */
 @Serializable
-data class Edit(
-    val path: String,
-    val new: String,
-    val old: String? = null,
-    val all: Boolean = false
-)
-
+data class Edit(val path: String, val new: String, val old: String? = null, val all: Boolean = false)
 @Serializable
-data class Actant(
-    val type: Type,
-    val name: String,
-    val spec: String? = null
-) {
+data class Actant(val type: Type, val name: String, val spec: String? = null) {
     enum class Type { SELF, INVOKER, OTHER_AI, HUMAN, COMPUTER, UNIDENTIFIED }
     companion object {
         /** The actant of every enunciation of the cognizer, never revealing its model. */

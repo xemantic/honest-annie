@@ -288,7 +288,7 @@ private fun Phenomenon.toText(contents: Contents, cut: Boolean, enunciationIndex
     // an image or a PDF document is perceived after this markup, see `toAttachment`
     is Data -> buildString {
         append("<annie:data")
-        contentType?.let { append(" content-type=\"").append(it.xmlEscaped()).append('"') }
+        append(" content-type=\"").append(contentType.xmlEscaped()).append('"')
         append(" size=\"").append(size).append("\"/>")
     }
     is Impediment -> "<annie:impediment/>\n$reason"
