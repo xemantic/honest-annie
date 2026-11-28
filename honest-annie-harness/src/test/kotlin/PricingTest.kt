@@ -19,7 +19,6 @@
 package com.xemantic.annie.harness
 
 import com.xemantic.annie.Inference
-import com.xemantic.annie.Inference.Tokens
 import com.xemantic.ai.money.Money
 import com.xemantic.kotlin.test.assert
 import kotlin.test.Test
@@ -34,11 +33,11 @@ class PricingTest {
             model = "claude-fable-5-2",
             provider = "anthropic",
             tokens = mapOf(
-                Tokens.INPUT to 16L,
-                Tokens.CACHE_READ to 285_544L,
-                Tokens.CACHE_WRITE_5M to 41_574L,
-                Tokens.REASONING to 3_670L,
-                Tokens.OUTPUT to 8_385L
+                "input" to 16L,
+                "cacheRead" to 285_544L,
+                "cacheWrite5m" to 41_574L,
+                "reasoning" to 3_670L,
+                "output" to 8_385L
             )
         )
 
@@ -57,11 +56,11 @@ class PricingTest {
             model = "claude-opus-5-5",
             provider = "anthropic",
             tokens = mapOf(
-                Tokens.INPUT to 36L,
-                Tokens.CACHE_READ to 713_679L,
-                Tokens.CACHE_WRITE_5M to 45_870L,
-                Tokens.REASONING to 4_808L,
-                Tokens.OUTPUT to 12_328L
+                "input" to 36L,
+                "cacheRead" to 713_679L,
+                "cacheWrite5m" to 45_870L,
+                "reasoning" to 4_808L,
+                "output" to 12_328L
             )
         )
 
@@ -80,10 +79,10 @@ class PricingTest {
             model = "claude-haiku-5-5",
             provider = "anthropic",
             tokens = mapOf(
-                Tokens.INPUT to 10L,
-                Tokens.CACHE_READ to 90_000L,
-                Tokens.CACHE_WRITE_5M to 9_990L,
-                Tokens.OUTPUT to 1_000L
+                "input" to 10L,
+                "cacheRead" to 90_000L,
+                "cacheWrite5m" to 9_990L,
+                "output" to 1_000L
             )
         ).cost
 
@@ -98,10 +97,10 @@ class PricingTest {
             model = "claude-haiku-5-5",
             provider = "anthropic",
             tokens = mapOf(
-                Tokens.INPUT to 11L,
-                Tokens.CACHE_READ to 90_000L,
-                Tokens.CACHE_WRITE_5M to 9_990L,
-                Tokens.OUTPUT to 1_000L
+                "input" to 11L,
+                "cacheRead" to 90_000L,
+                "cacheWrite5m" to 9_990L,
+                "output" to 1_000L
             )
         ).cost
 
@@ -115,7 +114,7 @@ class PricingTest {
         val cost = Inference(
             model = "claude-fable-5-2",
             provider = "anthropic",
-            tokens = mapOf(Tokens.CACHE_WRITE_1H to 1_000L)
+            tokens = mapOf("cacheWrite1h" to 1_000L)
         ).cost
 
         // then
@@ -123,10 +122,23 @@ class PricingTest {
     }
 
     @Test
+    fun `should not cost inference of token category without price`() {
+        // when
+        val cost = Inference(
+            model = "claude-fable-5-2",
+            provider = "anthropic",
+            tokens = mapOf("input" to 1L, "audioInput" to 1L, "output" to 1L)
+        ).cost
+
+        // then
+        assert(cost == null)
+    }
+
+    @Test
     fun `should not cost inference of model or provider of unknown prices`() {
         // when
-        val unknownModel = Inference(model = "deepseek-v4_1-flash", provider = "llm.example.com", tokens = mapOf(Tokens.INPUT to 1L)).cost
-        val unknownProvider = Inference(model = "claude-fable-5-2", provider = "bedrock", tokens = mapOf(Tokens.INPUT to 1L)).cost
+        val unknownModel = Inference(model = "deepseek-v4_1-flash", provider = "llm.example.com", tokens = mapOf("input" to 1L)).cost
+        val unknownProvider = Inference(model = "claude-fable-5-2", provider = "bedrock", tokens = mapOf("input" to 1L)).cost
 
         // then
         assert(unknownModel == null)

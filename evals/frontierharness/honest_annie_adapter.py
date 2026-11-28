@@ -129,9 +129,9 @@ def read_calls(cogitations_dir: Path) -> list[dict[str, Any]]:
                 "model": inference.get("model"),
                 # honest-annie counts the input processed anew apart from the cached one
                 "input_tokens": int(tokens.get("input") or 0),
-                "cache_read_tokens": int(tokens.get("cache_read") or 0),
+                "cache_read_tokens": int(tokens.get("cacheRead") or 0),
                 "cache_write_tokens": sum(
-                    int(tokens.get(key) or 0) for key in ("cache_write", "cache_write_5m", "cache_write_1h")
+                    int(tokens.get(key) or 0) for key in ("cacheWrite", "cacheWrite5m", "cacheWrite1h")
                 ),
                 # the reasoning is output too, reported apart when the provider does
                 "output_tokens": int(tokens.get("output") or 0) + int(tokens.get("reasoning") or 0),

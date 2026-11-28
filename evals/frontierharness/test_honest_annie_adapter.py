@@ -30,13 +30,13 @@ def recording(costs=False):
     invoked = cogitation / "003-1-2026-11-05T10-00-30.000000Z"
     invoked.mkdir(parents=True)
     (cogitation / "inferences.json").write_text(inferences(
-        {"input": 1000, "cache_read": 0, "output": 200, "reasoning": 50},
-        {"input": 100, "cache_read": 1200, "output": 300},
+        {"input": 1000, "cacheRead": 0, "output": 200, "reasoning": 50},
+        {"input": 100, "cacheRead": 1200, "output": 300},
         initiated=("2026-11-05T10:00:00Z", "2026-11-05T10:01:00Z"),
         costs=("0.1", "0.02") if costs else None,
     ))
     (invoked / "inferences.json").write_text(inferences(
-        {"input": 400, "cache_read": 600, "cache_write_1h": 10, "output": 40},
+        {"input": 400, "cacheRead": 600, "cacheWrite1h": 10, "output": 40},
         initiated=("2026-11-05T10:00:30Z",),
         costs=("0.003",) if costs else None,
     ))

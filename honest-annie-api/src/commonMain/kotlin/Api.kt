@@ -300,9 +300,9 @@ sealed interface Phenomenon {
 }
 
 /**
- * A change of the file at the [path].
- * @param old
- * @param all
+ * A change of the file at the [path], the record of an edit of an intent, see [Phenomenon.Intent.edits]:
+ * an edit created in a script changes no file.
+ * @param old the text replaced by the [new] one, its only occurrence, or each one when [all], the [new] text being the whole file without it.
  */
 @Serializable
 data class Edit(val path: String, val new: String, val old: String? = null, val all: Boolean = false)
@@ -325,33 +325,19 @@ data class Actant(val type: Type, val name: String, val spec: String? = null) {
  *
  * @property model the canonical id of the model which inferred, the same at every endpoint serving it.
  * @property provider who served the inference, e.g. `anthropic`, `bedrock`, `openai`, or the host of another OpenAI-compatible endpoint.
- * @property tokens the numbers of tokens by their category, a category without tokens being absent.
- * The categories are disjoint, so that each token is counted once, and they sum up to the [total].
+ * @property tokens the numbers of tokens by their category, the categories being disjoint, so that each token is counted once, and summing up to the [total]:
+ * `input` processed anew, neither read from a cache, nor written to it, and `output`, except the `reasoning`, always present,
+ * the other categories only with tokens, e.g. `cacheRead`, `cacheWrite`, of a cache whose lifetime is not reported, `cacheWrite5m`, `cacheWrite1h`,
+ * `reasoning`, the output of the monologue, when reported apart, or another one a provider reports.
  * @property stop why the inference stopped, `null` when not reported.
  */
 @Serializable
 data class Inference(
     val model: String,
     val provider: String,
-    val tokens: Map<Tokens, Long> = emptyMap(),
+    val tokens: Map<String, Long> = mapOf("input" to 0L, "output" to 0L),
     val stop: Stop? = null
 ) {
-    enum class Tokens {
-        /** Input processed anew, neither read from a cache, nor written to it. */
-        INPUT,
-        /** Input read from a cache, usually billed at a fraction of the [INPUT]. */
-        CACHE_READ,
-        /** Input written to a cache whose lifetime is not reported. */
-        CACHE_WRITE,
-        /** Input written to a cache living 5 minutes. */
-        CACHE_WRITE_5M,
-        /** Input written to a cache living 1 hour. */
-        CACHE_WRITE_1H,
-        /** Output of the monologue, when reported apart from the rest of the [OUTPUT]. */
-        REASONING,
-        /** Output, except the [REASONING]. */
-        OUTPUT
-    }
     val total: Long get() = tokens.values.sum()
 
     /**

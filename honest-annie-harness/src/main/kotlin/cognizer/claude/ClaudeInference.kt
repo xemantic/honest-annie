@@ -44,7 +44,6 @@ import com.xemantic.annie.Contents
 import com.xemantic.annie.monologue
 import com.xemantic.annie.text
 import com.xemantic.annie.Inference
-import com.xemantic.annie.Inference.Tokens
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Phenomenon.Monologue
 import com.xemantic.annie.harness.cognizer.Cognized
@@ -212,17 +211,17 @@ class ClaudeInference(
             model = modelId,
             provider = provider,
             tokens = buildMap {
-                put(Tokens.INPUT, usage.inputTokens())
-                put(Tokens.CACHE_READ, usage.cacheReadInputTokens().orElse(0L))
+                put("input", usage.inputTokens())
+                put("cacheRead", usage.cacheReadInputTokens().orElse(0L))
                 if (cacheCreation != null) {
-                    put(Tokens.CACHE_WRITE_5M, cacheCreation.ephemeral5mInputTokens())
-                    put(Tokens.CACHE_WRITE_1H, cacheCreation.ephemeral1hInputTokens())
+                    put("cacheWrite5m", cacheCreation.ephemeral5mInputTokens())
+                    put("cacheWrite1h", cacheCreation.ephemeral1hInputTokens())
                 } else {
-                    put(Tokens.CACHE_WRITE, usage.cacheCreationInputTokens().orElse(0L))
+                    put("cacheWrite", usage.cacheCreationInputTokens().orElse(0L))
                 }
-                put(Tokens.REASONING, thinking)
-                put(Tokens.OUTPUT, usage.outputTokens() - thinking)
-            }.filterValues { it > 0 },
+                put("reasoning", thinking)
+                put("output", usage.outputTokens() - thinking)
+            }.filter { [category, count] -> count > 0 || category == "input" || category == "output" },
             stop = message.stopReason().map { it.asString() }.orElse(null)?.let { reason ->
                 Inference.Stop(
                     kind = when (reason) {

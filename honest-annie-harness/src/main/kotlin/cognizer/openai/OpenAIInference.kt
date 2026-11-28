@@ -54,7 +54,6 @@ import com.xemantic.annie.Contents
 import com.xemantic.annie.monologue
 import com.xemantic.annie.text
 import com.xemantic.annie.Inference
-import com.xemantic.annie.Inference.Tokens
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Phenomenon.Monologue
 import com.xemantic.annie.harness.cognizer.Cognized
@@ -307,13 +306,13 @@ class OpenAIInference(
     ) = Inference(
         model = modelId,
         provider = provider,
-        tokens = buildMap {
-            put(Tokens.INPUT, (input ?: 0) - (cacheRead ?: 0) - (cacheWrite ?: 0))
-            put(Tokens.CACHE_READ, cacheRead ?: 0)
-            put(Tokens.CACHE_WRITE, cacheWrite ?: 0)
-            put(Tokens.REASONING, reasoning ?: 0)
-            put(Tokens.OUTPUT, (output ?: 0) - (reasoning ?: 0))
-        }.filterValues { it > 0 },
+        tokens = mapOf(
+            "input" to (input ?: 0) - (cacheRead ?: 0) - (cacheWrite ?: 0),
+            "cacheRead" to (cacheRead ?: 0),
+            "cacheWrite" to (cacheWrite ?: 0),
+            "reasoning" to (reasoning ?: 0),
+            "output" to (output ?: 0) - (reasoning ?: 0)
+        ).filter { [category, count] -> count > 0 || category == "input" || category == "output" },
         stop = stop
     )
 

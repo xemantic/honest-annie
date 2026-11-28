@@ -53,7 +53,7 @@ class CognitionSerializationTest {
                 inference = Inference(
                     model = "claude-fable-5-2",
                     provider = "anthropic",
-                    tokens = mapOf(Inference.Tokens.INPUT to 100L, Inference.Tokens.OUTPUT to 20L),
+                    tokens = mapOf("input" to 100L, "output" to 20L),
                     stop = Inference.Stop(kind = Inference.Stop.Kind.COMPLETED, reason = "tool_use")
                 )
             ),
@@ -111,6 +111,7 @@ class CognitionSerializationTest {
         assert(json.keys == setOf("constitution", "enunciations", "depth", "computer", "repl"))
         assert(json["enunciations"][1].keys == setOf("actant", "initiated", "finalized", "id", "phenomena", "inference"))
         assert(json["enunciations"][1]["inference"].keys == setOf("model", "provider", "tokens", "stop"))
+        assert(json["enunciations"][1]["inference"]["tokens"] == Json.parseToJsonElement("""{"input": 100, "output": 20}"""))
     }
 
     @Test

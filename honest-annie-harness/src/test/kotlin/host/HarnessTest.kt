@@ -80,7 +80,7 @@ class HarnessTest {
                 inference = Inference(
                     model = "scripted",
                     provider = "test",
-                    tokens = mapOf(Inference.Tokens.INPUT to cogitation.enunciations.size.toLong()),
+                    tokens = mapOf("input" to cogitation.enunciations.size.toLong()),
                     stop = stop
                 )
             )
@@ -184,7 +184,7 @@ class HarnessTest {
         val enunciations = cognizer.perceived.last().enunciations
         assert(enunciations.map { it.inference } == listOf(
             null,
-            Inference(model = "scripted", provider = "test", tokens = mapOf(Inference.Tokens.INPUT to 1L)),
+            Inference(model = "scripted", provider = "test", tokens = mapOf("input" to 1L)),
             null
         ))
     }
@@ -449,7 +449,7 @@ class HarnessTest {
                 Inference(
                     model = "refusing",
                     provider = "test",
-                    tokens = mapOf(Inference.Tokens.OUTPUT to 7L),
+                    tokens = mapOf("output" to 7L),
                     stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal", category = "cyber")
                 )
             ) else Cognized(
