@@ -221,7 +221,7 @@ class ClaudeInference(
                 }
                 put("reasoning", thinking)
                 put("output", usage.outputTokens() - thinking)
-            }.filter { (category, count) -> count > 0 || category == "input" || category == "output" },
+            }.filter { [category, count] -> count > 0 || category == "input" || category == "output" },
             stop = message.stopReason().map { it.asString() }.orElse(null)?.let { reason ->
                 Inference.Stop(
                     kind = when (reason) {
