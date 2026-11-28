@@ -31,7 +31,6 @@ import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Inference
-import com.xemantic.annie.Inference.Tokens
 import com.xemantic.annie.Edit
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Phenomenon.Monologue
@@ -492,12 +491,12 @@ class ClaudeInferenceTest {
             model = "claude-opus-5-5",
             provider = "bedrock",
             tokens = mapOf(
-                Tokens.INPUT to 3L,
-                Tokens.CACHE_READ to 1200L,
-                Tokens.CACHE_WRITE_5M to 500L,
-                Tokens.CACHE_WRITE_1H to 1000L,
-                Tokens.REASONING to 60L,
-                Tokens.OUTPUT to 40L
+                "input" to 3L,
+                "cacheRead" to 1200L,
+                "cacheWrite5m" to 500L,
+                "cacheWrite1h" to 1000L,
+                "reasoning" to 60L,
+                "output" to 40L
             ),
             stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn")
         ))
@@ -505,11 +504,11 @@ class ClaudeInferenceTest {
     }
 
     @Test
-    fun `should count cache writes of unreported lifetime and omit categories without tokens`() {
+    fun `should count cache writes of unreported lifetime and omit categories without tokens except input and output`() {
         // given
         val inference = ClaudeInference(contents = testContents, client = client, model = "claude-opus-5-5")
         val message = message("""
-            {"input_tokens": 3, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 1500, "output_tokens": 100}
+            {"input_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 1500, "output_tokens": 0}
         """)
 
         // when
@@ -519,7 +518,7 @@ class ClaudeInferenceTest {
         assert(inferred == Inference(
             model = "claude-opus-5-5",
             provider = "anthropic",
-            tokens = mapOf(Tokens.INPUT to 3L, Tokens.CACHE_WRITE to 1500L, Tokens.OUTPUT to 100L),
+            tokens = mapOf("input" to 0L, "cacheWrite" to 1500L, "output" to 0L),
             stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn")
         ))
     }

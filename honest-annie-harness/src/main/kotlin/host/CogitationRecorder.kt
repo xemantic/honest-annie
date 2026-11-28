@@ -240,9 +240,18 @@ internal fun Inference.stopDescription(): String = stop?.let {
             (it.category?.let { category -> " ($category)" } ?: "")
 } ?: ""
 
-private fun Map<Inference.Tokens, Long>.description() = entries
-    .sortedBy { it.key }
-    .joinToString { (category, count) -> "$count ${category.name.lowercase().replace('_', ' ')}" }
+/** The categories of tokens the cognizers report, in the order they are listed, any other one following them by name. */
+private val knownTokens = listOf("input", "cacheRead", "cacheWrite", "cacheWrite5m", "cacheWrite1h", "reasoning", "output")
+
+private fun Map<String, Long>.sortedEntries() = entries.sortedWith(
+    compareBy({ knownTokens.indexOf(it.key).takeIf { index -> index >= 0 } ?: knownTokens.size }, { it.key })
+)
+
+/** The words of a lowerCamelCase category, e.g. `cache write 1h` of `cacheWrite1h`. */
+private fun String.words() = replace(Regex("(?<=[a-z])(?=[A-Z0-9])"), " ").lowercase()
+
+private fun Map<String, Long>.description() = sortedEntries()
+    .joinToString { (category, count) -> "$count ${category.words()}" }
 
 /** The number of [inferences], and their [tokens] summed up by category. */
 /**
@@ -251,7 +260,7 @@ private fun Map<Inference.Tokens, Long>.description() = entries
  */
 private data class Totals(
     val inferences: Int = 0,
-    val tokens: Map<Inference.Tokens, Long> = emptyMap(),
+    val tokens: Map<String, Long> = emptyMap(),
     val cost: Money? = Money.ZERO
 ) {
 
@@ -277,9 +286,8 @@ private data class Totals(
 
 }
 
-private fun Map<Inference.Tokens, Long>.json() = entries
-    .sortedBy { it.key }
-    .joinToString(prefix = "{", postfix = "}") { (category, count) -> "\"${category.name.lowercase()}\": $count" }
+private fun Map<String, Long>.json() = sortedEntries()
+    .joinToString(prefix = "{", postfix = "}") { (category, count) -> "${category.json()}: $count" }
 
 /** These edits as a JSON array, an edit on each line, with only the properties given, see [Edit]. */
 private fun List<Edit>.json() = joinToString(separator = ",\n", prefix = "[\n", postfix = "\n]\n") { edit ->

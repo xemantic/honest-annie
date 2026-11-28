@@ -193,9 +193,9 @@ class CogitationRecorderTest {
                         model = "claude-opus-5-5",
                         provider = "anthropic",
                         tokens = mapOf(
-                            Inference.Tokens.INPUT to 3L,
-                            Inference.Tokens.CACHE_WRITE_1H to 1000L,
-                            Inference.Tokens.OUTPUT to 40L
+                            "input" to 3L,
+                            "cacheWrite1h" to 1000L,
+                            "output" to 40L
                         )
                     )
                 ),
@@ -215,7 +215,7 @@ class CogitationRecorderTest {
     }
 
     private fun inferred(
-        tokens: Map<Inference.Tokens, Long>,
+        tokens: Map<String, Long>,
         stop: Inference.Stop? = Inference.Stop(Inference.Stop.Kind.COMPLETED, "end_turn")
     ) = Enunciation(
         actant = Actant.SELF,
@@ -226,6 +226,18 @@ class CogitationRecorderTest {
     )
 
     @Test
+    fun `should describe token categories unknown to the harness after the known ones`() {
+        // given
+        val inference = inferred(mapOf("output" to 2L, "audioInput" to 5L, "input" to 1L, "cacheRead" to 3L)).inference!!
+
+        // when
+        val description = inference.tokensDescription()
+
+        // then
+        assert(description == "1 input, 3 cache read, 2 output, 5 audio input")
+    }
+
+    @Test
     fun `should record inferences as JSON`() = runTest {
         // given
         val recordingDir = createTempDirectory("cogitations")
@@ -233,9 +245,9 @@ class CogitationRecorderTest {
             constitution = "",
             enunciations = listOf(
                 inferred(mapOf(
-                    Inference.Tokens.OUTPUT to 40L,
-                    Inference.Tokens.INPUT to 3L,
-                    Inference.Tokens.CACHE_WRITE_1H to 1000L
+                    "output" to 40L,
+                    "input" to 3L,
+                    "cacheWrite1h" to 1000L
                 )),
                 Enunciation(actant = computer, phenomena = listOf(text("1")))
             )
@@ -255,14 +267,14 @@ class CogitationRecorderTest {
                   "finalized": "2026-10-23T13:14:42Z",
                   "model": "claude-opus-5-5",
                   "provider": "anthropic",
-                  "tokens": {"input": 3, "cache_write_1h": 1000, "output": 40},
+                  "tokens": {"input": 3, "cacheWrite1h": 1000, "output": 40},
                   "total": 1043,
                   "cost": "0.008812",
                   "stop": {"kind": "completed", "reason": "end_turn"}
                 }
               ],
               "invoked": {},
-              "total": {"inferences": 1, "tokens": {"input": 3, "cache_write_1h": 1000, "output": 40}, "total": 1043, "cost": "0.008812"}
+              "total": {"inferences": 1, "tokens": {"input": 3, "cacheWrite1h": 1000, "output": 40}, "total": 1043, "cost": "0.008812"}
             }
 
         """.trimIndent())
@@ -275,7 +287,7 @@ class CogitationRecorderTest {
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)).let {
+                inferred(mapOf("input" to 3L, "output" to 1L)).let {
                     it.copy(inference = it.inference!!.copy(model = "deepseek-v4_1-flash", provider = "llm.example.com"))
                 }
             )
@@ -298,7 +310,7 @@ class CogitationRecorderTest {
         recorder.record(Cogitation(
             constitution = "",
             enunciations = listOf(
-                inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.CACHE_WRITE_1H to 1000L)).copy(phenomena = listOf(intent)),
+                inferred(mapOf("input" to 3L, "cacheWrite1h" to 1000L)).copy(phenomena = listOf(intent)),
                 Enunciation(actant = computer, respondsTo = intent.id, phenomena = listOf(text("invoked")))
             )
         ))
@@ -313,7 +325,7 @@ class CogitationRecorderTest {
                     initiated = Instant.parse("2026-10-23T13:14:59Z"),
                     phenomena = listOf(text("sub"))
                 ),
-                inferred(mapOf(Inference.Tokens.INPUT to 2L, Inference.Tokens.CACHE_READ to 1000L))
+                inferred(mapOf("input" to 2L, "cacheRead" to 1000L))
             )
         ))
 
@@ -322,9 +334,9 @@ class CogitationRecorderTest {
         val json = root.resolve("inferences.json").readText()
         assert(json.contains("""
               "invoked": {
-                "001-1-2026-10-23T13-14-59Z": {"inferences": 1, "tokens": {"input": 2, "cache_read": 1000}, "total": 1002, "cost": "0.000208"}
+                "001-1-2026-10-23T13-14-59Z": {"inferences": 1, "tokens": {"input": 2, "cacheRead": 1000}, "total": 1002, "cost": "0.000208"}
               },
-              "total": {"inferences": 2, "tokens": {"input": 5, "cache_read": 1000, "cache_write_1h": 1000}, "total": 2005, "cost": "0.00822"}
+              "total": {"inferences": 2, "tokens": {"input": 5, "cacheRead": 1000, "cacheWrite1h": 1000}, "total": 2005, "cost": "0.00822"}
         """.trimIndent().prependIndent("  ")))
         val index = root.resolve("cogitation.md").readText()
         assert(index.endsWith(
@@ -344,14 +356,14 @@ class CogitationRecorderTest {
             phenomena = listOf(text("question"))
         )
         recorder.record(Cogitation(constitution = "", enunciations = listOf(question)))
-        val discarded = inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L))
+        val discarded = inferred(mapOf("input" to 3L, "output" to 1L))
             .copy(phenomena = listOf(monologue("thinking"), Phenomenon.Intent(script = "<invoke name=\"fetch\">")))
 
         // when
         recorder.record(
             Cogitation(
                 constitution = "",
-                enunciations = listOf(question, inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 2L)))
+                enunciations = listOf(question, inferred(mapOf("input" to 3L, "output" to 2L)))
             ),
             discarded = listOf(discarded)
         )
@@ -383,9 +395,9 @@ class CogitationRecorderTest {
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(
-                inferred(mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 1L)),
+                inferred(mapOf("input" to 3L, "output" to 1L)),
                 inferred(
-                    mapOf(Inference.Tokens.INPUT to 3L, Inference.Tokens.OUTPUT to 2L),
+                    mapOf("input" to 3L, "output" to 2L),
                     stop = Inference.Stop(Inference.Stop.Kind.REFUSED, "refusal", category = "cyber")
                 )
             )

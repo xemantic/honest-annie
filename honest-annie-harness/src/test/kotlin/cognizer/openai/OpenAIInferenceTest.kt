@@ -32,7 +32,6 @@ import com.xemantic.annie.Actant
 import com.xemantic.annie.Cogitation
 import com.xemantic.annie.Enunciation
 import com.xemantic.annie.Inference
-import com.xemantic.annie.Inference.Tokens
 import com.xemantic.annie.Edit
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.Phenomenon.Monologue
@@ -602,10 +601,10 @@ class OpenAIInferenceTest {
             model = "zai-org/glm-5.3-flash",
             provider = "llm.example.com",
             tokens = mapOf(
-                Tokens.INPUT to 200L,
-                Tokens.CACHE_READ to 800L,
-                Tokens.REASONING to 30L,
-                Tokens.OUTPUT to 20L
+                "input" to 200L,
+                "cacheRead" to 800L,
+                "reasoning" to 30L,
+                "output" to 20L
             ),
             stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "stop")
         ))
@@ -613,7 +612,7 @@ class OpenAIInferenceTest {
     }
 
     @Test
-    fun `should count no tokens of chat completion without usage`() {
+    fun `should count no input and output tokens of chat completion without usage`() {
         // given
         val inference = OpenAIInference(contents = testContents, client = client, model = "glm-5.3-flash")
         val completion = jsonMapper().readValue("""
@@ -638,6 +637,7 @@ class OpenAIInferenceTest {
         assert(inferred == Inference(
             model = "glm-5.3-flash",
             provider = "openai",
+            tokens = mapOf("input" to 0L, "output" to 0L),
             stop = Inference.Stop(Inference.Stop.Kind.COMPLETED, "stop")
         ))
     }
@@ -738,11 +738,11 @@ class OpenAIInferenceTest {
             model = "gpt-6",
             provider = "openai",
             tokens = mapOf(
-                Tokens.INPUT to 100L,
-                Tokens.CACHE_READ to 600L,
-                Tokens.CACHE_WRITE to 300L,
-                Tokens.REASONING to 30L,
-                Tokens.OUTPUT to 20L
+                "input" to 100L,
+                "cacheRead" to 600L,
+                "cacheWrite" to 300L,
+                "reasoning" to 30L,
+                "output" to 20L
             )
         ))
     }

@@ -19,7 +19,6 @@
 package com.xemantic.annie.harness
 
 import com.xemantic.annie.Inference
-import com.xemantic.annie.Inference.Tokens
 import com.xemantic.ai.money.Money
 import com.xemantic.ai.money.Ratio
 import com.xemantic.ai.money.ZERO
@@ -33,14 +32,14 @@ import java.math.BigDecimal
  * e.g. of Claude Haiku 5.5, chosen by the tokens of each inference on their own.
  */
 class Pricing(
-    perMillion: Map<Tokens, BigDecimal>,
+    perMillion: Map<String, BigDecimal>,
     private val longPrompt: Pair<Long, Pricing>? = null
 ) {
 
     private val perToken = perMillion.mapValues { (_, price) -> Money.Ratio(price.movePointLeft(6).toPlainString()) }
 
     /** The cost of the [tokens], or `null` when a category of them has no price. */
-    fun cost(tokens: Map<Tokens, Long>): Money? {
+    fun cost(tokens: Map<String, Long>): Money? {
         if (longPrompt != null) {
             val (length, pricing) = longPrompt
             if (tokens.filterKeys { it in promptTokens }.values.sum() > length) return pricing.cost(tokens)
@@ -61,13 +60,13 @@ class Pricing(
         fun claude(input: String, output: String, cacheRead: String, longPrompt: Pair<Long, Pricing>? = null): Pricing {
             val base = BigDecimal(input)
             return Pricing(longPrompt = longPrompt, perMillion = mapOf(
-                Tokens.INPUT to base,
-                Tokens.CACHE_READ to BigDecimal(cacheRead),
-                Tokens.CACHE_WRITE to base * BigDecimal("1.25"),
-                Tokens.CACHE_WRITE_5M to base * BigDecimal("1.25"),
-                Tokens.CACHE_WRITE_1H to base * BigDecimal(2),
-                Tokens.REASONING to BigDecimal(output),
-                Tokens.OUTPUT to BigDecimal(output)
+                "input" to base,
+                "cacheRead" to BigDecimal(cacheRead),
+                "cacheWrite" to base * BigDecimal("1.25"),
+                "cacheWrite5m" to base * BigDecimal("1.25"),
+                "cacheWrite1h" to base * BigDecimal(2),
+                "reasoning" to BigDecimal(output),
+                "output" to BigDecimal(output)
             ))
         }
 
@@ -75,8 +74,8 @@ class Pricing(
 
 }
 
-/** The categories of the tokens of a prompt, see [Pricing.longPrompt]. */
-private val promptTokens = setOf(Tokens.INPUT, Tokens.CACHE_READ, Tokens.CACHE_WRITE, Tokens.CACHE_WRITE_5M, Tokens.CACHE_WRITE_1H)
+/** The categories of the tokens of a prompt, see [Pricing.longPrompt], any other one costing nothing, as priced by no [Pricing]. */
+private val promptTokens = setOf("input", "cacheRead", "cacheWrite", "cacheWrite5m", "cacheWrite1h")
 
 /**
  * The list prices of the standard tier, by the provider and the canonical id of the model,
