@@ -218,7 +218,7 @@ internal class ProtocolAgency(
 
     override suspend fun enunciate(text: String, contentType: String): Unit = byExecutor()
 
-    override suspend fun enunciate(bytes: ByteArray, contentType: String?): Unit = byExecutor()
+    override suspend fun enunciate(bytes: ByteArray, contentType: String): Unit = byExecutor()
 
     override suspend fun impede(reason: String): Unit = byExecutor()
 

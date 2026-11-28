@@ -59,7 +59,7 @@ fun Contents.monologue(text: String, id: String = randomId()): Phenomenon.Monolo
 }
 
 /** The [Phenomenon.Data] of the [bytes], whose content is kept. */
-fun Contents.data(bytes: ByteArray, contentType: String? = null): Phenomenon.Data =
+fun Contents.data(bytes: ByteArray, contentType: String): Phenomenon.Data =
     Phenomenon.Data(ref = keep(bytes), size = bytes.size.toLong(), contentType = contentType)
 
 /** Keeps each of the [contents], e.g. of an executed intent, see [ExecutedIntent.contents]. */
@@ -108,7 +108,7 @@ fun Phenomenon.textOf(content: ByteArray?, lines: List<IntRange> = emptyList()):
             checkNotNull(content) { "No content of $ref" }.decodeToString(throwOnInvalidSequence = true)
         } catch (e: CharacterCodingException) {
             throw IllegalArgumentException(
-                "The data${contentType?.let { " of $it" } ?: ""}, $size bytes, is no UTF-8 text, read its bytes with agency.readBytes", e
+                "The data of $contentType, $size bytes, is no UTF-8 text, read its bytes with agency.readBytes", e
             )
         }
         is Phenomenon.Intent -> script

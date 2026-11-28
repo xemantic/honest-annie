@@ -28,6 +28,9 @@ import com.xemantic.annie.ExecutedIntent
 import com.xemantic.annie.Invocation
 import com.xemantic.annie.Agency
 import com.xemantic.annie.harness.Allowance
+import com.xemantic.annie.harness.isOutput
+import com.xemantic.annie.harness.output
+import com.xemantic.annie.harness.plus
 import com.xemantic.annie.Inference
 import com.xemantic.annie.Phenomenon
 import com.xemantic.annie.ScriptExecutor
@@ -372,7 +375,7 @@ class HarnessHost(
      */
     private suspend fun rested(unfolding: Unfolding, runtime: Runtime, extra: Enunciation?) {
         val enunciations = unfolding.cogitation.enunciations.filter { it.isOutput } + listOfNotNull(extra)
-        val output = enunciations.flatMap { it.phenomena }.filter { it !is Phenomenon.Monologue }
+        val output = unfolding.cogitation.output + extra?.phenomena.orEmpty().filter { it !is Phenomenon.Monologue }
         logger.info {
             "[${unfolding.id}] Rested after ${Clock.System.now() - unfolding.initiated}, " +
                     "${unfolding.cogitation.enunciations.size} enunciation(s), output: ${output.kinds()}"
@@ -497,7 +500,7 @@ class HarnessHost(
 
         override suspend fun enunciate(text: String, contentType: String): Unit = byExecutor()
 
-        override suspend fun enunciate(bytes: ByteArray, contentType: String?): Unit = byExecutor()
+        override suspend fun enunciate(bytes: ByteArray, contentType: String): Unit = byExecutor()
 
         override suspend fun impede(reason: String): Unit = byExecutor()
 

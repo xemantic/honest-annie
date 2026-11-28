@@ -125,11 +125,11 @@ class ExecutorProcessTest {
     @Test
     fun `should send the content of what the intent created along its result`() = test {
         // when
-        val executed = executor.repl().execute("agency.enunciate(byteArrayOf(4, 2))\n\"value\"")
+        val executed = executor.repl().execute("agency.enunciate(byteArrayOf(4, 2), \"image/png\")\n\"value\"")
 
         // then
         assert(executed.text(executed.result.single()) == "value")
-        assert(executed.contents.getValue(data(byteArrayOf(4, 2)).ref).contentEquals(byteArrayOf(4, 2)))
+        assert(executed.contents.getValue(data(byteArrayOf(4, 2), "image/png").ref).contentEquals(byteArrayOf(4, 2)))
     }
 
     @Test

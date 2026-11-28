@@ -97,7 +97,7 @@ interface ScriptExecutor : AutoCloseable {
 /**
  * An intent executed by a [ScriptExecutor]: its [result], the response of the computer to the intent,
  * its [output], what its script enunciated through the agency, e.g. by [Agency.enunciate],
- * to be enunciated by the harness as the output of the cogitation, see [Enunciation.isOutput],
+ * to be enunciated by the harness as the output of the cogitation,
  * the cogitations it [invoked], in their order, see [Agency.invoke], to be unfolded by the host,
  * and the [contents] of the texts and data it created, by their refs, to be kept by the host, see [Contents.keepAll].
  */

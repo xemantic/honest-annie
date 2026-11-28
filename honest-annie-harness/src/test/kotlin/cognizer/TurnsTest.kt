@@ -22,6 +22,7 @@ import com.xemantic.annie.harness.content
 import com.xemantic.annie.readBytes
 import com.xemantic.annie.harness.data
 import com.xemantic.annie.harness.monologue
+import com.xemantic.annie.harness.output
 import com.xemantic.annie.harness.testContents
 import com.xemantic.annie.harness.text
 import com.xemantic.annie.Actant
@@ -260,9 +261,9 @@ class TurnsTest {
     }
 
     @Test
-    fun `should perceive image of undeclared content type by its detected media type`() {
+    fun `should perceive image of generic content type by its detected media type`() {
         // given
-        val image = data(redPixelPng)
+        val image = data(redPixelPng, "application/octet-stream")
         val cogitation = Cogitation(
             constitution = "",
             enunciations = listOf(

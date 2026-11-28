@@ -28,7 +28,7 @@ import com.xemantic.annie.textOf
 internal fun text(text: String, contentType: String = "text/markdown"): Phenomenon.Text = textOf(text, contentType).first
 
 /** The [Phenomenon.Data] of the [bytes], like the [text]. */
-internal fun data(bytes: ByteArray, contentType: String? = null): Phenomenon.Data =
+internal fun data(bytes: ByteArray, contentType: String): Phenomenon.Data =
     Phenomenon.Data(ref = refOf(bytes), size = bytes.size.toLong(), contentType = contentType)
 
 /** The text of the [phenomenon] of this intent, its content sent along its result. */

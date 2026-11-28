@@ -80,7 +80,7 @@ class ContentsTest {
     @Test
     fun `should read data of UTF-8 text as text`() {
         // given
-        val data = contents.data("""{"answer": 42}""".encodeToByteArray())
+        val data = contents.data("""{"answer": 42}""".encodeToByteArray(), "application/json")
 
         // when
         val text = contents.readText(data)

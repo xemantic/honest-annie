@@ -65,8 +65,6 @@ see [DEVELOPMENT.md](DEVELOPMENT.md#markdown-soft-wrapping-in-the-ide) for how t
 - Since xemantic-kotlin-script 0.3.0 cancelling an intent never interrupts the thread of its session, so an intent blocking it, e.g. in `Thread.sleep`, or in `agency.python`, runs to its end, and the next intents of the session wait for it.
   `agency.execute` interrupts the thread itself, with `runInterruptible` in `ExecutorAgency`: wrap any blocking function of the agency the same way.
   A test cancelling a slow intent must make it suspend, e.g. in `delay`, or execute a process, or it hangs.
-- `await { }` is annie's own, in `Api.kt`, kept for the scripts written before xemantic-kotlin-script 0.3.0 dropped it, the snippets suspending since:
-  the constitutions no longer teach it.
 - `ScriptSession` of xemantic-kotlin-script offers no default imports beyond `kotlinx.coroutines.*`, so `SessionScriptExecutor` imports annie's API in a snippet of its own before the first intent:
   the snippets of the intents are numbered from `snippet2`, which compilation errors name, so never assert on `snippet1`.
 

@@ -141,7 +141,7 @@ class SessionScriptExecutor(
                         when (val value = result.value) {
                             null, Unit -> null
                             // e.g. an image to see
-                            is ByteArray -> contents.data(value)
+                            is ByteArray -> contents.data(value, "application/octet-stream")
                             // e.g. one of the cogitation, its content kept by the harness
                             is Phenomenon.Text, is Phenomenon.Data -> value as Phenomenon
                             // e.g. `prompts.map { agency.invoke(it) }`
@@ -459,7 +459,7 @@ private class ExecutorAgency(
         output += contents.text(text, contentType)
     }
 
-    override suspend fun enunciate(bytes: ByteArray, contentType: String?) {
+    override suspend fun enunciate(bytes: ByteArray, contentType: String) {
         checkNotSealed()
         output += contents.data(bytes, contentType)
     }
@@ -511,7 +511,7 @@ internal class SwitchedAgency : Agency {
 
     override suspend fun enunciate(text: String, contentType: String) = current.enunciate(text, contentType)
 
-    override suspend fun enunciate(bytes: ByteArray, contentType: String?) = current.enunciate(bytes, contentType)
+    override suspend fun enunciate(bytes: ByteArray, contentType: String) = current.enunciate(bytes, contentType)
 
     override suspend fun impede(reason: String) = current.impede(reason)
 
