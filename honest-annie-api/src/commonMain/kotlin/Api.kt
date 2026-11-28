@@ -300,9 +300,9 @@ sealed interface Phenomenon {
 }
 
 /**
- * A change of the file at the [path].
- * @param old
- * @param all
+ * A change of the file at the [path], the record of an edit of an intent, see [Phenomenon.Intent.edits]:
+ * an edit created in a script changes no file.
+ * @param old the text replaced by the [new] one, its only occurrence, or each one when [all], the [new] text being the whole file without it.
  */
 @Serializable
 data class Edit(val path: String, val new: String, val old: String? = null, val all: Boolean = false)
